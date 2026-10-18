@@ -530,10 +530,57 @@ flowchart TB
 | **Demo** | VPS HostGator (alternativa: video grabado en el equipo de desarrollo si aún no hay VPS) | Internet | Let's Encrypt | Ficticios |
 | **Producción futura** | VPS, cuando haya presupuesto | Internet | Let's Encrypt | Reales (migrados con `pg_dump` / `pg_restore`) |
 
-**Contenedores (`docker-compose.yml`):**
-- `nginx`: único servicio con puertos expuestos (80 → redirección a 443).
-- `web`: Django + Gunicorn, accesible solo dentro de la red interna de Docker.
-- `db`: PostgreSQL con un volumen persistente `pgdata`. No expone puertos al exterior.
+#### **2.4.1. Diagrama de contenedores (C4 – Nivel 2)**
+
+```mermaid
+C4Container
+    title Contenedores (C4 nivel 2) - Gestión de Medicamentos Hogar Gerontológico
+
+    Person(admin, "Administrador", "Gestiona usuarios y niveles de acceso")
+    Person(rw, "Usuario Lectura y escritura", "Registra medicamentos, residentes, movimientos y pautas")
+    Person(ro, "Usuario Solo lectura", "Consulta existencias y reportes")
+
+    System_Boundary(sys, "Sistema de Gestión de Medicamentos (Docker Compose)") {
+        Container(nginx, "nginx", "Nginx", "Proxy inverso: termina HTTPS, sirve archivos estáticos y aplica cabeceras de seguridad")
+        Container(web, "web", "Python 3.12, Django 5.2, Gunicorn, DRF", "App web (HTML con Bootstrap + HTMX) y API REST de solo lectura; reglas de negocio y permisos")
+        ContainerDb(db, "db", "PostgreSQL 17", "Usuarios, medicamentos, entidades, existencias, movimientos y pautas")
+    }
+
+    System_Ext(backup, "Respaldos", "cron + pg_dump en el host; copia cifrada a disco externo")
+
+    Rel(admin, nginx, "Administra usuarios", "HTTPS 443")
+    Rel(rw, nginx, "Opera el inventario", "HTTPS 443")
+    Rel(ro, nginx, "Consulta", "HTTPS 443")
+    Rel(nginx, web, "Reenvía peticiones", "HTTP 8000, red frontend")
+    Rel(web, db, "Lee y escribe con transacciones", "TCP 5432, red backend")
+    Rel(backup, db, "Respaldo diario", "pg_dump")
+
+    UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
+```
+
+<!-- NOTA: la sintaxis C4Container de Mermaid es experimental. Si el diagrama no se renderiza correctamente en GitHub (etiquetas encimadas o error de render), se puede convertir a un diagrama de flujo (flowchart) con estilo C4, con los mismos elementos y relaciones, como los diagramas de las secciones 2.1 y 2.1.1. -->
+
+> El **app** y la **API backend** viven en el mismo contenedor `web`: los ejecuta el mismo proceso Django y comparten la capa de servicios y los modelos. Así cumplen la misma lógica y los mismos permisos, con un contenedor menos que operar. Su separación interna (vistas HTML, API, servicios, ORM) se ve en el diagrama de la sección 2.1.
+
+**Qué hace cada contenedor:**
+
+| Contenedor | Imagen / tecnología | Responsabilidad | Puertos | Volúmenes | Redes |
+|---|---|---|---|---|---|
+| **`nginx`** — proxy inverso | `nginx:stable-alpine` | Único punto de entrada. Termina **HTTPS** (`mkcert` en la red local, Let's Encrypt en el VPS) y redirige 80 → 443. Sirve `/static/` sin pasar por Django. Aplica cabeceras de seguridad (HSTS, CSP, `X-Frame-Options`) y límites de tamaño de petición. Reenvía el resto a `web`. | **80 y 443 publicados** al host | `static` (solo lectura), `nginx/certs` | `frontend` |
+| **`web`** — app + API backend | Imagen propia: Python 3.12 + Django 5.2 + Gunicorn | **App web:** renderiza las páginas HTML (Bootstrap + HTMX) de catálogo, entidades, movimientos, pautas, conteos y reportes. **API REST** (DRF): 3 endpoints JSON de solo lectura bajo `/api/`, con esquema OpenAPI. **Backend:** autenticación, sesiones, permisos por grupo, reglas de inventario (`services.py`) y panel `/admin/` para gestionar usuarios. | 8000 (solo interno, no publicado) | `static` (escribe con `collectstatic`) | `frontend` y `backend` |
+| **`db`** — base de datos | `postgres:17-alpine` | Persistencia relacional de los almacenes D1 a D6. Garantiza transacciones atómicas y bloqueo de filas (`SELECT ... FOR UPDATE`) para que las existencias nunca queden negativas. | 5432 (solo interno, no publicado) | `pgdata` (datos persistentes) | `backend` |
+
+**Flujos de comunicación entre contenedores:**
+
+| # | Origen → destino | Protocolo / puerto | Contenido | Seguridad |
+|---|---|---|---|---|
+| 1 | Navegador → `nginx` | **HTTPS (TLS 1.2+) / 443** (80 solo redirige) | Peticiones de páginas, formularios (POST), fragmentos HTMX y llamadas `GET /api/...` | Certificado TLS, HSTS, cookie de sesión `Secure` + `HttpOnly` |
+| 2 | `nginx` → navegador | HTTPS / 443 | HTML completo o fragmentos HTMX, JSON de la API, archivos estáticos (CSS, JS, imágenes) | Cabeceras CSP, `X-Frame-Options: DENY`, `X-Content-Type-Options` |
+| 3 | `nginx` → `web` | **HTTP / 8000** (proxy inverso, red interna `frontend`) | La misma petición, con cabeceras `X-Forwarded-For` y `X-Forwarded-Proto` | No sale del host; Django confía en `X-Forwarded-Proto` solo desde `nginx` |
+| 4 | `web` → `db` | **Protocolo PostgreSQL sobre TCP / 5432** (red interna `backend`) | Consultas SQL parametrizadas del ORM y transacciones de inventario | Usuario de base de datos con privilegios mínimos; credenciales en `.env`; `nginx` no tiene ruta a `db` |
+| 5 | Host (cron) → `db` | `docker compose exec db pg_dump` | Respaldo diario comprimido y cifrado (GPG) | Se guarda fuera del contenedor, con retención de 14 días |
+
+**Orden de arranque:** `db` declara un *healthcheck* (`pg_isready`). `web` arranca con `depends_on: condition: service_healthy` y `nginx` arranca después de `web`. Así `web` nunca intenta conectarse a una base de datos que todavía no responde.
 
 **Proceso de despliegue:**
 1. **Integración continua:** en cada *push* o *pull request* a `main`, GitHub Actions ejecuta `ruff` (lint), `pytest` contra un servicio PostgreSQL y el *build* de la imagen. Solo se integra a `main` con el pipeline en verde.
