@@ -188,6 +188,57 @@ Ya escribí las secciones 2.1 a 2.6 en el `readme.md`, con tres diagramas en Mer
 
 ---
 
+## Prompt 6 — Usuario
+
+**Diagrama de Flujo de Datos**
+
+Crea un diagrama de flujo de datos. Crea un diagrama que muestre los principales flujos de información en esta aplicación.
+
+Modela los flujos principales de los requisitos funcionales:
+1. Flujo de datos del catálogo de medicamentos: alta, baja y cambios (ABC).
+2. Cómo fluye la información en la gestión de entidades (ABC).
+3. Proceso de definir existencias por entidad: entradas, transferencias y bajas.
+4. Registro de la pauta de medicamentos del residente (registro de dosis y frecuencia).
+5. Proceso de alta de usuarios y nivel de acceso global: asignación de solo lectura o lectura y escritura.
+
+---
+
+## Respuesta 6 — Claude
+
+Agregué el subapartado **2.1.1. Diagrama de flujo de datos (DFD)** al `readme.md`, después del diagrama de arquitectura. Usa notación clásica de DFD en Mermaid: entidades externas, procesos numerados y almacenes de datos D1 a D6.
+
+- **Tabla de almacenes de datos:** D1 Usuarios y grupos, D2 Medicamentos, D3 Entidades, D4 Existencias, D5 Movimientos y D6 Pautas.
+- **Nivel 0 (contexto):** el sistema y sus actores (Administrador, Lectura y escritura, Solo lectura, y el familiar como fuente física del medicamento).
+- **Nivel 1:** los 5 procesos principales y cómo leen y escriben en los almacenes.
+- **Un diagrama de detalle por cada flujo pedido**, con validaciones, respuestas de error y reglas de negocio:
+  1. Catálogo: alta, cambio, baja lógica y búsqueda.
+  2. Entidades: alta de residente, cambio de datos y cambio de estado (egreso o defunción).
+  3. Existencias: entrada, transferencia y baja, en una transacción y con bloqueo de saldo.
+  4. Pautas: registro, modificación con historial y consulta.
+  5. Usuarios: alta, asignación de nivel, desactivación, autenticación y autorización de cada petición.
+
+**Reglas que agregué al modelar los flujos (a validar):**
+1. **La baja de un medicamento es lógica** y se rechaza si todavía tiene existencias en alguna entidad.
+2. **No se permiten medicamentos duplicados** (misma combinación de nombre comercial, presentación y concentración).
+3. **La entidad Hogar se crea al instalar** y no se puede dar de baja.
+4. **El egreso o la defunción no bloquean el cambio de estado**, pero el sistema muestra las existencias pendientes del residente para resolverlas con transferencia o baja.
+5. **Cambiar una pauta** cierra la vigente y crea una nueva, para conservar el historial.
+6. **Cada usuario tiene un solo grupo**, y los usuarios se desactivan en lugar de borrarse.
+
+---
+
+## Prompt 7 — Usuario
+
+1. Correcto. 2. Correcto. 3. Correcto. 4. Correcto. 5. Correcto. 6. Correcto. Los diagramas están revisados y están correctos.
+
+---
+
+## Respuesta 7 — Claude
+
+Quedan confirmadas las 6 reglas del diagrama de flujo de datos, y los diagramas fueron revisados en la vista previa. El texto del `readme.md` (apartado 2.1.1) no cambia, porque ya presentaba esas reglas como definitivas. Estas reglas pasan a ser restricciones del modelo de datos (sección 3).
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 2)
 
 ### 2.1. Diagrama de arquitectura
@@ -241,6 +292,261 @@ flowchart LR
 - **Interactividad limitada** frente a una SPA: no hay edición en tiempo real ni funcionamiento sin conexión.
 - **El servidor local es un punto único de falla**, que se mitiga con respaldos diarios y un procedimiento de restauración documentado.
 - **Sin acceso desde fuera del hogar** mientras se despliegue solo en la red local.
+
+#### 2.1.1. Diagrama de flujo de datos (DFD)
+
+**Notación:** rectángulo = entidad externa · círculo = proceso · cilindro = almacén de datos · flecha continua = flujo de datos · flecha punteada = respuesta de error o flujo físico (fuera del sistema).
+
+**Almacenes de datos** (el detalle de cada uno está en la sección 3 del readme):
+
+| Id | Almacén | Contenido |
+|---|---|---|
+| D1 | Usuarios y grupos | Usuarios, contraseña (hash), estado activo y grupo (`Solo lectura` / `Lectura y escritura`) |
+| D2 | Medicamentos | Catálogo: nombre comercial, principio activo, genérico/original, presentación, concentración, activo |
+| D3 | Entidades | El hogar y los residentes (nombre, fecha de nacimiento, estado) |
+| D4 | Existencias | Saldo en dosis por entidad y medicamento |
+| D5 | Movimientos | Entradas, transferencias y bajas, con usuario y fecha/hora (inmutables) |
+| D6 | Pautas | Dosis y frecuencia por residente y medicamento, con vigencia |
+
+##### Nivel 0 — Contexto
+
+```mermaid
+flowchart LR
+    ADM["Administrador"]
+    RW["Usuario<br/>Lectura y escritura"]
+    RO["Usuario<br/>Solo lectura"]
+    FAM["Familiar / quien entrega"]
+    S(("Sistema de gestión<br/>de medicamentos"))
+    ADM -- "usuarios y niveles de acceso" --> S
+    RW -- "medicamentos, residentes,<br/>movimientos y pautas" --> S
+    S -- "catálogo, existencias,<br/>historial y pautas" --> RW
+    RO -- "filtros de búsqueda" --> S
+    S -- "consultas y reportes" --> RO
+    FAM -. "medicamento físico<br/>(lo registra el usuario)" .-> RW
+```
+
+##### Nivel 1 — Procesos principales
+
+```mermaid
+flowchart LR
+    ADM["Administrador"]
+    RW["Usuario<br/>Lectura y escritura"]
+    RO["Usuario<br/>Solo lectura"]
+
+    P1(("1. Gestionar<br/>catálogo"))
+    P2(("2. Gestionar<br/>entidades"))
+    P3(("3. Registrar<br/>movimientos"))
+    P4(("4. Registrar<br/>pautas"))
+    P5(("5. Gestionar usuarios<br/>y accesos"))
+
+    D1[("D1 Usuarios y grupos")]
+    D2[("D2 Medicamentos")]
+    D3[("D3 Entidades")]
+    D4[("D4 Existencias")]
+    D5[("D5 Movimientos")]
+    D6[("D6 Pautas")]
+
+    ADM -- "datos de usuario + nivel" --> P5
+    P5 -- "usuario, hash, grupo" --> D1
+
+    RW -- "datos del medicamento" --> P1
+    P1 -- "medicamento" --> D2
+
+    RW -- "datos del residente / estado" --> P2
+    P2 -- "entidad" --> D3
+
+    RW -- "entrada / transferencia / baja" --> P3
+    D2 -- "medicamento" --> P3
+    D3 -- "entidad origen / destino" --> P3
+    D4 -- "saldo actual" --> P3
+    P3 -- "saldo actualizado" --> D4
+    P3 -- "movimiento + usuario + fecha" --> D5
+
+    RW -- "dosis y frecuencia" --> P4
+    D2 -- "medicamento" --> P4
+    D3 -- "residente" --> P4
+    P4 -- "pauta" --> D6
+
+    P1 -- "listado filtrado" --> RO
+    P2 -- "listado de entidades" --> RO
+    P3 -- "existencias e historial" --> RO
+    P4 -- "pautas por residente" --> RO
+```
+
+> Todos los procesos validan la sesión y los permisos contra **D1** antes de leer o escribir (proceso 5.4 y 5.5). Un usuario `Solo lectura` solo recibe flujos de salida (consultas); cualquier escritura que intente devuelve `403`.
+
+##### Flujo 1 — Catálogo de medicamentos (alta / baja / cambio)
+
+```mermaid
+flowchart LR
+    RW["Usuario<br/>Lectura y escritura"]
+    US["Cualquier usuario<br/>autenticado"]
+    P11(("1.1 Validar<br/>permiso y datos"))
+    P12(("1.2 Alta"))
+    P13(("1.3 Cambio"))
+    P14(("1.4 Baja lógica"))
+    P15(("1.5 Buscar<br/>y filtrar"))
+    D1[("D1 Usuarios y grupos")]
+    D2[("D2 Medicamentos")]
+    D4[("D4 Existencias")]
+
+    RW -- "nombre comercial, principio activo,<br/>tipo, presentación, concentración" --> P11
+    D1 -- "permisos catalogo.*" --> P11
+    D2 -- "¿duplicado?" --> P11
+    P11 -- "nuevo" --> P12
+    P11 -- "modificado" --> P13
+    P11 -- "baja" --> P14
+    P12 -- "medicamento activo" --> D2
+    P13 -- "datos actualizados" --> D2
+    D4 -- "¿existencia > 0?" --> P14
+    P14 -- "activo = falso" --> D2
+    P11 -. "403 / datos inválidos / duplicado" .-> RW
+    P14 -. "rechazo: tiene existencias" .-> RW
+    US -- "nombre o principio activo" --> P15
+    D2 -- "coincidencias" --> P15
+    P15 -- "listado filtrado" --> US
+```
+
+- La **baja es lógica** (`activo = falso`) para conservar el historial de movimientos. Se rechaza si alguna entidad todavía tiene existencias de ese medicamento.
+- No se permite duplicar la combinación nombre comercial + presentación + concentración.
+
+##### Flujo 2 — Gestión de entidades (alta / baja / cambio)
+
+```mermaid
+flowchart LR
+    RW["Usuario<br/>Lectura y escritura"]
+    P21(("2.1 Validar<br/>permiso y datos"))
+    P22(("2.2 Alta de<br/>residente"))
+    P23(("2.3 Cambio<br/>de datos"))
+    P24(("2.4 Cambio de estado<br/>egreso / defunción"))
+    D1[("D1 Usuarios y grupos")]
+    D3[("D3 Entidades")]
+    D4[("D4 Existencias")]
+    F3(("3. Registrar<br/>movimientos"))
+
+    RW -- "nombre, fecha de nacimiento,<br/>estado" --> P21
+    D1 -- "permisos entidades.*" --> P21
+    P21 -- "nuevo" --> P22
+    P21 -- "modificado" --> P23
+    P21 -- "egreso / defunción" --> P24
+    P22 -- "entidad tipo RESIDENTE, activo" --> D3
+    P23 -- "datos actualizados" --> D3
+    P24 -- "estado + fecha" --> D3
+    D4 -- "existencias pendientes" --> P24
+    P24 -- "lista de existencias a resolver" --> RW
+    RW -- "transferir al hogar o<br/>baja por devolución / defunción / egreso" --> F3
+    P21 -. "403 / datos inválidos" .-> RW
+```
+
+- La entidad **Hogar** se crea en la instalación (semilla) y no se puede dar de baja.
+- Los residentes **no se borran**: el egreso o la defunción cambian su estado. El sistema muestra las existencias pendientes del residente para que el usuario las resuelva con el flujo 3.
+
+##### Flujo 3 — Existencias por entidad (entradas, transferencias y bajas)
+
+```mermaid
+flowchart TB
+    RW["Usuario<br/>Lectura y escritura"]
+    P31(("3.1 Validar<br/>permiso y datos"))
+    P32(("3.2 Registrar<br/>entrada"))
+    P33(("3.3 Transferir"))
+    P34(("3.4 Dar de baja"))
+    D1[("D1 Usuarios y grupos")]
+    D2[("D2 Medicamentos")]
+    D3[("D3 Entidades")]
+    D4[("D4 Existencias")]
+    D5[("D5 Movimientos")]
+
+    RW -- "tipo, entidad(es), medicamento, dosis,<br/>quién entregó / motivo de baja" --> P31
+    D1 -- "permiso inventario.add_movimiento" --> P31
+    D2 -- "medicamento activo" --> P31
+    D3 -- "entidades activas" --> P31
+    P31 -- "entrada" --> P32
+    P31 -- "transferencia" --> P33
+    P31 -- "baja" --> P34
+    D4 -- "saldo origen (bloqueado)" --> P33
+    D4 -- "saldo (bloqueado)" --> P34
+    P32 -- "+ dosis a la entidad" --> D4
+    P33 -- "− origen / + destino" --> D4
+    P34 -- "− dosis" --> D4
+    P32 -- "ENTRADA + quién entregó + usuario + fecha" --> D5
+    P33 -- "TRANSFERENCIA + usuario + fecha" --> D5
+    P34 -- "BAJA + motivo + usuario + fecha" --> D5
+    P31 -. "403 / datos inválidos" .-> RW
+    P33 -. "saldo insuficiente" .-> RW
+    P34 -. "saldo insuficiente" .-> RW
+```
+
+- Cada operación corre en una sola transacción (`transaction.atomic()`): se escribe el movimiento en **D5** y se actualiza el saldo en **D4**, o no se hace nada.
+- Transferencias y bajas **bloquean el saldo** (`select_for_update()`) y lo validan antes de descontar, para que nunca quede negativo.
+- Motivos de baja: consumo / administración, caducidad, merma, rotura, devolución a la familia, defunción y egreso.
+- Los movimientos no se editan ni se borran: un error se corrige con el movimiento inverso.
+
+##### Flujo 4 — Pauta del residente (dosis y frecuencia)
+
+```mermaid
+flowchart LR
+    RW["Usuario<br/>Lectura y escritura"]
+    US["Cualquier usuario<br/>autenticado"]
+    P41(("4.1 Validar<br/>permiso y datos"))
+    P42(("4.2 Registrar<br/>pauta"))
+    P43(("4.3 Modificar<br/>pauta"))
+    P44(("4.4 Consultar<br/>pautas"))
+    D1[("D1 Usuarios y grupos")]
+    D2[("D2 Medicamentos")]
+    D3[("D3 Entidades")]
+    D6[("D6 Pautas")]
+
+    RW -- "residente, medicamento, dosis,<br/>frecuencia, fecha de inicio" --> P41
+    D1 -- "permisos pautas.*" --> P41
+    D2 -- "medicamento activo" --> P41
+    D3 -- "residente activo" --> P41
+    P41 -- "nueva" --> P42
+    P41 -- "cambio de dosis o frecuencia" --> P43
+    P42 -- "pauta vigente" --> D6
+    D6 -- "pauta vigente" --> P43
+    P43 -- "cierra la vigente (fecha fin)<br/>y crea una nueva" --> D6
+    P41 -. "403 / datos inválidos" .-> RW
+    US -- "residente" --> P44
+    D6 -- "pautas vigentes e historial" --> P44
+    P44 -- "pautas del residente" --> US
+```
+
+- La pauta es **informativa**: no mueve existencias ni registra la administración.
+- Un cambio de dosis o frecuencia cierra la pauta vigente y crea una nueva, así queda el historial.
+
+##### Flujo 5 — Alta de usuarios y nivel de acceso global
+
+```mermaid
+flowchart LR
+    ADM["Administrador"]
+    US["Usuario"]
+    P51(("5.1 Alta de<br/>usuario"))
+    P52(("5.2 Asignar<br/>nivel de acceso"))
+    P53(("5.3 Desactivar<br/>usuario"))
+    P54(("5.4 Autenticar"))
+    P55(("5.5 Autorizar<br/>petición"))
+    D1[("D1 Usuarios y grupos")]
+    PR(("Procesos 1 a 4"))
+
+    ADM -- "usuario, nombre,<br/>contraseña inicial" --> P51
+    P51 -- "usuario + hash Argon2" --> D1
+    ADM -- "Solo lectura o<br/>Lectura y escritura" --> P52
+    P52 -- "grupo único" --> D1
+    ADM -- "baja de usuario" --> P53
+    P53 -- "activo = falso" --> D1
+    US -- "usuario y contraseña" --> P54
+    D1 -- "hash, activo, intentos fallidos" --> P54
+    P54 -- "sesión (30 min de inactividad)" --> US
+    P54 -. "credenciales inválidas /<br/>bloqueo tras 5 intentos" .-> US
+    US -- "petición con sesión" --> P55
+    D1 -- "permisos del grupo" --> P55
+    P55 -- "petición permitida" --> PR
+    P55 -. "403 sin permiso" .-> US
+```
+
+- Solo el **Administrador** (superusuario) da de alta usuarios, desde el panel de administración de Django.
+- Cada usuario pertenece a **un solo grupo**, que define su nivel global: `Solo lectura` (consulta y reportes) o `Lectura y escritura` (todas las operaciones de los flujos 1 a 4).
+- Los usuarios **se desactivan en lugar de borrarse**, porque sus movimientos deben seguir mostrando quién los registró.
 
 ### 2.2. Descripción de componentes principales
 

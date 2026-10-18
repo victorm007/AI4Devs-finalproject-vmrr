@@ -49,11 +49,36 @@ Establecio una colaboracion 1:1 como PO conmigo, creo la base conceptual del pro
 
 ### **2.1. Diagrama de arquitectura:**
 
-**Prompt 1:**
+**Prompt 1: Diseño de arquitectura**
+```
+Vamos al punto 2 referente a Arquitectura. Como arquitecto de software experto en aplicaciones web, propón la arquitectura de este proyecto, preferentemente simple y escalable.
 
-**Prompt 2:**
+Antes de comenzar pregunta qué necesitas saber y qué vas a considerar para diseñar esta arquitectura. Explícame paso por paso qué vas a seguir.
 
-**Prompt 3:**
+Con estas preguntas analiza y explica qué vas a hacer para diseñar este diagrama y la arquitectura del proyecto.
+```
+**Respuesta clave de Claude Code Opus 5.5 High:**
+> "Leyendo los requisitos funcionales y no funcionales del proyecto propuso una arquitectura inicial, el alcance, pregunto todo lo pertinente para el diseño."
+
+**Impacto en el proyecto:**
+> "Propuso una arquitectura inicial del proyecto, acotado al scope del proyecto, y luego hizo preguntas referentes al stack, para acotar a las necesidades."
+
+**Prompt 2: Seleccion del Stack:**
+> 1. Stack: Prefiero un stack con todo incluido como Django, si es viable. Necesito que sea sencillo de montar en un hosting y que sea soportado por HostGator o Hostinger con VPS.
+> 2. Frontend: Soy ingeniero de infraestructura y backend. No quiero SPA porque son lentas para cargar; queda cubierto con la respuesta 1.
+> 3. Base de datos: PostgreSQL.
+> 4. Mantenimiento: Yo.
+
+**Respuesta clave de Claude Code Opus 5.5 High:**
+> "Definio el stack para esta aplicacion y basado en mis respuestas y necesidades"
+**Impacto en el proyecto:**
+> Propuso opciones para el stack tecnologico y despues de alguans clarificaciones propuso opciones con menor friccion para despliege e implementacion. Con esto definio todos los puntos del apartado 2.
+
+**Prompt 3: Definicion infrastructura**
+>Servidor local: Por defecto (Linux Ubuntu con Docker).
+> Acceso: Por ahora la máquina solo es accesible desde la red del hogar; el despliegue futuro será en HostGator/VPS una vez que se fondee.
+> URL para evaluadores: Sí.
+> Sección 4 (API): Tomemos la opción a).
 
 ### **2.2. Descripción de componentes principales:**
 
