@@ -46,6 +46,9 @@ Establecio una colaboracion 1:1 como PO conmigo, creo la base conceptual del pro
 ---
 
 ## 2. Arquitectura del Sistema
+### Modelo: Opus 5.5
+### Esfuerzo: High
+### Herramienta: Claude Code / plugin IntelliJ
 
 ### **2.1. Diagrama de arquitectura:**
 
@@ -123,8 +126,45 @@ Con estas preguntas analiza y explica qué vas a hacer para diseñar este diagra
 ---
 
 ### 3. Modelo de Datos
+### Modelo: Opus 5.5
+### Esfuerzo: High
+### Herramienta: Claude Code / plugin IntelliJ
 
-**Prompt 1:**
+**Prompt 1:Diseño del modelo relacional**
+```
+Como Arquitecto de diseño diseña un modelo de datos completo para este sistema  Gestion Medicamentos Hogar Gerontologico.
+Para cubrir los requisitos funcionales ya detallados en la seccion 1.2 del readme.md:
+- Base de datos normalizada (3NF)
+- Pon atencion especial a los antipatrones en el diseño de la DBs
+- Soporte para los almacenes de datos que definiste en la seccion 2.1.1 del readme.md,parte de las 6 tablas de datos del diagrama de flujo: usuarios y grupos, medicamentos, entidades, existencias, movimientos y pautas:
+  Id	Almacén	Contenido
+  D1	Usuarios y grupos	Usuarios, contraseña (hash), estado activo y grupo (Solo lectura / Lectura y escritura)
+  D2	Medicamentos	Catálogo: nombre comercial, principio activo, genérico/original, presentación, concentración, activo
+  D3	Entidades	El hogar y los residentes (nombre, fecha de nacimiento, estado)
+  D4	Existencias	Saldo en dosis por entidad y medicamento
+  D5	Movimientos	Entradas, transferencias y bajas, con usuario y fecha/hora (inmutables)
+  D6	Pautas	Dosis y frecuencia por residente y medicamento, con vigencia
+
+- Considera, las reglas confirmadas:
+* La baja de un medicamento es lógica.
+* No se repite la combinación de nombre comercial, presentación y concentración.
+* El Hogar es una entidad fija.
+* Cada usuario tiene un solo grupo.
+* Las pautas guardan vigencia.
+* Los movimientos no se modifican y son la trazabilidad mínima.
+* Los conteos físicos, que hacen falta para comparar existencia contra registrado.
+
+Crea los diagramas entidad relacion usando mermaid e inclue todos sus detalles, primary keys, foreign keys, data types, constraints.
+```
+
+**Respuesta clave de Claude Code Opus 5.5 High:**
+> "Ya está la sección 3 (modelo de datos) en el readme.md. También creé 03-modelo-datos.md con tu prompt, mi respuesta y un anexo con el texto final del readme, copiado de forma automática para que sea idéntico.."
+
+**Impacto en el proyecto:**
+> "Creo el diseño de datos para soportar la funcionalidad, evito antipatrones, creo el ERD en mermaid, y pidio confirmar unas decisiones logicas del diseño de datos."
+
+
+
 
 **Prompt 2:**
 
