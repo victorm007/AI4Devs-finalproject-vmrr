@@ -164,9 +164,23 @@ Crea los diagramas entidad relacion usando mermaid e inclue todos sus detalles, 
 > "Creo el diseño de datos para soportar la funcionalidad, evito antipatrones, creo el ERD en mermaid, y pidio confirmar unas decisiones logicas del diseño de datos."
 
 
-
-
 **Prompt 2:**
+```Ahora optimízalo para performance:
+- Indices para busquedas frecuentes
+- Constraints para la integridad de datos
+
+Las consultas frecuentes son:
+- Busqueda por medicamento y/o principio activo y existencias.
+- Busqueda por medicamento y detalles en conteo fisico.
+- Busqueda de pautas por residentes.
+```
+**Respuesta clave de Claude Code Opus 5.5 High:**
+> "Agregué la sección 3.3. Optimización para rendimiento: índices y restricciones de integridad al readme.md. En 03-modelo-datos.md registré la conversación como Prompt 3 y Respuesta 3, y regeneré el anexo.
+> "Punto de partida: según la estimación, la tabla que crece es movimiento, con 60,000 a 175,000 filas al año si se registra el consumo diario. El catálogo y las entidades son pequeños. Por eso cada índice responde a una consulta concreta, y quité los índices que Django crearía de más para no frenar las escrituras."
+
+**Impacto en el proyecto:**
+> "Estimo las consultas por crecimiento y creo indices segun fuera necesario.Ajusto las constrains para ignorar acentos"
+
 
 **Prompt 3:**
 

@@ -91,6 +91,61 @@ Quedan confirmadas las 8 decisiones de diseño. Cambios aplicados en la sección
 
 ---
 
+## Prompt 3 — Usuario
+
+Ahora optimízalo para rendimiento:
+- Índices para búsquedas frecuentes.
+- Restricciones (constraints) para la integridad de datos.
+
+Las consultas frecuentes son:
+- Búsqueda por medicamento y/o principio activo, y existencias.
+- Búsqueda por medicamento y detalles en el conteo físico.
+- Búsqueda de pautas por residente.
+
+---
+
+## Respuesta 3 — Claude
+
+Agregué la sección **3.3. Optimización para rendimiento: índices y restricciones de integridad** al `readme.md`, y ajusté la 3.1 para no duplicar definiciones.
+
+**Enfoque:**
+- **Volumen estimado:** la tabla que crece es `movimiento` (60,000 a 175,000 filas al año). El catálogo y las entidades son pequeños.
+- **Cada índice atiende una consulta concreta.** Se eliminan los índices de FK que Django crearía de forma redundante (`db_index=False`). Primero va la columna de igualdad y luego la de rango. Se usan índices parciales e `INCLUDE` donde ayudan.
+
+**Por consulta (con el SQL de ejemplo y una tabla de índices):**
+1. **Medicamento o principio activo, y existencias:**
+   - Índices GIN trigram sin acentos (`f_unaccent(lower(...))`). El de medicamento es parcial, solo para los activos.
+   - Índice inverso principio activo → medicamento.
+   - Índice `existencia (medicamento_id, entidad_id)`.
+   - `UNION` en lugar de `OR`, para que cada rama use su índice.
+   - `existencia.saldo` queda fuera de los índices y la tabla usa `fillfactor = 90`, para permitir actualizaciones *HOT*.
+2. **Medicamento y detalle del conteo:**
+   - Índice `(medicamento_id, conteo_id) INCLUDE (...)` para *index-only scans*.
+   - Índice parcial para los renglones con diferencia.
+   - Índice de conteos por entidad y período.
+   - Índices compuestos parciales de `movimiento` por entidad (origen y destino), medicamento y fecha, para "existencia vs registrados".
+   - Kárdex por medicamento y **BRIN** por fecha para el reporte mensual: la tabla solo recibe inserciones en orden cronológico.
+3. **Pautas por residente:**
+   - Índice parcial de pautas abiertas (`WHERE fecha_fin IS NULL`).
+   - Historial `(residente_id, fecha_inicio DESC)`.
+   - Índice de nombre del residente sin acentos.
+
+**Integridad adicional:**
+- **Unicidad sin acentos** en medicamento y principio activo: "Losartán" = "losartan".
+- **CHECK** de textos no vacíos y de fechas coherentes del residente.
+- **5 *triggers*:**
+  - No se da de baja un medicamento con existencias.
+  - No se registran entradas a medicamentos inactivos ni a residentes egresados o fallecidos (salvo correcciones).
+  - Solo hay pautas para residentes y medicamentos activos.
+  - Los conteos cerrados no se modifican: ni el encabezado ni los renglones.
+
+**Implementación y verificación:**
+- `Meta.indexes` en Django (`GinIndex`, `Index` con `condition`/`include`, `BrinIndex`) y `RunSQL` con `reverse_sql` para extensiones y *triggers*.
+- Verificación con `EXPLAIN (ANALYZE, BUFFERS)` sobre datos sintéticos de un año.
+- Monitoreo con `pg_stat_statements` y `pg_stat_user_indexes`.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 3)
 
 ### **3.1. Diagrama del modelo de datos:**
@@ -285,25 +340,28 @@ erDiagram
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS btree_gist;  -- para la restricción de exclusión de pautas
-CREATE EXTENSION IF NOT EXISTS pg_trgm;     -- búsqueda por nombre / principio activo
+CREATE EXTENSION IF NOT EXISTS pg_trgm;     -- búsqueda por nombre / principio activo (ver 3.3)
+CREATE EXTENSION IF NOT EXISTS unaccent;    -- comparar sin acentos: "Losartán" = "losartan"
+
+-- Envoltura IMMUTABLE de unaccent, necesaria para usarla en índices
+CREATE FUNCTION f_unaccent(text) RETURNS text
+    LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT
+    RETURN public.unaccent('public.unaccent'::regdictionary, $1);
 
 -- D1: cada usuario pertenece a un solo grupo
 ALTER TABLE usuario_groups ADD CONSTRAINT uq_usuario_un_grupo UNIQUE (usuario_id);
 
--- D2: sin duplicados de nombre comercial + presentación + concentración (sin distinguir mayúsculas)
+-- D2: sin duplicados de nombre comercial + presentación + concentración
+--     (sin distinguir mayúsculas ni acentos)
 CREATE UNIQUE INDEX uq_medicamento_nombre_pres_conc
-    ON medicamento (lower(nombre_comercial), presentacion_id, lower(concentracion));
-CREATE UNIQUE INDEX uq_principio_activo_nombre ON principio_activo (lower(nombre));
-CREATE INDEX ix_medicamento_nombre_trgm ON medicamento USING gin (nombre_comercial gin_trgm_ops);
-CREATE INDEX ix_principio_activo_nombre_trgm ON principio_activo USING gin (nombre gin_trgm_ops);
+    ON medicamento (f_unaccent(lower(nombre_comercial)), presentacion_id, f_unaccent(lower(concentracion)));
+CREATE UNIQUE INDEX uq_principio_activo_nombre ON principio_activo (f_unaccent(lower(nombre)));
 
 -- D3: un solo Hogar y subtipo coherente con el supertipo
 CREATE UNIQUE INDEX uq_entidad_un_hogar ON entidad (tipo) WHERE tipo = 'HOGAR';
 ALTER TABLE entidad
     ADD CONSTRAINT uq_entidad_id_tipo UNIQUE (id, tipo),
     ADD CONSTRAINT ck_entidad_nombre  CHECK ((tipo = 'HOGAR') = (nombre IS NOT NULL));
-CREATE INDEX ix_residente_apellido_nombre
-    ON residente (lower(primer_apellido), lower(segundo_apellido), lower(primer_nombre));
 ALTER TABLE residente
     ADD CONSTRAINT ck_residente_tipo  CHECK (tipo = 'RESIDENTE'),
     ADD CONSTRAINT fk_residente_entidad FOREIGN KEY (entidad_id, tipo)
@@ -334,9 +392,6 @@ ALTER TABLE movimiento
     ADD CONSTRAINT ck_movimiento_cantidad CHECK (cantidad > 0),
     ADD CONSTRAINT uq_movimiento_corrige UNIQUE (corrige_a_id),
     ADD CONSTRAINT ck_movimiento_no_autocorrige CHECK (corrige_a_id <> id);
-CREATE INDEX ix_movimiento_medicamento_fecha ON movimiento (medicamento_id, fecha_hora);
-CREATE INDEX ix_movimiento_origen_fecha  ON movimiento (entidad_origen_id, fecha_hora);
-CREATE INDEX ix_movimiento_destino_fecha ON movimiento (entidad_destino_id, fecha_hora);
 
 -- D5: inmutabilidad (doble barrera: privilegios + trigger)
 REVOKE UPDATE, DELETE ON movimiento FROM app_user;
@@ -364,6 +419,8 @@ ALTER TABLE detalle_conteo
     ADD CONSTRAINT uq_detalle_conteo UNIQUE (conteo_id, medicamento_id),
     ADD CONSTRAINT ck_detalle_fisica CHECK (cantidad_fisica >= 0);
 -- diferencia: numeric(10,2) GENERATED ALWAYS AS (cantidad_fisica - cantidad_sistema) STORED
+
+-- Índices de rendimiento y restricciones de integridad adicionales: ver sección 3.3
 ```
 
 **Datos semilla (migración de datos):**
@@ -417,7 +474,7 @@ ALTER TABLE detalle_conteo
 | Atributo | Tipo | Restricciones | Descripción |
 |---|---|---|---|
 | `id` | bigint | PK, identity | Identificador |
-| `nombre` | varchar(150) | NOT NULL, UNIQUE sobre `lower(nombre)` | Nombre de la sustancia; índice trigram para búsqueda |
+| `nombre` | varchar(150) | NOT NULL, UNIQUE sin distinguir mayúsculas ni acentos | Nombre de la sustancia; índice trigram para búsqueda (3.3) |
 | `creado_en` | timestamptz | NOT NULL, DEFAULT now() | Fecha de alta |
 
 **`medicamento`**: producto del catálogo.
@@ -425,14 +482,14 @@ ALTER TABLE detalle_conteo
 | Atributo | Tipo | Restricciones | Descripción |
 |---|---|---|---|
 | `id` | bigint | PK, identity | Identificador |
-| `nombre_comercial` | varchar(150) | NOT NULL | Nombre del producto; índice trigram para búsqueda |
+| `nombre_comercial` | varchar(150) | NOT NULL | Nombre del producto; índice trigram para búsqueda (3.3) |
 | `tipo` | varchar(10) | NOT NULL, CHECK (`GENERICO`, `ORIGINAL`) | Genérico u original |
 | `presentacion_id` | smallint | FK → `presentacion.id`, NOT NULL | Forma farmacéutica |
 | `concentracion` | varchar(60) | NOT NULL | Texto libre normalizado, ej. `500 mg`, `50 mg / 12.5 mg` |
 | `activo` | boolean | NOT NULL, DEFAULT true | **Baja lógica**; se rechaza si existe saldo > 0 en alguna entidad |
 | `creado_en` / `actualizado_en` | timestamptz | NOT NULL, DEFAULT now() | Control de cambios |
 
-- **UNIQUE** (`lower(nombre_comercial)`, `presentacion_id`, `lower(concentracion)`). La unicidad aplica también a los inactivos: en lugar de duplicar, se reactiva.
+- **UNIQUE** (nombre comercial, `presentacion_id`, concentración), sin distinguir mayúsculas ni acentos (`f_unaccent(lower(...))`). La unicidad aplica también a los inactivos: en lugar de duplicar, se reactiva.
 - **Relaciones:**
   - N:1 con `presentacion`.
   - N:M con `principio_activo`, a través de `medicamento_principio_activo`.
@@ -476,7 +533,7 @@ ALTER TABLE detalle_conteo
 | `estado` | varchar(10) | NOT NULL, DEFAULT `ACTIVO`, CHECK (`ACTIVO`, `EGRESADO`, `FALLECIDO`) | La baja es **lógica** |
 | `fecha_baja` | date | NULL; CHECK: nula si y solo si `ACTIVO`, y ≥ `fecha_ingreso` | Fecha de egreso o defunción |
 
-- **Nombre para mostrar:** se compone al vuelo (`primer_nombre segundo_nombre primer_apellido segundo_apellido`, omitiendo los nulos) y no se guarda. El índice `ix_residente_apellido_nombre` acelera el filtro por paciente.
+- **Nombre para mostrar:** se compone al vuelo (`primer_nombre segundo_nombre primer_apellido segundo_apellido`, omitiendo los nulos) y no se guarda. El índice `ix_residente_nombre` (3.3) acelera la búsqueda y el orden por paciente.
 - **Relaciones:** 1:N con `pauta`. Las existencias, movimientos y conteos del residente cuelgan de su `entidad`.
 
 #### D4 — Existencias
@@ -623,3 +680,262 @@ ALTER TABLE detalle_conteo
 | **Fechas sin zona horaria** | Horas ambiguas al migrar a un VPS | `timestamptz` para fecha y hora; `date` para fechas de calendario |
 | **Columnas repetidas** (`dosis1`, `dosis2`…) | Esquema rígido | Una fila por pauta, con vigencia |
 | **Contraseñas legibles** | Exposición de credenciales | Solo el hash Argon2 en `usuario.password` |
+
+### **3.3. Optimización para rendimiento: índices y restricciones de integridad**
+
+**Volumen esperado.** El catálogo y las entidades son pequeños: unos 300 medicamentos y 21 entidades (20 residentes y el Hogar). La tabla que crece es **`movimiento`**: si se registran las bajas por consumo, son unas 20 personas × 8 medicamentos × 1 a 3 registros al día, es decir, **60,000 a 175,000 filas por año**. Le siguen `detalle_conteo` y `pauta`. Por eso los índices se concentran en las 3 consultas frecuentes y en `movimiento`. En las tablas de catálogo el beneficio principal es la **búsqueda parcial sin acentos**, que sin índice no escala.
+
+**Principios aplicados:**
+- Cada índice atiende una consulta concreta. No se indexa "por si acaso", porque cada índice encarece las escrituras.
+- **Sin índices redundantes:** Django crea un índice por cada `ForeignKey`. Cuando un índice compuesto ya empieza por esa columna, se declara `db_index=False` para no duplicarlo. Las FK siguen protegidas por `RESTRICT`, porque el índice compuesto también sirve para esas comprobaciones.
+- **Orden de columnas:** primero la de igualdad (`=`), luego la de rango u orden (`fecha`).
+- **Índices parciales e `INCLUDE`** donde reducen tamaño o permiten *index-only scans*, sin indexar columnas que se actualizan en cada movimiento (`existencia.saldo`).
+
+#### Consulta 1 — Búsqueda por medicamento y/o principio activo, con existencias
+
+```sql
+-- Búsqueda parcial, sin acentos ni mayúsculas (mínimo 3 caracteres, como exige trigram).
+-- UNION en lugar de OR, para que cada rama use su propio índice.
+WITH coincidencias AS (
+    SELECT m.id
+    FROM medicamento m
+    WHERE m.activo
+      AND f_unaccent(lower(m.nombre_comercial)) LIKE '%' || f_unaccent(lower(:q)) || '%'
+    UNION
+    SELECT mpa.medicamento_id
+    FROM principio_activo pa
+    JOIN medicamento_principio_activo mpa ON mpa.principio_activo_id = pa.id
+    WHERE f_unaccent(lower(pa.nombre)) LIKE '%' || f_unaccent(lower(:q)) || '%'
+)
+SELECT m.id, m.nombre_comercial, p.nombre AS presentacion, m.concentracion,
+       e.entidad_id, e.saldo
+FROM coincidencias c
+JOIN medicamento m       ON m.id = c.id AND m.activo
+JOIN presentacion p      ON p.id = m.presentacion_id
+LEFT JOIN existencia e   ON e.medicamento_id = m.id AND e.saldo > 0
+                        AND (:entidad_id IS NULL OR e.entidad_id = :entidad_id)
+ORDER BY m.nombre_comercial;
+```
+
+| Índice | Tabla | Definición | Para qué |
+|---|---|---|---|
+| `ix_medicamento_nombre_trgm` | `medicamento` | `GIN (f_unaccent(lower(nombre_comercial)) gin_trgm_ops) WHERE activo` | Búsqueda parcial por nombre, solo en el catálogo vigente |
+| `ix_principio_activo_nombre_trgm` | `principio_activo` | `GIN (f_unaccent(lower(nombre)) gin_trgm_ops)` | Búsqueda parcial por principio activo |
+| `ix_mpa_principio_medicamento` | `medicamento_principio_activo` | `(principio_activo_id, medicamento_id)` | Principio activo → medicamentos (el `UNIQUE (medicamento_id, principio_activo_id)` cubre el sentido inverso) |
+| `ix_existencia_medicamento_entidad` | `existencia` | `(medicamento_id, entidad_id)` | Medicamento → existencias en todas las entidades. El `UNIQUE (entidad_id, medicamento_id)` cubre entidad → medicamentos |
+
+> **Por qué `existencia.saldo` no va en el índice:** el saldo cambia en cada movimiento. Si estuviera indexado (incluso en `INCLUDE`), PostgreSQL no podría hacer actualizaciones *HOT* y tendría que reescribir los índices cada vez. Además, la tabla se declara con `fillfactor = 90` para dejar espacio a esas actualizaciones en la misma página.
+
+#### Consulta 2 — Búsqueda por medicamento y detalles del conteo físico
+
+```sql
+-- a) Detalle de un conteo (pantalla del conteo)
+SELECT d.medicamento_id, m.nombre_comercial, d.cantidad_fisica, d.cantidad_sistema, d.diferencia
+FROM detalle_conteo d JOIN medicamento m ON m.id = d.medicamento_id
+WHERE d.conteo_id = :conteo_id;
+
+-- b) Historial de conteos de un medicamento (¿en qué conteos hubo diferencias?)
+SELECT c.id, c.entidad_id, c.periodo_inicio, c.periodo_fin, d.cantidad_fisica, d.cantidad_sistema, d.diferencia
+FROM detalle_conteo d JOIN conteo_fisico c ON c.id = d.conteo_id
+WHERE d.medicamento_id = :medicamento_id AND d.diferencia <> 0
+ORDER BY c.periodo_fin DESC;
+
+-- c) Existencia vs registrados: movimientos de una entidad y un medicamento en el período del conteo
+SELECT tipo, cantidad, fecha_hora
+FROM movimiento
+WHERE (entidad_origen_id = :entidad_id OR entidad_destino_id = :entidad_id)
+  AND medicamento_id = :medicamento_id
+  AND fecha_hora >= :periodo_inicio AND fecha_hora < :periodo_fin + 1;
+```
+
+| Índice | Tabla | Definición | Para qué |
+|---|---|---|---|
+| `uq_detalle_conteo` (ya existente) | `detalle_conteo` | `UNIQUE (conteo_id, medicamento_id)` | Consulta a: renglones de un conteo |
+| `ix_detalle_medicamento_conteo` | `detalle_conteo` | `(medicamento_id, conteo_id) INCLUDE (cantidad_fisica, cantidad_sistema, diferencia)` | Consulta b: historial por medicamento con *index-only scan* (el detalle casi no se actualiza) |
+| `ix_detalle_con_diferencia` | `detalle_conteo` | `(medicamento_id) WHERE diferencia <> 0` | Consulta b: solo los renglones con diferencias; índice muy pequeño |
+| `ix_conteo_entidad_periodo` | `conteo_fisico` | `(entidad_id, periodo_fin DESC)` | Conteos de un residente o del Hogar, del más reciente al más antiguo |
+| `ix_movimiento_origen_med_fecha` | `movimiento` | `(entidad_origen_id, medicamento_id, fecha_hora) WHERE entidad_origen_id IS NOT NULL` | Consulta c (salidas). Parcial: excluye las entradas, que no tienen origen |
+| `ix_movimiento_destino_med_fecha` | `movimiento` | `(entidad_destino_id, medicamento_id, fecha_hora) WHERE entidad_destino_id IS NOT NULL` | Consulta c (entradas). PostgreSQL combina ambos índices con un *BitmapOr* |
+| `ix_movimiento_medicamento_fecha` | `movimiento` | `(medicamento_id, fecha_hora)` | Historial (kárdex) de un medicamento en todas las entidades |
+| `brin_movimiento_fecha` | `movimiento` | `BRIN (fecha_hora)` | Reporte mensual por rango de fechas. `movimiento` solo recibe inserciones en orden cronológico, el caso ideal para BRIN: el índice ocupa unos KB |
+
+#### Consulta 3 — Pautas por residente
+
+```sql
+-- a) Pautas vigentes de un residente (la consulta más frecuente)
+SELECT p.*, m.nombre_comercial
+FROM pauta p JOIN medicamento m ON m.id = p.medicamento_id
+WHERE p.residente_id = :residente_id
+  AND p.fecha_inicio <= current_date
+  AND (p.fecha_fin IS NULL OR p.fecha_fin >= current_date);
+
+-- b) Historial de pautas del residente
+SELECT * FROM pauta WHERE residente_id = :residente_id ORDER BY fecha_inicio DESC;
+```
+
+| Índice | Tabla | Definición | Para qué |
+|---|---|---|---|
+| `ix_pauta_vigente` | `pauta` | `(residente_id, medicamento_id) WHERE fecha_fin IS NULL` | Consulta a: las pautas abiertas, que son casi todas las vigentes. Índice parcial y pequeño |
+| `ix_pauta_residente_inicio` | `pauta` | `(residente_id, fecha_inicio DESC)` | Consulta b, y las pautas vigentes con fecha de fin futura |
+| `ex_pauta_sin_traslape` (ya existente) | `pauta` | `GiST (residente_id, medicamento_id, daterange)` | Integridad de la vigencia; también sirve para buscar la pauta vigente de un medicamento específico |
+| `ix_residente_nombre` | `residente` | `(f_unaccent(lower(primer_apellido)), f_unaccent(lower(primer_nombre)))` | Buscar y ordenar residentes por apellido y nombre, sin acentos |
+
+#### DDL de índices
+
+```sql
+-- Consulta 1
+CREATE INDEX ix_medicamento_nombre_trgm ON medicamento
+    USING gin (f_unaccent(lower(nombre_comercial)) gin_trgm_ops) WHERE activo;
+CREATE INDEX ix_principio_activo_nombre_trgm ON principio_activo
+    USING gin (f_unaccent(lower(nombre)) gin_trgm_ops);
+CREATE INDEX ix_mpa_principio_medicamento ON medicamento_principio_activo (principio_activo_id, medicamento_id);
+CREATE INDEX ix_existencia_medicamento_entidad ON existencia (medicamento_id, entidad_id);
+ALTER TABLE existencia SET (fillfactor = 90);
+
+-- Consulta 2
+CREATE INDEX ix_detalle_medicamento_conteo ON detalle_conteo (medicamento_id, conteo_id)
+    INCLUDE (cantidad_fisica, cantidad_sistema, diferencia);
+CREATE INDEX ix_detalle_con_diferencia ON detalle_conteo (medicamento_id) WHERE diferencia <> 0;
+CREATE INDEX ix_conteo_entidad_periodo ON conteo_fisico (entidad_id, periodo_fin DESC);
+CREATE INDEX ix_movimiento_origen_med_fecha ON movimiento (entidad_origen_id, medicamento_id, fecha_hora)
+    WHERE entidad_origen_id IS NOT NULL;
+CREATE INDEX ix_movimiento_destino_med_fecha ON movimiento (entidad_destino_id, medicamento_id, fecha_hora)
+    WHERE entidad_destino_id IS NOT NULL;
+CREATE INDEX ix_movimiento_medicamento_fecha ON movimiento (medicamento_id, fecha_hora);
+CREATE INDEX brin_movimiento_fecha ON movimiento USING brin (fecha_hora);
+
+-- Consulta 3
+CREATE INDEX ix_pauta_vigente ON pauta (residente_id, medicamento_id) WHERE fecha_fin IS NULL;
+CREATE INDEX ix_pauta_residente_inicio ON pauta (residente_id, fecha_inicio DESC);
+CREATE INDEX ix_residente_nombre ON residente (f_unaccent(lower(primer_apellido)), f_unaccent(lower(primer_nombre)));
+```
+
+**Índices de FK que Django no debe crear** (`db_index=False`), porque ya los cubre un índice compuesto:
+
+| FK | Cubierta por |
+|---|---|
+| `medicamento_principio_activo.medicamento_id` | `UNIQUE (medicamento_id, principio_activo_id)` |
+| `medicamento_principio_activo.principio_activo_id` | `ix_mpa_principio_medicamento` |
+| `existencia.entidad_id` | `uq_existencia (entidad_id, medicamento_id)` |
+| `existencia.medicamento_id` | `ix_existencia_medicamento_entidad` |
+| `movimiento.entidad_origen_id` / `entidad_destino_id` | `ix_movimiento_origen_med_fecha` / `ix_movimiento_destino_med_fecha` |
+| `movimiento.medicamento_id` | `ix_movimiento_medicamento_fecha` |
+| `detalle_conteo.conteo_id` / `medicamento_id` | `uq_detalle_conteo` / `ix_detalle_medicamento_conteo` |
+| `conteo_fisico.entidad_id` | `ix_conteo_entidad_periodo` |
+| `pauta.residente_id` | `ix_pauta_residente_inicio` |
+
+#### Restricciones de integridad adicionales
+
+Complementan las de la sección 3.1. Llevan a la base de datos las reglas de negocio que antes solo validaba la aplicación, para que ni un error de código ni un acceso directo puedan romperlas.
+
+| Regla | Mecanismo | Tabla |
+|---|---|---|
+| No se da de baja un medicamento con existencias | *Trigger* `BEFORE UPDATE OF activo` | `medicamento` |
+| No entran existencias a un medicamento inactivo ni a un residente egresado o fallecido (salvo correcciones) | *Trigger* `BEFORE INSERT` | `movimiento` |
+| Solo se registran pautas para residentes activos y medicamentos activos | *Trigger* `BEFORE INSERT` | `pauta` |
+| Un conteo cerrado no se modifica, ni su encabezado ni sus renglones | *Triggers* `BEFORE UPDATE OR DELETE` / `INSERT OR UPDATE OR DELETE` | `conteo_fisico`, `detalle_conteo` |
+| Los textos obligatorios no pueden ser solo espacios | `CHECK (btrim(col) <> '')` | `medicamento`, `principio_activo`, `presentacion`, `entidad`, `residente`, `movimiento` |
+| Fechas del residente coherentes | `CHECK` | `residente` |
+| La foto del saldo en el conteo no es negativa | `CHECK` | `detalle_conteo` |
+
+```sql
+-- Textos obligatorios no vacíos y fechas coherentes
+ALTER TABLE medicamento      ADD CONSTRAINT ck_medicamento_textos
+    CHECK (btrim(nombre_comercial) <> '' AND btrim(concentracion) <> '');
+ALTER TABLE principio_activo ADD CONSTRAINT ck_principio_activo_nombre CHECK (btrim(nombre) <> '');
+ALTER TABLE presentacion     ADD CONSTRAINT ck_presentacion_nombre     CHECK (btrim(nombre) <> '');
+ALTER TABLE entidad          ADD CONSTRAINT ck_entidad_nombre_no_vacio CHECK (nombre IS NULL OR btrim(nombre) <> '');
+ALTER TABLE residente
+    ADD CONSTRAINT ck_residente_nombres
+        CHECK (btrim(primer_nombre) <> '' AND btrim(primer_apellido) <> ''),
+    ADD CONSTRAINT ck_residente_nacimiento
+        CHECK (fecha_nacimiento >= DATE '1900-01-01' AND fecha_ingreso >= fecha_nacimiento);
+ALTER TABLE movimiento       ADD CONSTRAINT ck_movimiento_entregado
+    CHECK (entregado_por IS NULL OR btrim(entregado_por) <> '');
+ALTER TABLE detalle_conteo   ADD CONSTRAINT ck_detalle_sistema CHECK (cantidad_sistema >= 0);
+
+-- Medicamento: la baja lógica se rechaza si hay existencias
+CREATE FUNCTION fn_medicamento_baja_sin_existencias() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF OLD.activo AND NOT NEW.activo AND EXISTS (
+        SELECT 1 FROM existencia WHERE medicamento_id = NEW.id AND saldo > 0) THEN
+        RAISE EXCEPTION 'No se puede dar de baja el medicamento %: tiene existencias', NEW.id;
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER tg_medicamento_baja BEFORE UPDATE OF activo ON medicamento
+    FOR EACH ROW EXECUTE FUNCTION fn_medicamento_baja_sin_existencias();
+
+-- Movimiento: el destino debe estar activo (las correcciones quedan exentas)
+CREATE FUNCTION fn_movimiento_validar_destino() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF NEW.entidad_destino_id IS NOT NULL AND NEW.corrige_a_id IS NULL THEN
+        IF NOT (SELECT activo FROM medicamento WHERE id = NEW.medicamento_id) THEN
+            RAISE EXCEPTION 'El medicamento % está dado de baja', NEW.medicamento_id;
+        END IF;
+        IF EXISTS (SELECT 1 FROM residente
+                   WHERE entidad_id = NEW.entidad_destino_id AND estado <> 'ACTIVO') THEN
+            RAISE EXCEPTION 'La entidad destino % no está activa', NEW.entidad_destino_id;
+        END IF;
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER tg_movimiento_validar_destino BEFORE INSERT ON movimiento
+    FOR EACH ROW EXECUTE FUNCTION fn_movimiento_validar_destino();
+
+-- Pauta: solo residentes y medicamentos activos
+CREATE FUNCTION fn_pauta_validar() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM residente
+                   WHERE entidad_id = NEW.residente_id AND estado = 'ACTIVO') THEN
+        RAISE EXCEPTION 'El residente % no está activo', NEW.residente_id;
+    END IF;
+    IF NOT (SELECT activo FROM medicamento WHERE id = NEW.medicamento_id) THEN
+        RAISE EXCEPTION 'El medicamento % está dado de baja', NEW.medicamento_id;
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER tg_pauta_validar BEFORE INSERT ON pauta
+    FOR EACH ROW EXECUTE FUNCTION fn_pauta_validar();
+
+-- Conteo cerrado: inmutable
+CREATE FUNCTION fn_conteo_cerrado() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF OLD.estado = 'CERRADO' THEN
+        RAISE EXCEPTION 'El conteo % está cerrado y no se puede modificar', OLD.id;
+    END IF;
+    IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER tg_conteo_cerrado BEFORE UPDATE OR DELETE ON conteo_fisico
+    FOR EACH ROW EXECUTE FUNCTION fn_conteo_cerrado();
+
+CREATE FUNCTION fn_detalle_conteo_cerrado() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    v_conteo bigint;
+BEGIN
+    IF TG_OP = 'DELETE' THEN v_conteo := OLD.conteo_id; ELSE v_conteo := NEW.conteo_id; END IF;
+    IF (SELECT estado FROM conteo_fisico WHERE id = v_conteo) = 'CERRADO' THEN
+        RAISE EXCEPTION 'El conteo % está cerrado', v_conteo;
+    END IF;
+    IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER tg_detalle_conteo_cerrado BEFORE INSERT OR UPDATE OR DELETE ON detalle_conteo
+    FOR EACH ROW EXECUTE FUNCTION fn_detalle_conteo_cerrado();
+```
+
+> Las reglas siguen validándose también en la aplicación (formularios y `services.py`), para dar mensajes claros al usuario. La base de datos es la **última barrera**, no la única.
+
+#### Implementación en Django y verificación
+
+- **Índices:** se declaran en `Meta.indexes` de cada modelo.
+  - Índices por expresión, con `GinIndex(OpClass(Func(Lower('nombre_comercial'), function='f_unaccent'), name='gin_trgm_ops'), condition=Q(activo=True))`.
+  - Índices compuestos y parciales, con `Index(fields=[...], condition=Q(...), include=[...])`.
+  - El índice de fechas de movimiento, con `BrinIndex(fields=['fecha_hora'])`.
+- **Extensiones, función, *triggers* y `fillfactor`:** se agregan en migraciones con `RunSQL`, cada una con su `reverse_sql` para poder revertirla.
+- **Búsquedas desde el ORM:** se usa una expresión anotada, `annotate(n=Func(Lower('nombre_comercial'), function='f_unaccent')).filter(n__contains=...)`. Así coincide exactamente con la expresión del índice.
+- **Verificación:**
+  - Se cargan datos sintéticos de un año (unos 175,000 movimientos) y se revisa con `EXPLAIN (ANALYZE, BUFFERS)` que cada consulta frecuente use su índice.
+  - Un test de integración lo comprueba con `assertNumQueries` y el plan de ejecución de las consultas clave.
+  - En producción, `pg_stat_statements` identifica consultas lentas, y `pg_stat_user_indexes` detecta índices que no se usan para eliminarlos.
