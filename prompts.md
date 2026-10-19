@@ -255,15 +255,28 @@ Considera estos requisitos:
 **Impacto en el proyecto:**
 > "Redujo racionalmente el MVP de 27 rutas a solo 3. Lo que facilita enormemente la salida del MVP y de este proyecto."
 
-**Prompt 3:**
+**Prompt 3:Definir si puede haber MVP con solo 3 Endpoints**
 ```Si 3 endpoints en el MVP y el resto marcado para despues la V2., entonces registra el prompt anterior, con tus respuestas, y ejecuta las acciones que propones para este MVP de 3 endpoints: 1. Marcar el alcance openapi.yaml, 2. Cambiarla seccion 4.5, 3. Reducir la tabla de casos de prueba. Ademas reformula las 7 preguntas anteriores, solo las que apliquen.
 ```
 **Respuesta clave de Claude Code Opus 5.5 High:**
-> ""
+> "Hice las 3 acciones para el MVP de 3 endpoints y registré los dos intercambios en 04-api.md.."
 
 **Impacto en el proyecto:**
-> ""
+> "Redujo efectivamente el MVP a 3 endpoints, redujo dramaticamente el cogido por generar y las pruebas y su mantenimiento, actualizo las seccion 4, simplifico enormemente la primera entrega"
 
+**Prompt 4: Generar ejemplos**
+```
+Agrega solo en el 04-api.md una seccion al final con ejemplos de uso de los endpoints con CURL para testing.
+```
+**Respuesta clave de Claude Code Opus 5.5 High:**
+> "Agregué al final de este archivo la sección **Ejemplos de uso con curl para testing**, sin tocar el `readme.md`. Incluye:
+> -" Cómo obtener la sesión con curl desde el login web."
+> "- Un ejemplo por cada caso de prueba de la sección 4.6, con su resultado esperado."
+> "- Un script de humo que ejecuta los 16 casos y compara los códigos HTTP."
+> "- Ejemplos de referencia para la `V2`."
+
+**Impacto en el proyecto:**
+> "Genero ejemplos con curl para referencia de pruebas que sirven como documentacion practica de que esperar facilitando el desarrollo y pruebas." 
 ---
 
 

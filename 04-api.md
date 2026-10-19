@@ -174,6 +174,22 @@ El texto del `readme.md` ya las presentaba como definitivas, así que no cambia.
 
 ---
 
+## Prompt 5 — Usuario
+
+Agrega solo en el `04-api.md` una sección al final con ejemplos de uso de los endpoints con curl para testing.
+
+---
+
+## Respuesta 5 — Claude
+
+Agregué al final de este archivo la sección **Ejemplos de uso con curl para testing**, sin tocar el `readme.md`. Incluye:
+- Cómo obtener la sesión con curl desde el login web.
+- Un ejemplo por cada caso de prueba de la sección 4.6, con su resultado esperado.
+- Un script de humo que ejecuta los 16 casos y compara los códigos HTTP.
+- Ejemplos de referencia para la `V2`.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 4)
 
 ## 4. Especificación de la API
@@ -470,3 +486,303 @@ Las reglas de escritura (saldo insuficiente, duplicados, conteo cerrado, correcc
 - **Tests de contrato:** las pruebas de `pytest` validan cada respuesta de los 3 endpoints contra los esquemas de `openapi.yaml` con un validador de JSON Schema 2020-12 (`jsonschema`). Los 16 casos de la tabla anterior son la base de esos tests.
 - **V2:** las operaciones marcadas `V2` se implementan sobre la misma capa `services.py`. Las vistas de la API serán delgadas y aplicarán las mismas reglas que las pantallas web.
 - **Herramientas y OpenAPI 3.2:** drf-spectacular genera un esquema 3.0/3.1 para la documentación interactiva (Swagger UI en `/api/v1/docs/`). El archivo 3.2 es el contrato de diseño y la fuente de verdad. Si alguna herramienta todavía no soporta 3.2, el contrato se baja a 3.1 cambiando `dataValue` por `value` y quitando el campo `summary` de los tags.
+
+---
+
+## Ejemplos de uso con curl para testing
+
+> Ejemplos para **bash** (Linux, macOS o Git Bash en Windows), contra el **dataset mock** de la sección 3.4 recién cargado. En PowerShell usa `curl.exe` (no el alias `curl`) y ajusta las comillas. `jq` es opcional; solo sirve para leer mejor las respuestas.
+
+### 1. Preparación
+
+```bash
+BASE=https://localhost          # o la IP del servidor en la red del hogar
+API=$BASE/api/v1
+JAR=/tmp/hogar.cookies          # archivo donde curl guarda las cookies de sesión
+
+# Certificado local: en lugar de -k, confía en la CA de mkcert
+CURL="curl -s --cacert $(mkcert -CAROOT)/rootCA.pem"
+# Solo para pruebas rápidas en desarrollo:  CURL="curl -s -k"
+```
+
+### 2. Obtener la sesión (login web)
+
+En el MVP la API usa la misma sesión que la aplicación web. Con curl se reproduce el formulario de login de Django (por defecto en `/accounts/login/`), que exige el token CSRF y, en HTTPS, la cabecera `Referer`:
+
+```bash
+login() {   # uso: login <usuario> <contraseña>
+  rm -f "$JAR"
+  # a) GET del formulario: entrega la cookie csrftoken
+  $CURL -c "$JAR" "$BASE/accounts/login/" -o /dev/null
+  local csrf; csrf=$(awk '$6 == "csrftoken" { print $7 }' "$JAR")
+  # b) POST del formulario: responde 302 y guarda la cookie sessionid
+  $CURL -b "$JAR" -c "$JAR" -o /dev/null -w "login $1: %{http_code}\n" \
+       -X POST "$BASE/accounts/login/" \
+       -H "Referer: $BASE/accounts/login/" \
+       --data-urlencode "csrfmiddlewaretoken=$csrf" \
+       --data-urlencode "username=$1" \
+       --data-urlencode "password=$2"
+}
+
+login operador.demo 'DemoEscritura2026!'     # esperado: login operador.demo: 302
+```
+
+> La contraseña va entre comillas simples para que bash no interprete el `!`.
+
+### 3. Ejemplos por caso de prueba (sección 4.6)
+
+**Caso 1. Sin sesión → `401 NO_AUTENTICADO`**
+
+```bash
+$CURL -w "\nHTTP %{http_code}\n" "$API/existencias"
+```
+
+```json
+{"type":"https://hogar.example/errores/no-autenticado","title":"No autenticado","status":401,"code":"NO_AUTENTICADO","detail":"Inicie sesión para continuar.","instance":"/api/v1/existencias"}
+HTTP 401
+```
+
+**Caso 2. Usuario de solo lectura → `200`**
+
+```bash
+login consulta.demo 'DemoLectura2026!'
+$CURL -b "$JAR" -o /dev/null -w "HTTP %{http_code}\n" "$API/existencias"     # HTTP 200
+login operador.demo 'DemoEscritura2026!'                                      # vuelve al operador
+```
+
+**Caso 3. Existencias por principio activo (losartán, id 2)**
+
+```bash
+$CURL -b "$JAR" "$API/existencias?principio_activo_id=2" \
+  | jq '{total, resultados: [.resultados[] | {entidad: .entidad.nombre, medicamento: .medicamento.nombre_comercial, saldo}]}'
+```
+
+```json
+{
+  "total": 3,
+  "resultados": [
+    { "entidad": "Hogar Gerontológico Demo", "medicamento": "Losartán", "saldo": 20 },
+    { "entidad": "José Luis Ramírez Ortega", "medicamento": "Cozaar",   "saldo": 32 },
+    { "entidad": "José Luis Ramírez Ortega", "medicamento": "Losartán", "saldo": 10 }
+  ]
+}
+```
+
+**Caso 4. Existencias de un paciente (Carmen, 103)**
+
+```bash
+$CURL -b "$JAR" "$API/existencias?entidad_id=103" \
+  | jq -r '.resultados[] | "\(.medicamento.nombre_comercial)\t\(.saldo)"'
+```
+
+```text
+Eutirox	33
+Exelon	3
+Paracetamol	14
+```
+
+**Caso 5. Existencias del Hogar incluyendo saldo 0**
+
+```bash
+$CURL -b "$JAR" "$API/existencias?entidad_id=1&incluir_sin_saldo=true" \
+  | jq '{total, sin_saldo: [.resultados[] | select(.saldo == 0) | .medicamento.nombre_comercial]}'
+```
+
+```json
+{ "total": 5, "sin_saldo": ["Tempra"] }
+```
+
+**Caso 6. Búsqueda demasiado corta → `400 VALIDACION`**
+
+```bash
+$CURL -b "$JAR" "$API/existencias?q=lo" | jq -c '{status, code, errores}'
+```
+
+```json
+{"status":400,"code":"VALIDACION","errores":[{"campo":"q","codigo":"LONGITUD_INVALIDA","mensaje":"La búsqueda requiere al menos 3 caracteres."}]}
+```
+
+**Caso 7. Búsqueda sin acentos: "losartan"**
+
+```bash
+$CURL -b "$JAR" -G "$API/medicamentos" --data-urlencode "q=losartan" \
+  | jq -c '{total, nombres: [.resultados[].nombre_comercial]}'
+```
+
+```json
+{"total":3,"nombres":["Cozaar","Hyzaar","Losartán"]}
+```
+
+> `-G` con `--data-urlencode` arma la *query string* codificada. Sirve también para buscar con acentos: `--data-urlencode "q=losartán"` da el mismo resultado.
+
+**Caso 8. Búsqueda por principio activo: "paracetamol" encuentra Tempra**
+
+```bash
+$CURL -b "$JAR" -G "$API/medicamentos" --data-urlencode "q=paracetamol" \
+  | jq -c '[.resultados[] | {nombre_comercial, presentacion: .presentacion.nombre}]'
+```
+
+```json
+[{"nombre_comercial":"Paracetamol","presentacion":"tableta"},{"nombre_comercial":"Tempra","presentacion":"jarabe"}]
+```
+
+**Caso 9. Sin mayúsculas ni acentos: "ACIDO"**
+
+```bash
+$CURL -b "$JAR" -G "$API/medicamentos" --data-urlencode "q=ACIDO" \
+  | jq -c '[.resultados[] | {nombre_comercial, principios: [.principios_activos[].nombre]}]'
+```
+
+```json
+[{"nombre_comercial":"Aspirina Protect","principios":["Ácido acetilsalicílico"]}]
+```
+
+**Caso 10. Filtro por tipo**
+
+```bash
+$CURL -b "$JAR" "$API/medicamentos?tipo=ORIGINAL&por_pagina=100" | jq '.total'      # 7
+```
+
+**Caso 11. `por_pagina` fuera de rango → `400`**
+
+```bash
+$CURL -b "$JAR" -o /dev/null -w "HTTP %{http_code}\n" "$API/medicamentos?por_pagina=500"    # HTTP 400
+```
+
+**Caso 12. Reporte de septiembre de María**
+
+```bash
+$CURL -b "$JAR" "$API/reportes/mensual?anio=2026&mes=9&entidad_id=101" \
+  | jq -r '.entidades[].medicamentos[] | "\(.medicamento.nombre_comercial): \(.saldo_inicial) + \(.entradas) - \(.bajas) = \(.saldo_final)"'
+```
+
+```text
+Atorvastatina: 0 + 30 - 29 = 1
+Metformina: 0 + 60 - 58 = 2
+```
+
+**Caso 13. Reporte de octubre de María (con la corrección)**
+
+```bash
+$CURL -b "$JAR" "$API/reportes/mensual?anio=2026&mes=10&entidad_id=101" \
+  | jq -c '.entidades[].medicamentos[] | select(.medicamento.id == 1) | {saldo_inicial, entradas, bajas, bajas_por_motivo, saldo_final}'
+```
+
+```json
+{"saldo_inicial":2,"entradas":660,"bajas":600,"bajas_por_motivo":{"CORRECCION":600},"saldo_final":62}
+```
+
+**Caso 14. Mes inválido → `400`**
+
+```bash
+$CURL -b "$JAR" "$API/reportes/mensual?anio=2026&mes=13" | jq -c '{status, code, errores}'
+```
+
+```json
+{"status":400,"code":"VALIDACION","errores":[{"campo":"mes","codigo":"VALOR_FUERA_DE_RANGO","mensaje":"El mes debe estar entre 1 y 12."}]}
+```
+
+**Caso 15. Entidad inexistente → `404`**
+
+```bash
+$CURL -b "$JAR" -o /dev/null -w "HTTP %{http_code}\n" "$API/reportes/mensual?anio=2026&mes=9&entidad_id=999"   # HTTP 404
+```
+
+**Caso 16. Método no permitido → `405`**
+
+```bash
+$CURL -b "$JAR" -o /dev/null -w "HTTP %{http_code}\n" -X POST "$API/existencias"     # HTTP 405
+```
+
+### 4. Script de humo: los 16 casos de una vez
+
+Compara solo el código HTTP de cada caso. El contenido de las respuestas se valida en los tests de contrato con `pytest` (sección 4.7).
+
+```bash
+#!/usr/bin/env bash
+# smoke_api.sh — uso: BASE=https://localhost ./smoke_api.sh
+set -u
+BASE=${BASE:-https://localhost}; API=$BASE/api/v1; JAR=$(mktemp)
+CURL="curl -s ${CURL_OPTS:--k}"
+ok=0; fallos=0
+
+login() {
+  rm -f "$JAR"
+  $CURL -c "$JAR" "$BASE/accounts/login/" -o /dev/null
+  local csrf; csrf=$(awk '$6 == "csrftoken" { print $7 }' "$JAR")
+  $CURL -b "$JAR" -c "$JAR" -o /dev/null -X POST "$BASE/accounts/login/" \
+       -H "Referer: $BASE/accounts/login/" \
+       --data-urlencode "csrfmiddlewaretoken=$csrf" \
+       --data-urlencode "username=$1" --data-urlencode "password=$2"
+}
+
+caso() {   # uso: caso <n> <código esperado> <método> <ruta> [usar_sesión=si]
+  local cookies=(-b "$JAR"); [ "${5:-si}" = "no" ] && cookies=()
+  local real; real=$($CURL "${cookies[@]}" -o /dev/null -w "%{http_code}" -X "$3" "$API$4")
+  if [ "$real" = "$2" ]; then ok=$((ok+1)); echo "OK    #$1 $3 $4 -> $real"
+  else fallos=$((fallos+1)); echo "FALLA #$1 $3 $4 -> $real (esperado $2)"; fi
+}
+
+caso 1  401 GET "/existencias" no
+login consulta.demo 'DemoLectura2026!'
+caso 2  200 GET "/existencias"
+login operador.demo 'DemoEscritura2026!'
+caso 3  200 GET "/existencias?principio_activo_id=2"
+caso 4  200 GET "/existencias?entidad_id=103"
+caso 5  200 GET "/existencias?entidad_id=1&incluir_sin_saldo=true"
+caso 6  400 GET "/existencias?q=lo"
+caso 7  200 GET "/medicamentos?q=losartan"
+caso 8  200 GET "/medicamentos?q=paracetamol"
+caso 9  200 GET "/medicamentos?q=ACIDO"
+caso 10 200 GET "/medicamentos?tipo=ORIGINAL"
+caso 11 400 GET "/medicamentos?por_pagina=500"
+caso 12 200 GET "/reportes/mensual?anio=2026&mes=9&entidad_id=101"
+caso 13 200 GET "/reportes/mensual?anio=2026&mes=10&entidad_id=101"
+caso 14 400 GET "/reportes/mensual?anio=2026&mes=13"
+caso 15 404 GET "/reportes/mensual?anio=2026&mes=9&entidad_id=999"
+caso 16 405 POST "/existencias"
+
+rm -f "$JAR"
+echo "---- $ok correctos, $fallos fallos"
+[ "$fallos" -eq 0 ]
+```
+
+Salida esperada:
+
+```text
+OK    #1 GET /existencias -> 401
+OK    #2 GET /existencias -> 200
+...
+OK    #16 POST /existencias -> 405
+---- 16 correctos, 0 fallos
+```
+
+> Con la CA de mkcert en lugar de `-k`: `CURL_OPTS="--cacert $(mkcert -CAROOT)/rootCA.pem" ./smoke_api.sh`.
+
+### 5. Referencia para la V2 (no implementado en el MVP)
+
+Cuando se implementen las operaciones `x-alcance: V2`, el flujo con curl será:
+
+```bash
+# Sesión por API: GET /auth/csrf entrega csrftoken; el login va en JSON con X-CSRFToken
+$CURL -c "$JAR" -o /dev/null "$API/auth/csrf"
+CSRF=$(awk '$6 == "csrftoken" { print $7 }' "$JAR")
+$CURL -b "$JAR" -c "$JAR" -X POST "$API/auth/login" \
+     -H "Content-Type: application/json" -H "X-CSRFToken: $CSRF" -H "Referer: $BASE/" \
+     -d '{"username":"operador.demo","password":"DemoEscritura2026!"}'
+CSRF=$(awk '$6 == "csrftoken" { print $7 }' "$JAR")      # Django rota el token al iniciar sesión
+
+# Transferencia con Idempotency-Key: reenviarla con la misma clave no duplica el movimiento
+CLAVE=$(uuidgen)
+$CURL -b "$JAR" -X POST "$API/movimientos/transferencias" -w "\nHTTP %{http_code}\n" \
+     -H "Content-Type: application/json" -H "X-CSRFToken: $CSRF" -H "Referer: $BASE/" \
+     -H "Idempotency-Key: $CLAVE" \
+     -d '{"entidad_origen_id":1,"entidad_destino_id":103,"medicamento_id":6,"cantidad":10}'
+# esperado: HTTP 201, saldos Hogar 70 y Carmen 24
+
+# Captura de un renglón del conteo 2
+$CURL -b "$JAR" -X PUT "$API/conteos/2/detalles/2" -w "\nHTTP %{http_code}\n" \
+     -H "Content-Type: application/json" -H "X-CSRFToken: $CSRF" -H "Referer: $BASE/" \
+     -d '{"cantidad_fisica":20}'
+# esperado: HTTP 201, diferencia 0
+```
