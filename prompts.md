@@ -179,10 +179,32 @@ Las consultas frecuentes son:
 > "Punto de partida: según la estimación, la tabla que crece es movimiento, con 60,000 a 175,000 filas al año si se registra el consumo diario. El catálogo y las entidades son pequeños. Por eso cada índice responde a una consulta concreta, y quité los índices que Django crearía de más para no frenar las escrituras."
 
 **Impacto en el proyecto:**
-> "Estimo las consultas por crecimiento y creo indices segun fuera necesario.Ajusto las constrains para ignorar acentos"
+> "Estimo las consultas por crecimiento estimado y creo indices segun fuera necesario.Ajusto las constrains para ignorar acentos"
 
 
 **Prompt 3:**
+```
+Excelente, ahora creación de mock dataset completo para demo y desarrollo:
+Necesitamos datos mock completo para esta aplicacion para los demos:
+- 2 Usuarios, uno read only y otr read write
+- 3 Residentes
+- 1 pauta por residente
+- 15 Medicamentos con principios activos, presentacion, existencias 
+- 1 o 2 Conteos fisicos
+- Movimientos 
+- Datos en JSON para inyectarlos en la DB, para demo y mocks de desarrollo, PostgresSQL soporta inyeccion de datos con JSON
+
+Lo suficientemente realista para hacer el demo y que sea sencillo de entender.
+```
+
+**Respuesta clave de Claude Code Opus 5.5 High:**
+> "Ya está el dataset mock para la demo y el desarrollo, y lo probé contra un PostgreSQL 17 real: la carga terminó sin errores y las validaciones funcionan."
+
+
+**Impacto en el proyecto:**
+> "Genero un conjunto de datos en JSON, el cual valido contra una imagen de postgres real en un contenedor docker que ella misma levanto. Luego añadio instrucciones de como importar los datos. Facilito enormemente (en teoria) el demo y pruebas."
+
+
 
 ---
 

@@ -1246,7 +1246,7 @@ WHERE (entidad_origen_id = :entidad_id OR entidad_destino_id = :entidad_id)
 | `ix_detalle_con_diferencia` | `detalle_conteo` | `(medicamento_id) WHERE diferencia <> 0` | Consulta b: solo los renglones con diferencias; índice muy pequeño |
 | `ix_conteo_entidad_periodo` | `conteo_fisico` | `(entidad_id, periodo_fin DESC)` | Conteos de un residente o del Hogar, del más reciente al más antiguo |
 | `ix_movimiento_origen_med_fecha` | `movimiento` | `(entidad_origen_id, medicamento_id, fecha_hora) WHERE entidad_origen_id IS NOT NULL` | Consulta c (salidas). Parcial: excluye las entradas, que no tienen origen |
-| `ix_movimiento_destino_med_fecha` | `movimiento` | `(entidad_destino_id, medicamento_id, fecha_hora) WHERE entidad_destino_id IS NOT NULL` | Consulta c (entradas). PostgreSQL combina ambos índices con un *BitmapOr* |
+| `ix_movimiento_destino_med_fecha` | `movimiento` | `(entidad_destino_id, medicamento_id, fecha_hora) WHERE entidad_destino_id IS NOT NULL` | Consulta c (entradas). El planificador puede combinar ambos índices con un *BitmapOr*, o usar `ix_movimiento_medicamento_fecha` y filtrar por entidad, según las estadísticas de la tabla |
 | `ix_movimiento_medicamento_fecha` | `movimiento` | `(medicamento_id, fecha_hora)` | Historial (kárdex) de un medicamento en todas las entidades |
 | `brin_movimiento_fecha` | `movimiento` | `BRIN (fecha_hora)` | Reporte mensual por rango de fechas. `movimiento` solo recibe inserciones en orden cronológico, el caso ideal para BRIN: el índice ocupa unos KB |
 
@@ -1430,6 +1430,115 @@ CREATE TRIGGER tg_detalle_conteo_cerrado BEFORE INSERT OR UPDATE OR DELETE ON de
   - Se cargan datos sintéticos de un año (unos 175,000 movimientos) y se revisa con `EXPLAIN (ANALYZE, BUFFERS)` que cada consulta frecuente use su índice.
   - Un test de integración lo comprueba con `assertNumQueries` y el plan de ejecución de las consultas clave.
   - En producción, `pg_stat_statements` identifica consultas lentas, y `pg_stat_user_indexes` detecta índices que no se usan para eliminarlos.
+
+### **3.4. Datos de prueba (mock) para demo y desarrollo**
+
+| Archivo | Contenido |
+|---|---|
+| [`app/fixtures/mock/demo.json`](app/fixtures/mock/demo.json) | Dataset completo en JSON |
+| [`app/fixtures/mock/cargar_mock.sql`](app/fixtures/mock/cargar_mock.sql) | Script que lo inserta con las funciones JSON de PostgreSQL (`jsonb_to_recordset`, `jsonb_array_elements_text`) en una sola transacción |
+
+> ⚠️ **Datos 100 % ficticios y contraseñas públicas.** Solo para los entornos de desarrollo y demo; nunca en producción.
+
+**Escenario:** septiembre y la primera quincena de octubre de 2026 en un hogar con 3 residentes. El consumo se registra al corte de cada mes. Las horas están en `America/Mexico_City` (UTC−06:00).
+
+**Usuarios** (el Administrador se crea aparte con `createsuperuser`):
+
+| Usuario | Nombre | Grupo | Contraseña demo |
+|---|---|---|---|
+| `consulta.demo` | Laura Méndez Castro | Solo lectura | `DemoLectura2026!` |
+| `operador.demo` | Jorge Salinas Pérez | Lectura y escritura | `DemoEscritura2026!` |
+
+Las contraseñas vienen como hash **PBKDF2** con el formato de Django (`pbkdf2_sha256$1000000$...`), porque PostgreSQL no puede calcular Argon2. Django las acepta mientras `PBKDF2PasswordHasher` siga en `PASSWORD_HASHERS` después de Argon2, y en el primer inicio de sesión **las rehace automáticamente con Argon2**.
+
+**Residentes:**
+
+| Id | Nombre | Nacimiento | Ingreso | Pauta |
+|---|---|---|---|---|
+| 101 | María Guadalupe Hernández López | 1938-04-12 | 2023-02-01 | Metformina 850 mg: 1 dosis cada 12 h, con el desayuno y la cena |
+| 102 | José Luis Ramírez Ortega | 1941-11-03 | 2024-06-15 | Cozaar 50 mg: 1 dosis cada 24 h, por la mañana |
+| 103 | Carmen Torres Vega (sin segundo nombre) | 1935-07-22 | 2025-01-10 | Paracetamol 500 mg: 1 dosis cada 8 h **en caso necesario** (PRN) |
+
+**Medicamentos (15) y existencias finales** (13 principios activos):
+
+| Id | Nombre comercial | Tipo | Presentación | Concentración | Principio(s) activo(s) | Existencias |
+|---|---|---|---|---|---|---|
+| 1 | Metformina | Genérico | tableta | 850 mg | Metformina | María 62 |
+| 2 | Losartán | Genérico | tableta | 50 mg | Losartán | Hogar 20 · José Luis 10 |
+| 3 | Cozaar | Original | tableta | 50 mg | Losartán | José Luis 32 |
+| 4 | Hyzaar | Original | tableta | 50 mg / 12.5 mg | Losartán + Hidroclorotiazida | — |
+| 5 | Omeprazol | Genérico | cápsula | 20 mg | Omeprazol | Hogar 59 |
+| 6 | Paracetamol | Genérico | tableta | 500 mg | Paracetamol | Hogar 80 · Carmen 14 |
+| 7 | Tempra | Original | jarabe | 160 mg / 5 ml | Paracetamol | Hogar 0 (caducado) |
+| 8 | Eutirox | Original | tableta | 100 mcg | Levotiroxina | Carmen 33 |
+| 9 | Atorvastatina | Genérico | tableta | 20 mg | Atorvastatina | María 1 |
+| 10 | Aspirina Protect | Original | tableta | 100 mg | Ácido acetilsalicílico | Hogar 58 |
+| 11 | Donepezilo | Genérico | tableta | 10 mg | Donepezilo | José Luis 2 |
+| 12 | Quetiapina | Genérico | tableta | 25 mg | Quetiapina | — |
+| 13 | Ventolin | Original | inhalador | 100 mcg / dosis | Salbutamol | — |
+| 14 | Exelon | Original | parche | 4.6 mg / 24 h | Rivastigmina | Carmen 3 |
+| 15 | Hipromelosa | Genérico | gotas | 0.5 % | Hipromelosa | — |
+
+**Movimientos (28):**
+- **15 entradas.** Incluyen compras del hogar, entregas de familiares y una donación (`OTRO`).
+- **2 transferencias:**
+  - Del Hogar a Carmen, paracetamol para su pauta PRN.
+  - **Préstamo** de losartán genérico del Hogar a José Luis mientras su familia trae Cozaar.
+- **11 bajas:**
+  - Consumo mensual.
+  - Merma (blíster húmedo), caducidad (frasco de Tempra) y rotura (cápsula).
+  - Una **corrección**: el 1 de octubre se capturó una entrada de 600 en lugar de 60. Se corrigió con una baja `CORRECCION` que la referencia (`corrige_a_id`) y se registró la entrada correcta. El historial conserva los tres movimientos.
+
+**Conteos físicos (2):**
+
+| Id | Entidad | Período | Estado | Resultado |
+|---|---|---|---|---|
+| 1 | María | 2026-09-01 a 2026-09-30 | `CERRADO` | Metformina cuadra (2 = 2). **Falta 1 tableta de atorvastatina** (0 contra 1) |
+| 2 | Hogar | 2026-10-01 a 2026-10-15 | `EN_PROCESO` | Paracetamol y aspirina cuadran. **Falta 1 cápsula de omeprazol** (58 contra 59). Quedan por contar Losartán y Tempra |
+
+**Cómo cargarlo** (en una base recién migrada, con los datos semilla):
+
+```bash
+docker compose cp app/fixtures/mock/. db:/tmp/mock/
+docker compose exec db psql -U <usuario> -d <base> -v ON_ERROR_STOP=1 -f /tmp/mock/cargar_mock.sql
+```
+
+Para volver a empezar: `docker compose down -v`, `docker compose up -d`, `migrate` y cargar de nuevo.
+
+**Validaciones del script** (si algo falla, la transacción completa se revierte):
+- Exige que existan el Hogar y las semillas, y **rechaza la carga si la base ya tiene datos** de negocio.
+- Las referencias del JSON (grupo, presentación, motivo, usuario, entidad) se resuelven con `LEFT JOIN`. Una referencia inexistente aborta la carga por `NOT NULL` o `CHECK`, en lugar de omitir la fila en silencio.
+- **Las existencias no se escriben a mano:** se calculan sumando los movimientos y se comparan contra `existencias_esperadas` del JSON.
+- Verifica que **ningún saldo sea negativo en ningún momento** de la historia (suma acumulada con función de ventana).
+- Verifica que la foto `cantidad_sistema` de cada conteo sea el saldo real a la hora del conteo.
+- Los conteos se insertan `EN_PROCESO` y después se cierran, porque el *trigger* impide agregar renglones a un conteo cerrado.
+- Reajusta las secuencias de identidad tras insertar ids explícitos.
+- Todos los `CHECK` y *triggers* de las secciones 3.1 y 3.3 siguen activos durante la carga.
+
+**Guion sugerido para la demo:**
+
+| # | Acción | Qué demuestra |
+|---|---|---|
+| 1 | Buscar "losartan" (sin acento) | Encuentra Losartán y Cozaar por nombre y principio activo, y Hyzaar por su combinación. Muestra existencias por entidad |
+| 2 | Buscar "paracetamol" | Aparece Tempra (jarabe) por su principio activo, aunque el nombre no coincida |
+| 3 | Entrar como `consulta.demo` e intentar registrar una baja | Solo lectura: responde `403` |
+| 4 | Ver el historial de María | La entrada errónea de 600, su corrección y la entrada correcta: los movimientos son inmutables |
+| 5 | Ver las existencias de José Luis | El préstamo de losartán genérico del Hogar |
+| 6 | Abrir el conteo 2 del Hogar y terminarlo | Conteo en proceso, diferencia calculada y cierre |
+| 7 | Dar de baja Tempra (saldo 0) y luego Paracetamol (saldo > 0) | La primera se permite (baja lógica); la segunda se rechaza |
+| 8 | Ver las pautas de Carmen | Pauta "en caso necesario" (PRN) |
+
+**Verificación realizada:** el dataset se cargó en un contenedor `postgres:17` sobre las tablas y el DDL de las secciones 3.1 y 3.3, tal como están documentados. Resultado:
+- La carga terminó sin errores: 2 usuarios, 13 principios activos, 15 medicamentos, 3 residentes, 3 pautas, 28 movimientos, 13 existencias, 2 conteos y 5 renglones de conteo.
+- Las consultas de la sección 3.3 devuelven lo esperado, y los planes de ejecución usan los índices de búsqueda, de pautas, de conteos y de movimientos.
+- Las reglas de integridad rechazaron:
+  - Modificar un movimiento.
+  - Dar de baja un medicamento con existencias.
+  - Agregar un renglón a un conteo cerrado.
+  - Duplicar "LOSARTAN 50 MG".
+  - Una pauta traslapada.
+  - Una baja sin motivo.
+  - Una segunda carga del mock.
 
 ---
 
