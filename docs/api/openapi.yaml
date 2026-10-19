@@ -1,0 +1,2835 @@
+openapi: 3.2.0
+info:
+  title: API REST - Gestión de Medicamentos Hogar Gerontológico
+  version: 1.0.0
+  summary: Inventario de medicamentos por entidad (Hogar y residentes) para el MVP.
+  description: |
+    **Alcance (extensión `x-alcance` en cada operación)**
+    - `MVP`: 3 endpoints de **solo lectura** que se implementan en el MVP:
+      `GET /existencias`, `GET /medicamentos` y `GET /reportes/mensual`.
+      Usan la cookie de sesión que se obtiene al iniciar sesión en la aplicación web;
+      cualquier usuario autenticado (de cualquier nivel) puede consultarlos.
+    - `V2`: el resto del contrato, diseñado para una versión posterior con clientes externos
+      (por ejemplo, una app móvil). En el MVP esas operaciones se hacen desde las pantallas web,
+      que usan la misma capa de servicios y las mismas reglas.
+
+    Contrato objetivo de la API REST. Cubre:
+
+    1. Inicio de sesión y 2 niveles de acceso.
+    2. Catálogo de medicamentos (alta, baja lógica y cambio), con principio activo, presentación y búsqueda sin acentos.
+    3. Residentes (alta, baja y cambio), con el Hogar como entidad fija.
+    4. Movimientos: entrada, transferencia, baja con motivo y corrección.
+    5. Consulta de existencias por paciente, medicamento o principio activo.
+    6. Conteo físico: captura, diferencia contra lo registrado y cierre.
+    7. Reporte mensual de movimientos y saldos.
+
+    **Convenciones**
+    - JSON en UTF-8, nombres de campos en `snake_case` y en español.
+    - Las cantidades están **en dosis**, son números decimales con 2 posiciones (admiten 0.5).
+    - Fechas `YYYY-MM-DD`; fechas con hora en ISO 8601 con zona horaria.
+    - Errores con **Problem Details (RFC 9457)**, `application/problem+json`, con un `code` estable para la aplicación.
+    - Las peticiones rechazan campos desconocidos (`additionalProperties: false`).
+    - Los movimientos son inmutables: no existen `PUT`, `PATCH` ni `DELETE` sobre ellos (`405`).
+
+    **Autenticación:** sesión de Django en la cookie `sessionid` (expira tras 30 min de inactividad).
+    Toda petición que modifica datos (`POST`, `PUT`, `PATCH`, `DELETE`) debe enviar la cabecera
+    `X-CSRFToken` con el valor de la cookie `csrftoken`, que se obtiene con `GET /auth/csrf`.
+
+    **Niveles de acceso** (extensión `x-nivel-acceso` en cada operación):
+    - `SOLO_LECTURA`: cualquier usuario autenticado.
+    - `LECTURA_ESCRITURA`: usuarios del grupo *Lectura y escritura* y el Administrador.
+
+    La gestión de usuarios se hace en el panel `/admin/` de Django y no forma parte de esta API en el MVP.
+  contact:
+    name: Victor Manuel Ramirez Ruvalcaba
+  license:
+    name: Uso privado del proyecto
+    identifier: LicenseRef-Privado
+servers:
+  - url: https://{host}/api/v1
+    description: Servidor local (red del hogar) o VPS
+    variables:
+      host:
+        default: localhost
+        description: Nombre o IP del servidor
+
+security:
+  - sesion: []
+
+tags:
+  - name: Autenticación
+    summary: Inicio y cierre de sesión
+    description: Sesión de Django con protección CSRF y bloqueo por intentos fallidos.
+  - name: Catálogos
+    summary: Presentaciones, motivos de baja y principios activos
+    description: Catálogos de apoyo. Las presentaciones y los motivos vienen de los datos semilla.
+  - name: Medicamentos
+    summary: Catálogo de medicamentos (alta, baja lógica, cambio y búsqueda)
+    description: La unicidad (nombre comercial, presentación y concentración) no distingue mayúsculas ni acentos.
+  - name: Entidades
+    summary: El Hogar y los residentes (dueños de existencias)
+    description: El Hogar es una entidad fija creada en la instalación; no tiene operaciones de escritura.
+  - name: Residentes
+    summary: Alta, cambio y egreso o defunción de residentes
+    description: Los residentes no se borran; el egreso o la defunción son una baja lógica.
+  - name: Movimientos
+    summary: Entradas, transferencias, bajas y correcciones (inmutables)
+    description: Cada movimiento actualiza las existencias en la misma transacción. Los errores se corrigen con el movimiento inverso.
+  - name: Existencias
+    summary: Saldos en dosis por entidad y medicamento
+    description: Solo lectura; los saldos cambian únicamente a través de movimientos.
+  - name: Conteos
+    summary: Conteo físico contra lo registrado
+    description: El conteo compara lo físico con el saldo registrado; cerrarlo no ajusta existencias.
+  - name: Reportes
+    summary: Reporte mensual de movimientos y saldos
+    description: Se calcula al momento a partir de los movimientos.
+
+paths:
+  # ------------------------------------------------------------------
+  # 1. Autenticación
+  # ------------------------------------------------------------------
+  /auth/csrf:
+    get:
+      tags: [Autenticación]
+      operationId: obtenerCsrf
+      x-alcance: V2
+      summary: Obtener la cookie CSRF
+      description: Entrega la cookie `csrftoken`, necesaria para iniciar sesión y para toda petición que modifica datos.
+      security: []
+      responses:
+        '204':
+          description: Cookie entregada.
+          headers:
+            Set-Cookie:
+              description: 'csrftoken=<valor>; Path=/; Secure; SameSite=Lax'
+              schema:
+                type: string
+
+  /auth/login:
+    post:
+      tags: [Autenticación]
+      operationId: iniciarSesion
+      x-alcance: V2
+      summary: Iniciar sesión
+      security:
+        - csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            examples:
+              operador:
+                summary: Usuario de lectura y escritura del dataset demo
+                dataValue:
+                  username: operador.demo
+                  password: DemoEscritura2026!
+      responses:
+        '200':
+          description: Sesión iniciada.
+          headers:
+            Set-Cookie:
+              description: 'sessionid=<valor>; Path=/; HttpOnly; Secure; SameSite=Lax'
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsuarioActual'
+              examples:
+                operador:
+                  dataValue:
+                    id: 2
+                    username: operador.demo
+                    nombre: Jorge Salinas Pérez
+                    nivel_acceso: LECTURA_ESCRITURA
+        '400':
+          $ref: '#/components/responses/Validacion'
+        '401':
+          description: Usuario o contraseña incorrectos, o usuario desactivado.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+              examples:
+                credenciales:
+                  dataValue:
+                    type: https://hogar.example/errores/credenciales-invalidas
+                    title: Credenciales inválidas
+                    status: 401
+                    code: CREDENCIALES_INVALIDAS
+                    detail: Usuario o contraseña incorrectos.
+                    instance: /api/v1/auth/login
+        '403':
+          $ref: '#/components/responses/CsrfInvalido'
+        '429':
+          $ref: '#/components/responses/DemasiadosIntentos'
+        '500':
+          $ref: '#/components/responses/ErrorInterno'
+
+  /auth/logout:
+    post:
+      tags: [Autenticación]
+      operationId: cerrarSesion
+      x-alcance: V2
+      summary: Cerrar sesión
+      security:
+        - sesion: []
+          csrf: []
+      responses:
+        '204':
+          description: Sesión cerrada.
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/CsrfInvalido'
+
+  /auth/me:
+    get:
+      tags: [Autenticación]
+      operationId: obtenerUsuarioActual
+      x-alcance: V2
+      summary: Usuario de la sesión y su nivel de acceso
+      x-nivel-acceso: SOLO_LECTURA
+      responses:
+        '200':
+          description: Usuario autenticado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsuarioActual'
+              examples:
+                consulta:
+                  dataValue:
+                    id: 1
+                    username: consulta.demo
+                    nombre: Laura Méndez Castro
+                    nivel_acceso: SOLO_LECTURA
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+
+  # ------------------------------------------------------------------
+  # Catálogos de apoyo
+  # ------------------------------------------------------------------
+  /presentaciones:
+    get:
+      tags: [Catálogos]
+      operationId: listarPresentaciones
+      x-alcance: V2
+      summary: Listar presentaciones activas
+      x-nivel-acceso: SOLO_LECTURA
+      responses:
+        '200':
+          description: Presentaciones ordenadas por nombre.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Presentacion'
+              examples:
+                semilla:
+                  dataValue:
+                    - { id: 2, nombre: cápsula }
+                    - { id: 4, nombre: gotas }
+                    - { id: 3, nombre: jarabe }
+                    - { id: 1, nombre: tableta }
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+
+  /motivos-baja:
+    get:
+      tags: [Catálogos]
+      operationId: listarMotivosBaja
+      x-alcance: V2
+      summary: Listar motivos de baja activos
+      description: '`CORRECCION` aparece en el listado, pero está reservado para `POST /movimientos/{id}/correccion`.'
+      x-nivel-acceso: SOLO_LECTURA
+      responses:
+        '200':
+          description: Motivos de baja.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MotivoBaja'
+              examples:
+                semilla:
+                  dataValue:
+                    - { id: 1, clave: CONSUMO, descripcion: Consumo / administración }
+                    - { id: 2, clave: CADUCIDAD, descripcion: Caducidad }
+                    - { id: 3, clave: MERMA, descripcion: Merma }
+                    - { id: 4, clave: ROTURA, descripcion: Rotura }
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+
+  /principios-activos:
+    get:
+      tags: [Catálogos]
+      operationId: listarPrincipiosActivos
+      x-alcance: V2
+      summary: Buscar principios activos
+      x-nivel-acceso: SOLO_LECTURA
+      parameters:
+        - $ref: '#/components/parameters/Busqueda'
+        - $ref: '#/components/parameters/Pagina'
+        - $ref: '#/components/parameters/PorPagina'
+      responses:
+        '200':
+          description: Principios activos que coinciden (sin distinguir mayúsculas ni acentos).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginaPrincipiosActivos'
+              examples:
+                losartan:
+                  summary: GET /principios-activos?q=losartan
+                  dataValue:
+                    total: 1
+                    pagina: 1
+                    por_pagina: 20
+                    resultados:
+                      - { id: 2, nombre: Losartán }
+        '400':
+          $ref: '#/components/responses/Validacion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+    post:
+      tags: [Catálogos]
+      operationId: crearPrincipioActivo
+      x-alcance: V2
+      summary: Dar de alta un principio activo
+      x-nivel-acceso: LECTURA_ESCRITURA
+      security:
+        - sesion: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PrincipioActivoCrear'
+            examples:
+              amlodipino:
+                dataValue:
+                  nombre: Amlodipino
+      responses:
+        '201':
+          description: Principio activo creado.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrincipioActivo'
+              examples:
+                amlodipino:
+                  dataValue: { id: 14, nombre: Amlodipino }
+        '400':
+          $ref: '#/components/responses/Validacion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '409':
+          description: Ya existe un principio activo con ese nombre (sin distinguir mayúsculas ni acentos).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+              examples:
+                duplicado:
+                  dataValue:
+                    type: https://hogar.example/errores/principio-activo-duplicado
+                    title: Principio activo duplicado
+                    status: 409
+                    code: PRINCIPIO_ACTIVO_DUPLICADO
+                    detail: Ya existe el principio activo "Losartán".
+                    instance: /api/v1/principios-activos
+
+  # ------------------------------------------------------------------
+  # 2. Medicamentos
+  # ------------------------------------------------------------------
+  /medicamentos:
+    get:
+      tags: [Medicamentos]
+      operationId: listarMedicamentos
+      x-alcance: MVP
+      summary: Buscar medicamentos
+      description: |
+        `q` busca por coincidencia parcial en el nombre comercial **o** en el nombre de cualquiera de sus
+        principios activos, sin distinguir mayúsculas ni acentos. Requiere al menos 3 caracteres.
+      x-nivel-acceso: SOLO_LECTURA
+      parameters:
+        - $ref: '#/components/parameters/Busqueda'
+        - name: principio_activo_id
+          in: query
+          description: Solo medicamentos que contienen este principio activo.
+          schema:
+            $ref: '#/components/schemas/Id'
+        - name: tipo
+          in: query
+          schema:
+            $ref: '#/components/schemas/TipoMedicamento'
+        - name: presentacion_id
+          in: query
+          schema:
+            $ref: '#/components/schemas/Id'
+        - name: activo
+          in: query
+          description: '`true` (por defecto) solo vigentes; `false` solo dados de baja.'
+          schema:
+            type: boolean
+            default: true
+        - name: orden
+          in: query
+          schema:
+            type: string
+            enum: [nombre_comercial, -nombre_comercial, creado_en, -creado_en]
+            default: nombre_comercial
+        - $ref: '#/components/parameters/Pagina'
+        - $ref: '#/components/parameters/PorPagina'
+      responses:
+        '200':
+          description: Página de medicamentos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginaMedicamentos'
+              examples:
+                losartan:
+                  summary: GET /medicamentos?q=losartan
+                  dataValue:
+                    total: 3
+                    pagina: 1
+                    por_pagina: 20
+                    resultados:
+                      - id: 3
+                        nombre_comercial: Cozaar
+                        tipo: ORIGINAL
+                        presentacion: { id: 1, nombre: tableta }
+                        concentracion: 50 mg
+                        principios_activos: [{ id: 2, nombre: Losartán }]
+                        activo: true
+                        creado_en: '2026-09-01T08:00:00-06:00'
+                        actualizado_en: '2026-09-01T08:00:00-06:00'
+                      - id: 4
+                        nombre_comercial: Hyzaar
+                        tipo: ORIGINAL
+                        presentacion: { id: 1, nombre: tableta }
+                        concentracion: 50 mg / 12.5 mg
+                        principios_activos: [{ id: 2, nombre: Losartán }, { id: 3, nombre: Hidroclorotiazida }]
+                        activo: true
+                        creado_en: '2026-09-01T08:00:00-06:00'
+                        actualizado_en: '2026-09-01T08:00:00-06:00'
+                      - id: 2
+                        nombre_comercial: Losartán
+                        tipo: GENERICO
+                        presentacion: { id: 1, nombre: tableta }
+                        concentracion: 50 mg
+                        principios_activos: [{ id: 2, nombre: Losartán }]
+                        activo: true
+                        creado_en: '2026-09-01T08:00:00-06:00'
+                        actualizado_en: '2026-09-01T08:00:00-06:00'
+        '400':
+          $ref: '#/components/responses/Validacion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+    post:
+      tags: [Medicamentos]
+      operationId: crearMedicamento
+      x-alcance: V2
+      summary: Dar de alta un medicamento
+      x-nivel-acceso: LECTURA_ESCRITURA
+      security:
+        - sesion: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MedicamentoCrear'
+            examples:
+              amlodipino:
+                dataValue:
+                  nombre_comercial: Amlodipino
+                  tipo: GENERICO
+                  presentacion_id: 1
+                  concentracion: 5 mg
+                  principios_activos_ids: [14]
+              duplicado:
+                summary: Provoca 409 MEDICAMENTO_DUPLICADO (ya existe "Losartán 50 mg tableta")
+                dataValue:
+                  nombre_comercial: LOSARTAN
+                  tipo: GENERICO
+                  presentacion_id: 1
+                  concentracion: 50 MG
+                  principios_activos_ids: [2]
+      responses:
+        '201':
+          description: Medicamento creado.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Medicamento'
+              examples:
+                amlodipino:
+                  dataValue:
+                    id: 16
+                    nombre_comercial: Amlodipino
+                    tipo: GENERICO
+                    presentacion: { id: 1, nombre: tableta }
+                    concentracion: 5 mg
+                    principios_activos: [{ id: 14, nombre: Amlodipino }]
+                    activo: true
+                    creado_en: '2026-10-19T10:15:00-06:00'
+                    actualizado_en: '2026-10-19T10:15:00-06:00'
+        '400':
+          $ref: '#/components/responses/Validacion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '409':
+          $ref: '#/components/responses/MedicamentoDuplicado'
+        '422':
+          description: Una presentación o un principio activo indicado no existe o está inactivo.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+              examples:
+                principio:
+                  dataValue:
+                    type: https://hogar.example/errores/referencia-invalida
+                    title: Referencia inválida
+                    status: 422
+                    code: REFERENCIA_INVALIDA
+                    detail: El principio activo 99 no existe.
+                    instance: /api/v1/medicamentos
+                    errores:
+                      - { campo: 'principios_activos_ids[0]', codigo: REFERENCIA_INVALIDA, mensaje: El principio activo 99 no existe. }
+
+  /medicamentos/{medicamento_id}:
+    parameters:
+      - $ref: '#/components/parameters/MedicamentoId'
+    get:
+      tags: [Medicamentos]
+      operationId: obtenerMedicamento
+      x-alcance: V2
+      summary: Obtener un medicamento
+      x-nivel-acceso: SOLO_LECTURA
+      responses:
+        '200':
+          description: Medicamento.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Medicamento'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+    patch:
+      tags: [Medicamentos]
+      operationId: actualizarMedicamento
+      x-alcance: V2
+      summary: Cambiar datos de un medicamento
+      description: Actualización parcial. Para la baja lógica se usa `POST /medicamentos/{medicamento_id}/baja`.
+      x-nivel-acceso: LECTURA_ESCRITURA
+      security:
+        - sesion: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MedicamentoActualizar'
+            examples:
+              concentracion:
+                dataValue:
+                  concentracion: 50 mg / 12.5 mg
+      responses:
+        '200':
+          description: Medicamento actualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Medicamento'
+        '400':
+          $ref: '#/components/responses/Validacion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+        '409':
+          $ref: '#/components/responses/MedicamentoDuplicado'
+        '422':
+          $ref: '#/components/responses/ReglaNegocio'
+
+  /medicamentos/{medicamento_id}/baja:
+    parameters:
+      - $ref: '#/components/parameters/MedicamentoId'
+    post:
+      tags: [Medicamentos]
+      operationId: darDeBajaMedicamento
+      x-alcance: V2
+      summary: Baja lógica de un medicamento
+      description: Marca el medicamento como inactivo. Se rechaza si alguna entidad tiene existencias mayores a 0.
+      x-nivel-acceso: LECTURA_ESCRITURA
+      security:
+        - sesion: []
+          csrf: []
+      responses:
+        '200':
+          description: Medicamento dado de baja (`activo = false`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Medicamento'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+        '409':
+          description: El medicamento tiene existencias o ya estaba dado de baja.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+              examples:
+                conExistencias:
+                  summary: POST /medicamentos/6/baja (Paracetamol)
+                  dataValue:
+                    type: https://hogar.example/errores/medicamento-con-existencias
+                    title: El medicamento tiene existencias
+                    status: 409
+                    code: MEDICAMENTO_CON_EXISTENCIAS
+                    detail: 'Paracetamol 500 mg tiene existencias en 2 entidades (Hogar: 80, Carmen Torres Vega: 14).'
+                    instance: /api/v1/medicamentos/6/baja
+                yaInactivo:
+                  dataValue:
+                    type: https://hogar.example/errores/estado-invalido
+                    title: Estado inválido
+                    status: 409
+                    code: ESTADO_INVALIDO
+                    detail: El medicamento 7 ya está dado de baja.
+                    instance: /api/v1/medicamentos/7/baja
+
+  /medicamentos/{medicamento_id}/reactivacion:
+    parameters:
+      - $ref: '#/components/parameters/MedicamentoId'
+    post:
+      tags: [Medicamentos]
+      operationId: reactivarMedicamento
+      x-alcance: V2
+      summary: Reactivar un medicamento dado de baja
+      description: Alternativa a duplicarlo; la unicidad incluye a los inactivos.
+      x-nivel-acceso: LECTURA_ESCRITURA
+      security:
+        - sesion: []
+          csrf: []
+      responses:
+        '200':
+          description: Medicamento reactivado (`activo = true`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Medicamento'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+        '409':
+          $ref: '#/components/responses/EstadoInvalido'
+
+  # ------------------------------------------------------------------
+  # 3. Entidades y residentes
+  # ------------------------------------------------------------------
+  /entidades:
+    get:
+      tags: [Entidades]
+      operationId: listarEntidades
+      x-alcance: V2
+      summary: Listar el Hogar y los residentes
+      description: Pensado para selectores de origen y destino. El Hogar siempre aparece primero.
+      x-nivel-acceso: SOLO_LECTURA
+      parameters:
+        - name: tipo
+          in: query
+          schema:
+            $ref: '#/components/schemas/TipoEntidad'
+        - name: activa
+          in: query
+          description: '`true` excluye a los residentes egresados o fallecidos. El Hogar siempre está activo.'
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Entidades.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EntidadResumen'
+              examples:
+                demo:
+                  dataValue:
+                    - { id: 1, tipo: HOGAR, nombre: Hogar Gerontológico Demo, activa: true }
+                    - { id: 101, tipo: RESIDENTE, nombre: María Guadalupe Hernández López, activa: true }
+                    - { id: 102, tipo: RESIDENTE, nombre: José Luis Ramírez Ortega, activa: true }
+                    - { id: 103, tipo: RESIDENTE, nombre: Carmen Torres Vega, activa: true }
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+
+  /residentes:
+    get:
+      tags: [Residentes]
+      operationId: listarResidentes
+      x-alcance: V2
+      summary: Buscar residentes
+      x-nivel-acceso: SOLO_LECTURA
+      parameters:
+        - name: q
+          in: query
+          description: Coincidencia parcial en nombres o apellidos, sin acentos.
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 100
+        - name: estado
+          in: query
+          schema:
+            $ref: '#/components/schemas/EstadoResidente'
+        - $ref: '#/components/parameters/Pagina'
+        - $ref: '#/components/parameters/PorPagina'
+      responses:
+        '200':
+          description: Página de residentes, ordenados por apellidos y nombre.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginaResidentes'
+        '400':
+          $ref: '#/components/responses/Validacion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+    post:
+      tags: [Residentes]
+      operationId: crearResidente
+      x-alcance: V2
+      summary: Dar de alta un residente
+      x-nivel-acceso: LECTURA_ESCRITURA
+      security:
+        - sesion: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResidenteCrear'
+            examples:
+              roberto:
+                dataValue:
+                  primer_nombre: Roberto
+                  segundo_nombre: Carlos
+                  primer_apellido: Mendoza
+                  segundo_apellido: Flores
+                  fecha_nacimiento: '1944-02-18'
+                  fecha_ingreso: '2026-10-19'
+              sinApellido:
+                summary: Provoca 400 VALIDACION
+                dataValue:
+                  primer_nombre: Roberto
+                  primer_apellido: '   '
+                  fecha_nacimiento: '1944-02-18'
+                  fecha_ingreso: '1940-01-01'
+      responses:
+        '201':
+          description: Residente creado (activo). Su `id` es también el id de su entidad.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Residente'
+              examples:
+                roberto:
+                  dataValue:
+                    id: 104
+                    primer_nombre: Roberto
+                    segundo_nombre: Carlos
+                    primer_apellido: Mendoza
+                    segundo_apellido: Flores
+                    nombre_completo: Roberto Carlos Mendoza Flores
+                    fecha_nacimiento: '1944-02-18'
+                    fecha_ingreso: '2026-10-19'
+                    estado: ACTIVO
+                    fecha_baja: null
+        '400':
+          $ref: '#/components/responses/Validacion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+
+  /residentes/{residente_id}:
+    parameters:
+      - $ref: '#/components/parameters/ResidenteId'
+    get:
+      tags: [Residentes]
+      operationId: obtenerResidente
+      x-alcance: V2
+      summary: Obtener un residente
+      x-nivel-acceso: SOLO_LECTURA
+      responses:
+        '200':
+          description: Residente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Residente'
+              examples:
+                carmen:
+                  dataValue:
+                    id: 103
+                    primer_nombre: Carmen
+                    segundo_nombre: null
+                    primer_apellido: Torres
+                    segundo_apellido: Vega
+                    nombre_completo: Carmen Torres Vega
+                    fecha_nacimiento: '1935-07-22'
+                    fecha_ingreso: '2025-01-10'
+                    estado: ACTIVO
+                    fecha_baja: null
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+    patch:
+      tags: [Residentes]
+      operationId: actualizarResidente
+      x-alcance: V2
+      summary: Cambiar datos de un residente
+      description: 'No cambia el estado: el egreso o la defunción se registran con `POST /residentes/{residente_id}/egreso`.'
+      x-nivel-acceso: LECTURA_ESCRITURA
+      security:
+        - sesion: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResidenteActualizar'
+            examples:
+              segundoNombre:
+                dataValue:
+                  segundo_nombre: del Carmen
+      responses:
+        '200':
+          description: Residente actualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Residente'
+        '400':
+          $ref: '#/components/responses/Validacion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+
+  /residentes/{residente_id}/egreso:
+    parameters:
+      - $ref: '#/components/parameters/ResidenteId'
+    post:
+      tags: [Residentes]
+      operationId: registrarEgreso
+      x-alcance: V2
+      summary: Baja lógica del residente (egreso o defunción)
+      description: |
+        Cambia el estado a `EGRESADO` o `FALLECIDO`. No se bloquea si el residente tiene existencias:
+        la respuesta las lista en `existencias_pendientes`, para resolverlas con una transferencia al Hogar
+        o con una baja por `DEVOLUCION_FAMILIA`, `DEFUNCION` o `EGRESO`.
+      x-nivel-acceso: LECTURA_ESCRITURA
+      security:
+        - sesion: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EgresoRequest'
+            examples:
+              egreso:
+                dataValue:
+                  estado: EGRESADO
+                  fecha_baja: '2026-10-19'
+      responses:
+        '200':
+          description: Estado actualizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EgresoRespuesta'
+              examples:
+                joseLuis:
+                  summary: POST /residentes/102/egreso
+                  dataValue:
+                    residente:
+                      id: 102
+                      primer_nombre: José
+                      segundo_nombre: Luis
+                      primer_apellido: Ramírez
+                      segundo_apellido: Ortega
+                      nombre_completo: José Luis Ramírez Ortega
+                      fecha_nacimiento: '1941-11-03'
+                      fecha_ingreso: '2024-06-15'
+                      estado: EGRESADO
+                      fecha_baja: '2026-10-19'
+                    existencias_pendientes:
+                      - entidad: { id: 102, tipo: RESIDENTE, nombre: José Luis Ramírez Ortega, activa: false }
+                        medicamento: { id: 3, nombre_comercial: Cozaar, presentacion: tableta, concentracion: 50 mg }
+                        saldo: 32
+                        actualizado_en: '2026-10-03T11:00:00-06:00'
+                      - entidad: { id: 102, tipo: RESIDENTE, nombre: José Luis Ramírez Ortega, activa: false }
+                        medicamento: { id: 11, nombre_comercial: Donepezilo, presentacion: tableta, concentracion: 10 mg }
+                        saldo: 2
+                        actualizado_en: '2026-09-30T20:15:00-06:00'
+                      - entidad: { id: 102, tipo: RESIDENTE, nombre: José Luis Ramírez Ortega, activa: false }
+                        medicamento: { id: 2, nombre_comercial: Losartán, presentacion: tableta, concentracion: 50 mg }
+                        saldo: 10
+                        actualizado_en: '2026-10-02T09:00:00-06:00'
+        '400':
+          $ref: '#/components/responses/Validacion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+        '409':
+          $ref: '#/components/responses/EstadoInvalido'
+
+  # ------------------------------------------------------------------
+  # 4. Movimientos
+  # ------------------------------------------------------------------
+  /movimientos:
+    get:
+      tags: [Movimientos]
+      operationId: listarMovimientos
+      x-alcance: V2
+      summary: Historial de movimientos
+      description: Ordenado del más reciente al más antiguo. `entidad_id` incluye los movimientos donde la entidad es origen o destino.
+      x-nivel-acceso: SOLO_LECTURA
+      parameters:
+        - name: entidad_id
+          in: query
+          schema:
+            $ref: '#/components/schemas/Id'
+        - name: medicamento_id
+          in: query
+          schema:
+            $ref: '#/components/schemas/Id'
+        - name: tipo
+          in: query
+          schema:
+            $ref: '#/components/schemas/TipoMovimiento'
+        - $ref: '#/components/parameters/Desde'
+        - $ref: '#/components/parameters/Hasta'
+        - $ref: '#/components/parameters/Pagina'
+        - $ref: '#/components/parameters/PorPagina'
+      responses:
+        '200':
+          description: Página de movimientos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginaMovimientos'
+              examples:
+                maria:
+                  summary: GET /movimientos?entidad_id=101&medicamento_id=1&desde=2026-10-01
+                  dataValue:
+                    total: 3
+                    pagina: 1
+                    por_pagina: 20
+                    resultados:
+                      - id: 24
+                        tipo: ENTRADA
+                        medicamento: { id: 1, nombre_comercial: Metformina, presentacion: tableta, concentracion: 850 mg }
+                        cantidad: 60
+                        entidad_origen: null
+                        entidad_destino: { id: 101, tipo: RESIDENTE, nombre: María Guadalupe Hernández López, activa: true }
+                        motivo_baja: null
+                        origen_entrada: FAMILIAR
+                        entregado_por: Rosa Hernández López (hija)
+                        corrige_a_id: null
+                        corregido_por_id: null
+                        nota: Captura correcta de la entrega del 1 de octubre
+                        usuario: { id: 2, username: operador.demo }
+                        fecha_hora: '2026-10-01T10:25:00-06:00'
+                      - id: 23
+                        tipo: BAJA
+                        medicamento: { id: 1, nombre_comercial: Metformina, presentacion: tableta, concentracion: 850 mg }
+                        cantidad: 600
+                        entidad_origen: { id: 101, tipo: RESIDENTE, nombre: María Guadalupe Hernández López, activa: true }
+                        entidad_destino: null
+                        motivo_baja: { id: 8, clave: CORRECCION, descripcion: Corrección de un error de captura }
+                        origen_entrada: null
+                        entregado_por: null
+                        corrige_a_id: 22
+                        corregido_por_id: null
+                        nota: Corrige el movimiento 22
+                        usuario: { id: 2, username: operador.demo }
+                        fecha_hora: '2026-10-01T10:20:00-06:00'
+                      - id: 22
+                        tipo: ENTRADA
+                        medicamento: { id: 1, nombre_comercial: Metformina, presentacion: tableta, concentracion: 850 mg }
+                        cantidad: 600
+                        entidad_origen: null
+                        entidad_destino: { id: 101, tipo: RESIDENTE, nombre: María Guadalupe Hernández López, activa: true }
+                        motivo_baja: null
+                        origen_entrada: FAMILIAR
+                        entregado_por: Rosa Hernández López (hija)
+                        corrige_a_id: null
+                        corregido_por_id: 23
+                        nota: 'Error de captura: se escribió 600 en lugar de 60'
+                        usuario: { id: 2, username: operador.demo }
+                        fecha_hora: '2026-10-01T10:00:00-06:00'
+        '400':
+          $ref: '#/components/responses/Validacion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+
+  /movimientos/{movimiento_id}:
+    parameters:
+      - $ref: '#/components/parameters/MovimientoId'
+    get:
+      tags: [Movimientos]
+      operationId: obtenerMovimiento
+      x-alcance: V2
+      summary: Obtener un movimiento
+      x-nivel-acceso: SOLO_LECTURA
+      responses:
+        '200':
+          description: Movimiento.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Movimiento'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+
+  /movimientos/entradas:
+    post:
+      tags: [Movimientos]
+      operationId: registrarEntrada
+      x-alcance: V2
+      summary: Registrar una entrada
+      description: Suma dosis a la entidad destino y registra quién las entregó.
+      x-nivel-acceso: LECTURA_ESCRITURA
+      security:
+        - sesion: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EntradaCrear'
+            examples:
+              familiar:
+                dataValue:
+                  entidad_destino_id: 101
+                  medicamento_id: 1
+                  cantidad: 60
+                  origen_entrada: FAMILIAR
+                  entregado_por: Rosa Hernández López (hija)
+                  nota: Entrega de noviembre
+      responses:
+        '201':
+          $ref: '#/components/responses/MovimientoRegistrado'
+        '400':
+          $ref: '#/components/responses/Validacion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '409':
+          $ref: '#/components/responses/IdempotenciaConflicto'
+        '422':
+          $ref: '#/components/responses/ReglaNegocio'
+
+  /movimientos/transferencias:
+    post:
+      tags: [Movimientos]
+      operationId: registrarTransferencia
+      x-alcance: V2
+      summary: Transferir dosis entre entidades
+      description: Resta del origen y suma al destino en una sola transacción. El destino debe estar activo.
+      x-nivel-acceso: LECTURA_ESCRITURA
+      security:
+        - sesion: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransferenciaCrear'
+            examples:
+              hogarACarmen:
+                dataValue:
+                  entidad_origen_id: 1
+                  entidad_destino_id: 103
+                  medicamento_id: 6
+                  cantidad: 10
+                  nota: Reposición para su pauta en caso necesario
+              saldoInsuficiente:
+                summary: Provoca 422 EXISTENCIA_INSUFICIENTE (el Hogar tiene 80)
+                dataValue:
+                  entidad_origen_id: 1
+                  entidad_destino_id: 103
+                  medicamento_id: 6
+                  cantidad: 100
+      responses:
+        '201':
+          $ref: '#/components/responses/MovimientoRegistrado'
+        '400':
+          $ref: '#/components/responses/Validacion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '409':
+          $ref: '#/components/responses/IdempotenciaConflicto'
+        '422':
+          $ref: '#/components/responses/ReglaNegocio'
+
+  /movimientos/bajas:
+    post:
+      tags: [Movimientos]
+      operationId: registrarBaja
+      x-alcance: V2
+      summary: Dar de baja dosis con un motivo
+      description: Se permite desde residentes egresados o fallecidos, para resolver sus existencias pendientes.
+      x-nivel-acceso: LECTURA_ESCRITURA
+      security:
+        - sesion: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BajaCrear'
+            examples:
+              consumo:
+                dataValue:
+                  entidad_origen_id: 101
+                  medicamento_id: 1
+                  cantidad: 62
+                  motivo_baja: CONSUMO
+                  nota: Consumo de octubre
+              reservado:
+                summary: Provoca 422 MOTIVO_RESERVADO
+                dataValue:
+                  entidad_origen_id: 101
+                  medicamento_id: 1
+                  cantidad: 2
+                  motivo_baja: CORRECCION
+      responses:
+        '201':
+          $ref: '#/components/responses/MovimientoRegistrado'
+        '400':
+          $ref: '#/components/responses/Validacion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '409':
+          $ref: '#/components/responses/IdempotenciaConflicto'
+        '422':
+          $ref: '#/components/responses/ReglaNegocio'
+
+  /movimientos/{movimiento_id}/correccion:
+    parameters:
+      - $ref: '#/components/parameters/MovimientoId'
+    post:
+      tags: [Movimientos]
+      operationId: corregirMovimiento
+      x-alcance: V2
+      summary: Corregir un movimiento con su inverso
+      description: |
+        El servidor genera el movimiento inverso y lo enlaza con `corrige_a_id`:
+        - Una entrada se corrige con una baja de motivo `CORRECCION`.
+        - Una baja se corrige con una entrada.
+        - Una transferencia se corrige con la transferencia en sentido contrario.
+
+        Cada movimiento se corrige una sola vez, y una corrección no se corrige: se registra el movimiento correcto.
+      x-nivel-acceso: LECTURA_ESCRITURA
+      security:
+        - sesion: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CorreccionCrear'
+            examples:
+              rotura:
+                summary: POST /movimientos/28/correccion
+                dataValue:
+                  nota: La cápsula no estaba rota; se registró por error
+      responses:
+        '201':
+          $ref: '#/components/responses/MovimientoRegistrado'
+        '400':
+          $ref: '#/components/responses/Validacion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+        '409':
+          description: El movimiento ya fue corregido, es en sí una corrección, o la clave de idempotencia se reutilizó.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+              examples:
+                yaCorregido:
+                  summary: POST /movimientos/22/correccion
+                  dataValue:
+                    type: https://hogar.example/errores/movimiento-ya-corregido
+                    title: Movimiento ya corregido
+                    status: 409
+                    code: MOVIMIENTO_YA_CORREGIDO
+                    detail: El movimiento 22 ya fue corregido por el movimiento 23.
+                    instance: /api/v1/movimientos/22/correccion
+                esCorreccion:
+                  summary: POST /movimientos/23/correccion
+                  dataValue:
+                    type: https://hogar.example/errores/movimiento-es-correccion
+                    title: No se puede corregir una corrección
+                    status: 409
+                    code: MOVIMIENTO_ES_CORRECCION
+                    detail: El movimiento 23 es la corrección del 22; registre el movimiento correcto en su lugar.
+                    instance: /api/v1/movimientos/23/correccion
+        '422':
+          $ref: '#/components/responses/ReglaNegocio'
+
+  # ------------------------------------------------------------------
+  # 5. Existencias
+  # ------------------------------------------------------------------
+  /existencias:
+    get:
+      tags: [Existencias]
+      operationId: listarExistencias
+      x-alcance: MVP
+      summary: Consultar existencias
+      description: |
+        Filtros combinables. `q` busca por nombre comercial o principio activo, sin acentos (mínimo 3 caracteres).
+        Por defecto solo devuelve saldos mayores a 0.
+      x-nivel-acceso: SOLO_LECTURA
+      parameters:
+        - name: entidad_id
+          in: query
+          description: Paciente (id del residente) o el Hogar.
+          schema:
+            $ref: '#/components/schemas/Id'
+        - name: medicamento_id
+          in: query
+          schema:
+            $ref: '#/components/schemas/Id'
+        - name: principio_activo_id
+          in: query
+          schema:
+            $ref: '#/components/schemas/Id'
+        - $ref: '#/components/parameters/Busqueda'
+        - name: incluir_sin_saldo
+          in: query
+          schema:
+            type: boolean
+            default: false
+        - $ref: '#/components/parameters/Pagina'
+        - $ref: '#/components/parameters/PorPagina'
+      responses:
+        '200':
+          description: Página de existencias, ordenada por entidad (Hogar primero) y nombre comercial.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginaExistencias'
+              examples:
+                losartan:
+                  summary: GET /existencias?principio_activo_id=2
+                  dataValue:
+                    total: 3
+                    pagina: 1
+                    por_pagina: 20
+                    resultados:
+                      - entidad: { id: 1, tipo: HOGAR, nombre: Hogar Gerontológico Demo, activa: true }
+                        medicamento: { id: 2, nombre_comercial: Losartán, presentacion: tableta, concentracion: 50 mg }
+                        saldo: 20
+                        actualizado_en: '2026-10-02T09:00:00-06:00'
+                      - entidad: { id: 102, tipo: RESIDENTE, nombre: José Luis Ramírez Ortega, activa: true }
+                        medicamento: { id: 3, nombre_comercial: Cozaar, presentacion: tableta, concentracion: 50 mg }
+                        saldo: 32
+                        actualizado_en: '2026-10-03T11:00:00-06:00'
+                      - entidad: { id: 102, tipo: RESIDENTE, nombre: José Luis Ramírez Ortega, activa: true }
+                        medicamento: { id: 2, nombre_comercial: Losartán, presentacion: tableta, concentracion: 50 mg }
+                        saldo: 10
+                        actualizado_en: '2026-10-02T09:00:00-06:00'
+        '400':
+          $ref: '#/components/responses/Validacion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+
+  # ------------------------------------------------------------------
+  # 6. Conteos físicos
+  # ------------------------------------------------------------------
+  /conteos:
+    get:
+      tags: [Conteos]
+      operationId: listarConteos
+      x-alcance: V2
+      summary: Listar conteos físicos
+      x-nivel-acceso: SOLO_LECTURA
+      parameters:
+        - name: entidad_id
+          in: query
+          schema:
+            $ref: '#/components/schemas/Id'
+        - name: estado
+          in: query
+          schema:
+            $ref: '#/components/schemas/EstadoConteo'
+        - $ref: '#/components/parameters/Pagina'
+        - $ref: '#/components/parameters/PorPagina'
+      responses:
+        '200':
+          description: Página de conteos, del período más reciente al más antiguo (sin renglones).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginaConteos'
+        '400':
+          $ref: '#/components/responses/Validacion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+    post:
+      tags: [Conteos]
+      operationId: crearConteo
+      x-alcance: V2
+      summary: Iniciar un conteo físico
+      x-nivel-acceso: LECTURA_ESCRITURA
+      security:
+        - sesion: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConteoCrear'
+            examples:
+              carmen:
+                dataValue:
+                  entidad_id: 103
+                  periodo_inicio: '2026-10-01'
+                  periodo_fin: '2026-10-31'
+                  nota: Corte mensual de Carmen
+      responses:
+        '201':
+          description: Conteo creado en estado `EN_PROCESO`, sin renglones.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conteo'
+        '400':
+          $ref: '#/components/responses/Validacion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '422':
+          $ref: '#/components/responses/ReglaNegocio'
+
+  /conteos/{conteo_id}:
+    parameters:
+      - $ref: '#/components/parameters/ConteoId'
+    get:
+      tags: [Conteos]
+      operationId: obtenerConteo
+      x-alcance: V2
+      summary: Obtener un conteo con sus renglones y diferencias
+      x-nivel-acceso: SOLO_LECTURA
+      responses:
+        '200':
+          description: Conteo con renglones.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conteo'
+              examples:
+                hogar:
+                  summary: GET /conteos/2
+                  dataValue:
+                    id: 2
+                    entidad: { id: 1, tipo: HOGAR, nombre: Hogar Gerontológico Demo, activa: true }
+                    periodo_inicio: '2026-10-01'
+                    periodo_fin: '2026-10-15'
+                    estado: EN_PROCESO
+                    usuario: { id: 2, username: operador.demo }
+                    creado_en: '2026-10-15T18:00:00-06:00'
+                    cerrado_en: null
+                    nota: Conteo quincenal del botiquín del hogar. Faltan por contar Losartán y Tempra.
+                    resumen: { renglones: 3, con_diferencia: 1, diferencia_total: -1 }
+                    detalles:
+                      - medicamento: { id: 5, nombre_comercial: Omeprazol, presentacion: cápsula, concentracion: 20 mg }
+                        cantidad_fisica: 58
+                        cantidad_sistema: 59
+                        diferencia: -1
+                      - medicamento: { id: 6, nombre_comercial: Paracetamol, presentacion: tableta, concentracion: 500 mg }
+                        cantidad_fisica: 80
+                        cantidad_sistema: 80
+                        diferencia: 0
+                      - medicamento: { id: 10, nombre_comercial: Aspirina Protect, presentacion: tableta, concentracion: 100 mg }
+                        cantidad_fisica: 58
+                        cantidad_sistema: 58
+                        diferencia: 0
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+
+  /conteos/{conteo_id}/detalles/{medicamento_id}:
+    parameters:
+      - $ref: '#/components/parameters/ConteoId'
+      - $ref: '#/components/parameters/MedicamentoId'
+    put:
+      tags: [Conteos]
+      operationId: capturarRenglonConteo
+      x-alcance: V2
+      summary: Capturar o corregir la cantidad física de un medicamento
+      description: |
+        Idempotente: crea el renglón o reemplaza la cantidad física. En cada captura, el servidor toma la foto
+        `cantidad_sistema` con el saldo registrado en ese momento, y la base de datos calcula `diferencia`.
+        Se puede contar un medicamento sin existencia registrada (`cantidad_sistema = 0`).
+      x-nivel-acceso: LECTURA_ESCRITURA
+      security:
+        - sesion: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DetalleConteoCaptura'
+            examples:
+              losartan:
+                summary: PUT /conteos/2/detalles/2
+                dataValue:
+                  cantidad_fisica: 20
+      responses:
+        '200':
+          description: Renglón reemplazado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetalleConteo'
+        '201':
+          description: Renglón creado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DetalleConteo'
+              examples:
+                losartan:
+                  dataValue:
+                    medicamento: { id: 2, nombre_comercial: Losartán, presentacion: tableta, concentracion: 50 mg }
+                    cantidad_fisica: 20
+                    cantidad_sistema: 20
+                    diferencia: 0
+        '400':
+          $ref: '#/components/responses/Validacion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+        '409':
+          $ref: '#/components/responses/ConteoCerrado'
+    delete:
+      tags: [Conteos]
+      operationId: eliminarRenglonConteo
+      x-alcance: V2
+      summary: Quitar un renglón de un conteo en proceso
+      x-nivel-acceso: LECTURA_ESCRITURA
+      security:
+        - sesion: []
+          csrf: []
+      responses:
+        '204':
+          description: Renglón eliminado.
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+        '409':
+          $ref: '#/components/responses/ConteoCerrado'
+
+  /conteos/{conteo_id}/cierre:
+    parameters:
+      - $ref: '#/components/parameters/ConteoId'
+    post:
+      tags: [Conteos]
+      operationId: cerrarConteo
+      x-alcance: V2
+      summary: Cerrar un conteo
+      description: |
+        Pasa el conteo a `CERRADO`; a partir de ahí es inmutable. El cierre **no ajusta existencias**:
+        las diferencias se resuelven registrando movimientos (por ejemplo, una baja por `MERMA`).
+      x-nivel-acceso: LECTURA_ESCRITURA
+      security:
+        - sesion: []
+          csrf: []
+      responses:
+        '200':
+          description: Conteo cerrado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conteo'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+        '409':
+          $ref: '#/components/responses/ConteoCerrado'
+        '422':
+          description: El conteo no tiene renglones.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problema'
+              examples:
+                vacio:
+                  dataValue:
+                    type: https://hogar.example/errores/conteo-sin-renglones
+                    title: Conteo sin renglones
+                    status: 422
+                    code: CONTEO_SIN_RENGLONES
+                    detail: Capture al menos un medicamento antes de cerrar el conteo 3.
+                    instance: /api/v1/conteos/3/cierre
+
+  # ------------------------------------------------------------------
+  # 7. Reporte mensual
+  # ------------------------------------------------------------------
+  /reportes/mensual:
+    get:
+      tags: [Reportes]
+      operationId: obtenerReporteMensual
+      x-alcance: MVP
+      summary: Movimientos y saldos de un mes
+      description: |
+        Por entidad y medicamento: saldo al inicio del mes, entradas, transferencias recibidas y enviadas,
+        bajas (total y por motivo) y saldo al cierre. Se calcula al momento a partir de `movimiento`;
+        un mes en curso muestra el saldo a la fecha.
+      x-nivel-acceso: SOLO_LECTURA
+      parameters:
+        - name: anio
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 2020
+            maximum: 2100
+          example: 2026
+        - name: mes
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 12
+          example: 9
+        - name: entidad_id
+          in: query
+          description: Si se omite, incluye todas las entidades con movimientos o saldo en el mes.
+          schema:
+            $ref: '#/components/schemas/Id'
+      responses:
+        '200':
+          description: Reporte del mes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReporteMensual'
+              examples:
+                mariaSeptiembre:
+                  summary: GET /reportes/mensual?anio=2026&mes=9&entidad_id=101
+                  dataValue:
+                    anio: 2026
+                    mes: 9
+                    desde: '2026-09-01'
+                    hasta: '2026-09-30'
+                    generado_en: '2026-10-19T09:00:00-06:00'
+                    entidades:
+                      - entidad: { id: 101, tipo: RESIDENTE, nombre: María Guadalupe Hernández López, activa: true }
+                        medicamentos:
+                          - medicamento: { id: 9, nombre_comercial: Atorvastatina, presentacion: tableta, concentracion: 20 mg }
+                            saldo_inicial: 0
+                            entradas: 30
+                            transferencias_recibidas: 0
+                            transferencias_enviadas: 0
+                            bajas: 29
+                            bajas_por_motivo: { CONSUMO: 29 }
+                            saldo_final: 1
+                          - medicamento: { id: 1, nombre_comercial: Metformina, presentacion: tableta, concentracion: 850 mg }
+                            saldo_inicial: 0
+                            entradas: 60
+                            transferencias_recibidas: 0
+                            transferencias_enviadas: 0
+                            bajas: 58
+                            bajas_por_motivo: { CONSUMO: 58 }
+                            saldo_final: 2
+        '400':
+          $ref: '#/components/responses/Validacion'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '404':
+          $ref: '#/components/responses/NoEncontrado'
+
+components:
+  securitySchemes:
+    sesion:
+      type: apiKey
+      in: cookie
+      name: sessionid
+      description: Cookie de sesión de Django, emitida por `POST /auth/login`.
+    csrf:
+      type: apiKey
+      in: header
+      name: X-CSRFToken
+      description: Valor de la cookie `csrftoken`. Obligatorio en `POST`, `PUT`, `PATCH` y `DELETE`.
+
+  headers:
+    Location:
+      description: URL del recurso creado.
+      schema:
+        type: string
+        format: uri-reference
+      example: /api/v1/medicamentos/16
+
+  parameters:
+    Pagina:
+      name: pagina
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PorPagina:
+      name: por_pagina
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    Busqueda:
+      name: q
+      in: query
+      description: Texto a buscar; sin distinguir mayúsculas ni acentos.
+      schema:
+        type: string
+        minLength: 3
+        maxLength: 100
+      example: losartan
+    Desde:
+      name: desde
+      in: query
+      description: Fecha inicial inclusiva.
+      schema:
+        type: string
+        format: date
+      example: '2026-09-01'
+    Hasta:
+      name: hasta
+      in: query
+      description: Fecha final inclusiva. Debe ser mayor o igual a `desde`.
+      schema:
+        type: string
+        format: date
+      example: '2026-09-30'
+    MedicamentoId:
+      name: medicamento_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Id'
+      example: 6
+    ResidenteId:
+      name: residente_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Id'
+      example: 103
+    MovimientoId:
+      name: movimiento_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Id'
+      example: 28
+    ConteoId:
+      name: conteo_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Id'
+      example: 2
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      description: |
+        Opcional y recomendado desde el celular. Si la misma clave se reenvía en las siguientes 24 h con el mismo
+        cuerpo, el servidor responde el mismo `201` sin registrar un movimiento duplicado. Con otro cuerpo responde
+        `409 IDEMPOTENCIA_CONFLICTO`.
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 64
+        pattern: '^[A-Za-z0-9_-]+$'
+      example: 3f6c2a9e-7d41-4b8a-9f0e-2c5d8b1a4e77
+
+  responses:
+    Validacion:
+      description: La petición no cumple el esquema o las validaciones de campos.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problema'
+          examples:
+            campos:
+              summary: POST /residentes con apellido vacío y fecha de ingreso anterior al nacimiento
+              dataValue:
+                type: https://hogar.example/errores/validacion
+                title: Datos inválidos
+                status: 400
+                code: VALIDACION
+                detail: La petición tiene 2 errores de validación.
+                instance: /api/v1/residentes
+                errores:
+                  - { campo: primer_apellido, codigo: CAMPO_VACIO, mensaje: El primer apellido es obligatorio. }
+                  - { campo: fecha_ingreso, codigo: FECHA_INVALIDA, mensaje: La fecha de ingreso no puede ser anterior a la fecha de nacimiento. }
+            desconocido:
+              dataValue:
+                type: https://hogar.example/errores/validacion
+                title: Datos inválidos
+                status: 400
+                code: VALIDACION
+                detail: La petición tiene 1 error de validación.
+                instance: /api/v1/movimientos/entradas
+                errores:
+                  - { campo: saldo, codigo: CAMPO_DESCONOCIDO, mensaje: El campo "saldo" no está permitido. }
+    NoAutenticado:
+      description: Falta la sesión o expiró.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problema'
+          examples:
+            sinSesion:
+              dataValue:
+                type: https://hogar.example/errores/no-autenticado
+                title: No autenticado
+                status: 401
+                code: NO_AUTENTICADO
+                detail: Inicie sesión para continuar.
+                instance: /api/v1/existencias
+    SinPermiso:
+      description: El usuario no tiene el nivel de acceso requerido, o falta o es inválido el token CSRF.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problema'
+          examples:
+            soloLectura:
+              summary: consulta.demo intenta registrar una baja
+              dataValue:
+                type: https://hogar.example/errores/sin-permiso
+                title: Sin permiso
+                status: 403
+                code: SIN_PERMISO
+                detail: Su nivel de acceso (Solo lectura) no permite registrar movimientos.
+                instance: /api/v1/movimientos/bajas
+            csrf:
+              dataValue:
+                type: https://hogar.example/errores/csrf-invalido
+                title: Token CSRF inválido
+                status: 403
+                code: CSRF_INVALIDO
+                detail: Falta la cabecera X-CSRFToken o no coincide con la cookie csrftoken.
+                instance: /api/v1/movimientos/bajas
+    CsrfInvalido:
+      description: Falta o es inválido el token CSRF.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problema'
+          examples:
+            csrf:
+              dataValue:
+                type: https://hogar.example/errores/csrf-invalido
+                title: Token CSRF inválido
+                status: 403
+                code: CSRF_INVALIDO
+                detail: Falta la cabecera X-CSRFToken o no coincide con la cookie csrftoken.
+                instance: /api/v1/auth/login
+    NoEncontrado:
+      description: El recurso no existe.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problema'
+          examples:
+            medicamento:
+              dataValue:
+                type: https://hogar.example/errores/no-encontrado
+                title: No encontrado
+                status: 404
+                code: NO_ENCONTRADO
+                detail: No existe el medicamento 999.
+                instance: /api/v1/medicamentos/999
+    EstadoInvalido:
+      description: La operación no es válida en el estado actual del recurso.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problema'
+          examples:
+            egresado:
+              dataValue:
+                type: https://hogar.example/errores/estado-invalido
+                title: Estado inválido
+                status: 409
+                code: ESTADO_INVALIDO
+                detail: El residente 102 ya tiene estado EGRESADO.
+                instance: /api/v1/residentes/102/egreso
+    MedicamentoDuplicado:
+      description: Ya existe un medicamento con el mismo nombre comercial, presentación y concentración (sin distinguir mayúsculas ni acentos).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problema'
+          examples:
+            losartan:
+              dataValue:
+                type: https://hogar.example/errores/medicamento-duplicado
+                title: Medicamento duplicado
+                status: 409
+                code: MEDICAMENTO_DUPLICADO
+                detail: Ya existe "Losartán 50 mg" en tableta (medicamento 2).
+                instance: /api/v1/medicamentos
+    ConteoCerrado:
+      description: El conteo está cerrado y no se puede modificar.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problema'
+          examples:
+            cerrado:
+              summary: PUT /conteos/1/detalles/6
+              dataValue:
+                type: https://hogar.example/errores/conteo-cerrado
+                title: Conteo cerrado
+                status: 409
+                code: CONTEO_CERRADO
+                detail: El conteo 1 se cerró el 2026-09-30 a las 21:30 y ya no se puede modificar.
+                instance: /api/v1/conteos/1/detalles/6
+    IdempotenciaConflicto:
+      description: La clave de idempotencia ya se usó con un cuerpo distinto.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problema'
+          examples:
+            conflicto:
+              dataValue:
+                type: https://hogar.example/errores/idempotencia-conflicto
+                title: Clave de idempotencia reutilizada
+                status: 409
+                code: IDEMPOTENCIA_CONFLICTO
+                detail: La clave 3f6c2a9e-7d41-4b8a-9f0e-2c5d8b1a4e77 ya se usó con otros datos.
+                instance: /api/v1/movimientos/entradas
+    ReglaNegocio:
+      description: La petición es válida, pero viola una regla de negocio.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problema'
+          examples:
+            existenciaInsuficiente:
+              summary: Transferir 100 dosis cuando el Hogar tiene 80
+              dataValue:
+                type: https://hogar.example/errores/existencia-insuficiente
+                title: Existencia insuficiente
+                status: 422
+                code: EXISTENCIA_INSUFICIENTE
+                detail: El Hogar tiene 80 dosis de Paracetamol 500 mg; se intentó retirar 100.
+                instance: /api/v1/movimientos/transferencias
+                disponible: 80
+                solicitado: 100
+            entidadInactiva:
+              dataValue:
+                type: https://hogar.example/errores/entidad-inactiva
+                title: Entidad inactiva
+                status: 422
+                code: ENTIDAD_INACTIVA
+                detail: José Luis Ramírez Ortega tiene estado EGRESADO y no puede recibir medicamentos.
+                instance: /api/v1/movimientos/transferencias
+            medicamentoInactivo:
+              dataValue:
+                type: https://hogar.example/errores/medicamento-inactivo
+                title: Medicamento dado de baja
+                status: 422
+                code: MEDICAMENTO_INACTIVO
+                detail: Tempra está dado de baja; reactívelo antes de registrar entradas.
+                instance: /api/v1/movimientos/entradas
+            mismaEntidad:
+              dataValue:
+                type: https://hogar.example/errores/misma-entidad
+                title: Origen y destino iguales
+                status: 422
+                code: MISMA_ENTIDAD
+                detail: El origen y el destino de una transferencia deben ser distintos.
+                instance: /api/v1/movimientos/transferencias
+            motivoReservado:
+              dataValue:
+                type: https://hogar.example/errores/motivo-reservado
+                title: Motivo reservado
+                status: 422
+                code: MOTIVO_RESERVADO
+                detail: El motivo CORRECCION solo se usa desde POST /movimientos/{id}/correccion.
+                instance: /api/v1/movimientos/bajas
+            referenciaInvalida:
+              dataValue:
+                type: https://hogar.example/errores/referencia-invalida
+                title: Referencia inválida
+                status: 422
+                code: REFERENCIA_INVALIDA
+                detail: No existe la entidad 999.
+                instance: /api/v1/movimientos/entradas
+    DemasiadosIntentos:
+      description: Cuenta bloqueada temporalmente tras 5 intentos fallidos (django-axes).
+      headers:
+        Retry-After:
+          description: Segundos hasta poder reintentar.
+          schema:
+            type: integer
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problema'
+          examples:
+            bloqueo:
+              dataValue:
+                type: https://hogar.example/errores/demasiados-intentos
+                title: Demasiados intentos
+                status: 429
+                code: DEMASIADOS_INTENTOS
+                detail: La cuenta está bloqueada durante 15 minutos por intentos fallidos.
+                instance: /api/v1/auth/login
+    ErrorInterno:
+      description: Error inesperado del servidor. El detalle no expone información interna.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problema'
+          examples:
+            interno:
+              dataValue:
+                type: https://hogar.example/errores/error-interno
+                title: Error interno
+                status: 500
+                code: ERROR_INTERNO
+                detail: Ocurrió un error inesperado. Referencia 7c1e2d.
+                instance: /api/v1/movimientos/transferencias
+    MovimientoRegistrado:
+      description: Movimiento registrado, con los saldos resultantes de las entidades afectadas.
+      headers:
+        Location:
+          $ref: '#/components/headers/Location'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/MovimientoRegistrado'
+          examples:
+            transferencia:
+              summary: Transferencia de 10 dosis de Paracetamol del Hogar a Carmen
+              dataValue:
+                movimiento:
+                  id: 29
+                  tipo: TRANSFERENCIA
+                  medicamento: { id: 6, nombre_comercial: Paracetamol, presentacion: tableta, concentracion: 500 mg }
+                  cantidad: 10
+                  entidad_origen: { id: 1, tipo: HOGAR, nombre: Hogar Gerontológico Demo, activa: true }
+                  entidad_destino: { id: 103, tipo: RESIDENTE, nombre: Carmen Torres Vega, activa: true }
+                  motivo_baja: null
+                  origen_entrada: null
+                  entregado_por: null
+                  corrige_a_id: null
+                  corregido_por_id: null
+                  nota: Reposición para su pauta en caso necesario
+                  usuario: { id: 2, username: operador.demo }
+                  fecha_hora: '2026-10-19T09:30:00-06:00'
+                saldos:
+                  - { entidad_id: 1, medicamento_id: 6, saldo: 70 }
+                  - { entidad_id: 103, medicamento_id: 6, saldo: 24 }
+            correccion:
+              summary: Corrección de la baja por rotura 28 (genera una entrada)
+              dataValue:
+                movimiento:
+                  id: 30
+                  tipo: ENTRADA
+                  medicamento: { id: 5, nombre_comercial: Omeprazol, presentacion: cápsula, concentracion: 20 mg }
+                  cantidad: 1
+                  entidad_origen: null
+                  entidad_destino: { id: 1, tipo: HOGAR, nombre: Hogar Gerontológico Demo, activa: true }
+                  motivo_baja: null
+                  origen_entrada: null
+                  entregado_por: null
+                  corrige_a_id: 28
+                  corregido_por_id: null
+                  nota: La cápsula no estaba rota; se registró por error
+                  usuario: { id: 2, username: operador.demo }
+                  fecha_hora: '2026-10-19T09:40:00-06:00'
+                saldos:
+                  - { entidad_id: 1, medicamento_id: 5, saldo: 60 }
+
+  schemas:
+    # ---------------- Tipos base ----------------
+    Id:
+      type: integer
+      format: int64
+      minimum: 1
+    Cantidad:
+      description: Dosis, con hasta 2 decimales.
+      type: number
+      exclusiveMinimum: 0
+      maximum: 99999999.99
+      multipleOf: 0.01
+    Saldo:
+      description: Dosis disponibles (nunca negativo).
+      type: number
+      minimum: 0
+      maximum: 99999999.99
+    Diferencia:
+      description: Cantidad física menos cantidad del sistema.
+      type: number
+    TextoObligatorio:
+      type: string
+      minLength: 1
+      pattern: '\S'
+    Nota:
+      type: [string, 'null']
+      maxLength: 1000
+    FechaHora:
+      type: string
+      format: date-time
+    TipoMedicamento:
+      type: string
+      enum: [GENERICO, ORIGINAL]
+    TipoEntidad:
+      type: string
+      enum: [HOGAR, RESIDENTE]
+    EstadoResidente:
+      type: string
+      enum: [ACTIVO, EGRESADO, FALLECIDO]
+    TipoMovimiento:
+      type: string
+      enum: [ENTRADA, TRANSFERENCIA, BAJA]
+    OrigenEntrada:
+      type: string
+      enum: [FAMILIAR, HOGAR, OTRO]
+    EstadoConteo:
+      type: string
+      enum: [EN_PROCESO, CERRADO]
+    NivelAcceso:
+      type: string
+      enum: [SOLO_LECTURA, LECTURA_ESCRITURA, ADMINISTRADOR]
+
+    # ---------------- Errores (RFC 9457) ----------------
+    CodigoError:
+      type: string
+      enum:
+        - VALIDACION
+        - NO_AUTENTICADO
+        - CREDENCIALES_INVALIDAS
+        - SIN_PERMISO
+        - CSRF_INVALIDO
+        - NO_ENCONTRADO
+        - METODO_NO_PERMITIDO
+        - ESTADO_INVALIDO
+        - MEDICAMENTO_DUPLICADO
+        - PRINCIPIO_ACTIVO_DUPLICADO
+        - MEDICAMENTO_CON_EXISTENCIAS
+        - MOVIMIENTO_YA_CORREGIDO
+        - MOVIMIENTO_ES_CORRECCION
+        - CONTEO_CERRADO
+        - IDEMPOTENCIA_CONFLICTO
+        - EXISTENCIA_INSUFICIENTE
+        - ENTIDAD_INACTIVA
+        - MEDICAMENTO_INACTIVO
+        - MISMA_ENTIDAD
+        - MOTIVO_RESERVADO
+        - REFERENCIA_INVALIDA
+        - CONTEO_SIN_RENGLONES
+        - DEMASIADOS_INTENTOS
+        - ERROR_INTERNO
+    ErrorCampo:
+      type: object
+      additionalProperties: false
+      required: [campo, codigo, mensaje]
+      properties:
+        campo:
+          description: Ruta del campo (`cantidad`, `principios_activos_ids[0]`) o `non_field_errors`.
+          type: string
+        codigo:
+          type: string
+          enum: [CAMPO_REQUERIDO, CAMPO_VACIO, CAMPO_DESCONOCIDO, TIPO_INVALIDO, FORMATO_INVALIDO,
+                 VALOR_FUERA_DE_RANGO, LONGITUD_INVALIDA, OPCION_INVALIDA, FECHA_INVALIDA,
+                 PERIODO_INVALIDO, REFERENCIA_INVALIDA]
+        mensaje:
+          type: string
+    Problema:
+      description: Problem Details (RFC 9457) con extensiones de la aplicación.
+      type: object
+      required: [type, title, status, code, detail]
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+        code:
+          $ref: '#/components/schemas/CodigoError'
+        errores:
+          description: Solo en `VALIDACION` y `REFERENCIA_INVALIDA`.
+          type: array
+          items:
+            $ref: '#/components/schemas/ErrorCampo'
+        disponible:
+          description: Solo en `EXISTENCIA_INSUFICIENTE`.
+          $ref: '#/components/schemas/Saldo'
+        solicitado:
+          description: Solo en `EXISTENCIA_INSUFICIENTE`.
+          $ref: '#/components/schemas/Cantidad'
+
+    # ---------------- Paginación ----------------
+    Pagina:
+      type: object
+      required: [total, pagina, por_pagina, resultados]
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        pagina:
+          type: integer
+          minimum: 1
+        por_pagina:
+          type: integer
+          minimum: 1
+          maximum: 100
+        resultados:
+          type: array
+    PaginaPrincipiosActivos:
+      allOf:
+        - $ref: '#/components/schemas/Pagina'
+        - type: object
+          properties:
+            resultados:
+              type: array
+              items:
+                $ref: '#/components/schemas/PrincipioActivo'
+    PaginaMedicamentos:
+      allOf:
+        - $ref: '#/components/schemas/Pagina'
+        - type: object
+          properties:
+            resultados:
+              type: array
+              items:
+                $ref: '#/components/schemas/Medicamento'
+    PaginaResidentes:
+      allOf:
+        - $ref: '#/components/schemas/Pagina'
+        - type: object
+          properties:
+            resultados:
+              type: array
+              items:
+                $ref: '#/components/schemas/Residente'
+    PaginaMovimientos:
+      allOf:
+        - $ref: '#/components/schemas/Pagina'
+        - type: object
+          properties:
+            resultados:
+              type: array
+              items:
+                $ref: '#/components/schemas/Movimiento'
+    PaginaExistencias:
+      allOf:
+        - $ref: '#/components/schemas/Pagina'
+        - type: object
+          properties:
+            resultados:
+              type: array
+              items:
+                $ref: '#/components/schemas/Existencia'
+    PaginaConteos:
+      allOf:
+        - $ref: '#/components/schemas/Pagina'
+        - type: object
+          properties:
+            resultados:
+              type: array
+              items:
+                $ref: '#/components/schemas/ConteoResumen'
+
+    # ---------------- Autenticación ----------------
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          minLength: 1
+          maxLength: 150
+        password:
+          type: string
+          minLength: 1
+          maxLength: 128
+          writeOnly: true
+    UsuarioActual:
+      type: object
+      required: [id, username, nombre, nivel_acceso]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        username:
+          type: string
+        nombre:
+          type: string
+        nivel_acceso:
+          $ref: '#/components/schemas/NivelAcceso'
+    UsuarioResumen:
+      type: object
+      required: [id, username]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        username:
+          type: string
+
+    # ---------------- Catálogos ----------------
+    Presentacion:
+      type: object
+      required: [id, nombre]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        nombre:
+          type: string
+    MotivoBaja:
+      type: object
+      required: [id, clave, descripcion]
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        clave:
+          type: string
+          maxLength: 30
+        descripcion:
+          type: string
+    PrincipioActivo:
+      type: object
+      required: [id, nombre]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        nombre:
+          type: string
+    PrincipioActivoCrear:
+      type: object
+      additionalProperties: false
+      required: [nombre]
+      properties:
+        nombre:
+          allOf:
+            - $ref: '#/components/schemas/TextoObligatorio'
+          maxLength: 150
+
+    # ---------------- Medicamentos ----------------
+    Medicamento:
+      type: object
+      required: [id, nombre_comercial, tipo, presentacion, concentracion, principios_activos, activo, creado_en, actualizado_en]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        nombre_comercial:
+          type: string
+        tipo:
+          $ref: '#/components/schemas/TipoMedicamento'
+        presentacion:
+          $ref: '#/components/schemas/Presentacion'
+        concentracion:
+          type: string
+        principios_activos:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/PrincipioActivo'
+        activo:
+          type: boolean
+        creado_en:
+          $ref: '#/components/schemas/FechaHora'
+        actualizado_en:
+          $ref: '#/components/schemas/FechaHora'
+    MedicamentoResumen:
+      type: object
+      required: [id, nombre_comercial, presentacion, concentracion]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        nombre_comercial:
+          type: string
+        presentacion:
+          description: Nombre de la presentación.
+          type: string
+        concentracion:
+          type: string
+    MedicamentoCrear:
+      type: object
+      additionalProperties: false
+      required: [nombre_comercial, tipo, presentacion_id, concentracion, principios_activos_ids]
+      properties:
+        nombre_comercial:
+          allOf:
+            - $ref: '#/components/schemas/TextoObligatorio'
+          maxLength: 150
+        tipo:
+          $ref: '#/components/schemas/TipoMedicamento'
+        presentacion_id:
+          type: integer
+          minimum: 1
+        concentracion:
+          allOf:
+            - $ref: '#/components/schemas/TextoObligatorio'
+          maxLength: 60
+        principios_activos_ids:
+          type: array
+          minItems: 1
+          maxItems: 5
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/Id'
+    MedicamentoActualizar:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        nombre_comercial:
+          allOf:
+            - $ref: '#/components/schemas/TextoObligatorio'
+          maxLength: 150
+        tipo:
+          $ref: '#/components/schemas/TipoMedicamento'
+        presentacion_id:
+          type: integer
+          minimum: 1
+        concentracion:
+          allOf:
+            - $ref: '#/components/schemas/TextoObligatorio'
+          maxLength: 60
+        principios_activos_ids:
+          type: array
+          minItems: 1
+          maxItems: 5
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/Id'
+
+    # ---------------- Entidades y residentes ----------------
+    EntidadResumen:
+      type: object
+      required: [id, tipo, nombre, activa]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        tipo:
+          $ref: '#/components/schemas/TipoEntidad'
+        nombre:
+          description: Nombre del Hogar o nombre completo del residente (calculado).
+          type: string
+        activa:
+          type: boolean
+    Residente:
+      type: object
+      required: [id, primer_nombre, segundo_nombre, primer_apellido, segundo_apellido, nombre_completo,
+                 fecha_nacimiento, fecha_ingreso, estado, fecha_baja]
+      properties:
+        id:
+          description: Id del residente, igual al de su entidad.
+          $ref: '#/components/schemas/Id'
+        primer_nombre:
+          type: string
+        segundo_nombre:
+          type: [string, 'null']
+        primer_apellido:
+          type: string
+        segundo_apellido:
+          type: [string, 'null']
+        nombre_completo:
+          type: string
+          readOnly: true
+        fecha_nacimiento:
+          type: string
+          format: date
+        fecha_ingreso:
+          type: string
+          format: date
+        estado:
+          $ref: '#/components/schemas/EstadoResidente'
+        fecha_baja:
+          type: [string, 'null']
+          format: date
+    ResidenteCrear:
+      description: 'Validaciones adicionales del servidor: `fecha_nacimiento` ≥ 1900-01-01 y no futura; `fecha_ingreso` ≥ `fecha_nacimiento`.'
+      type: object
+      additionalProperties: false
+      required: [primer_nombre, primer_apellido, fecha_nacimiento, fecha_ingreso]
+      properties:
+        primer_nombre:
+          allOf:
+            - $ref: '#/components/schemas/TextoObligatorio'
+          maxLength: 60
+        segundo_nombre:
+          type: [string, 'null']
+          maxLength: 60
+        primer_apellido:
+          allOf:
+            - $ref: '#/components/schemas/TextoObligatorio'
+          maxLength: 60
+        segundo_apellido:
+          type: [string, 'null']
+          maxLength: 60
+        fecha_nacimiento:
+          type: string
+          format: date
+        fecha_ingreso:
+          type: string
+          format: date
+    ResidenteActualizar:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        primer_nombre:
+          allOf:
+            - $ref: '#/components/schemas/TextoObligatorio'
+          maxLength: 60
+        segundo_nombre:
+          type: [string, 'null']
+          maxLength: 60
+        primer_apellido:
+          allOf:
+            - $ref: '#/components/schemas/TextoObligatorio'
+          maxLength: 60
+        segundo_apellido:
+          type: [string, 'null']
+          maxLength: 60
+        fecha_nacimiento:
+          type: string
+          format: date
+        fecha_ingreso:
+          type: string
+          format: date
+    EgresoRequest:
+      description: '`fecha_baja` debe ser ≥ `fecha_ingreso` y no futura.'
+      type: object
+      additionalProperties: false
+      required: [estado, fecha_baja]
+      properties:
+        estado:
+          type: string
+          enum: [EGRESADO, FALLECIDO]
+        fecha_baja:
+          type: string
+          format: date
+    EgresoRespuesta:
+      type: object
+      required: [residente, existencias_pendientes]
+      properties:
+        residente:
+          $ref: '#/components/schemas/Residente'
+        existencias_pendientes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Existencia'
+
+    # ---------------- Existencias ----------------
+    Existencia:
+      type: object
+      required: [entidad, medicamento, saldo, actualizado_en]
+      properties:
+        entidad:
+          $ref: '#/components/schemas/EntidadResumen'
+        medicamento:
+          $ref: '#/components/schemas/MedicamentoResumen'
+        saldo:
+          $ref: '#/components/schemas/Saldo'
+        actualizado_en:
+          $ref: '#/components/schemas/FechaHora'
+    SaldoResultante:
+      type: object
+      required: [entidad_id, medicamento_id, saldo]
+      properties:
+        entidad_id:
+          $ref: '#/components/schemas/Id'
+        medicamento_id:
+          $ref: '#/components/schemas/Id'
+        saldo:
+          $ref: '#/components/schemas/Saldo'
+
+    # ---------------- Movimientos ----------------
+    Movimiento:
+      type: object
+      required: [id, tipo, medicamento, cantidad, entidad_origen, entidad_destino, motivo_baja, origen_entrada,
+                 entregado_por, corrige_a_id, corregido_por_id, nota, usuario, fecha_hora]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        tipo:
+          $ref: '#/components/schemas/TipoMovimiento'
+        medicamento:
+          $ref: '#/components/schemas/MedicamentoResumen'
+        cantidad:
+          $ref: '#/components/schemas/Cantidad'
+        entidad_origen:
+          oneOf:
+            - $ref: '#/components/schemas/EntidadResumen'
+            - type: 'null'
+        entidad_destino:
+          oneOf:
+            - $ref: '#/components/schemas/EntidadResumen'
+            - type: 'null'
+        motivo_baja:
+          oneOf:
+            - $ref: '#/components/schemas/MotivoBaja'
+            - type: 'null'
+        origen_entrada:
+          oneOf:
+            - $ref: '#/components/schemas/OrigenEntrada'
+            - type: 'null'
+        entregado_por:
+          type: [string, 'null']
+        corrige_a_id:
+          description: Movimiento que este corrige.
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        corregido_por_id:
+          description: Movimiento que corrigió a este (calculado).
+          readOnly: true
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        nota:
+          $ref: '#/components/schemas/Nota'
+        usuario:
+          $ref: '#/components/schemas/UsuarioResumen'
+        fecha_hora:
+          $ref: '#/components/schemas/FechaHora'
+    MovimientoRegistrado:
+      type: object
+      required: [movimiento, saldos]
+      properties:
+        movimiento:
+          $ref: '#/components/schemas/Movimiento'
+        saldos:
+          description: Saldo resultante de cada entidad afectada.
+          type: array
+          minItems: 1
+          maxItems: 2
+          items:
+            $ref: '#/components/schemas/SaldoResultante'
+    EntradaCrear:
+      type: object
+      additionalProperties: false
+      required: [entidad_destino_id, medicamento_id, cantidad, origen_entrada, entregado_por]
+      properties:
+        entidad_destino_id:
+          $ref: '#/components/schemas/Id'
+        medicamento_id:
+          $ref: '#/components/schemas/Id'
+        cantidad:
+          $ref: '#/components/schemas/Cantidad'
+        origen_entrada:
+          $ref: '#/components/schemas/OrigenEntrada'
+        entregado_por:
+          allOf:
+            - $ref: '#/components/schemas/TextoObligatorio'
+          maxLength: 150
+        nota:
+          $ref: '#/components/schemas/Nota'
+    TransferenciaCrear:
+      description: '`entidad_origen_id` y `entidad_destino_id` deben ser distintos (`422 MISMA_ENTIDAD`).'
+      type: object
+      additionalProperties: false
+      required: [entidad_origen_id, entidad_destino_id, medicamento_id, cantidad]
+      properties:
+        entidad_origen_id:
+          $ref: '#/components/schemas/Id'
+        entidad_destino_id:
+          $ref: '#/components/schemas/Id'
+        medicamento_id:
+          $ref: '#/components/schemas/Id'
+        cantidad:
+          $ref: '#/components/schemas/Cantidad'
+        nota:
+          $ref: '#/components/schemas/Nota'
+    BajaCrear:
+      type: object
+      additionalProperties: false
+      required: [entidad_origen_id, medicamento_id, cantidad, motivo_baja]
+      properties:
+        entidad_origen_id:
+          $ref: '#/components/schemas/Id'
+        medicamento_id:
+          $ref: '#/components/schemas/Id'
+        cantidad:
+          $ref: '#/components/schemas/Cantidad'
+        motivo_baja:
+          description: Clave de un motivo activo de `GET /motivos-baja`, excepto `CORRECCION`.
+          type: string
+          maxLength: 30
+          examples: [CONSUMO]
+        nota:
+          $ref: '#/components/schemas/Nota'
+    CorreccionCrear:
+      type: object
+      additionalProperties: false
+      required: [nota]
+      properties:
+        nota:
+          description: Motivo de la corrección (obligatorio, queda en el historial).
+          allOf:
+            - $ref: '#/components/schemas/TextoObligatorio'
+          maxLength: 1000
+
+    # ---------------- Conteos ----------------
+    ResumenConteo:
+      type: object
+      required: [renglones, con_diferencia, diferencia_total]
+      properties:
+        renglones:
+          type: integer
+          minimum: 0
+        con_diferencia:
+          type: integer
+          minimum: 0
+        diferencia_total:
+          $ref: '#/components/schemas/Diferencia'
+    ConteoResumen:
+      type: object
+      required: [id, entidad, periodo_inicio, periodo_fin, estado, usuario, creado_en, cerrado_en, nota, resumen]
+      properties:
+        id:
+          $ref: '#/components/schemas/Id'
+        entidad:
+          $ref: '#/components/schemas/EntidadResumen'
+        periodo_inicio:
+          type: string
+          format: date
+        periodo_fin:
+          type: string
+          format: date
+        estado:
+          $ref: '#/components/schemas/EstadoConteo'
+        usuario:
+          $ref: '#/components/schemas/UsuarioResumen'
+        creado_en:
+          $ref: '#/components/schemas/FechaHora'
+        cerrado_en:
+          type: [string, 'null']
+          format: date-time
+        nota:
+          $ref: '#/components/schemas/Nota'
+        resumen:
+          $ref: '#/components/schemas/ResumenConteo'
+    Conteo:
+      allOf:
+        - $ref: '#/components/schemas/ConteoResumen'
+        - type: object
+          required: [detalles]
+          properties:
+            detalles:
+              type: array
+              items:
+                $ref: '#/components/schemas/DetalleConteo'
+    ConteoCrear:
+      description: '`periodo_fin` debe ser ≥ `periodo_inicio` (`400 PERIODO_INVALIDO`).'
+      type: object
+      additionalProperties: false
+      required: [entidad_id, periodo_inicio, periodo_fin]
+      properties:
+        entidad_id:
+          $ref: '#/components/schemas/Id'
+        periodo_inicio:
+          type: string
+          format: date
+        periodo_fin:
+          type: string
+          format: date
+        nota:
+          $ref: '#/components/schemas/Nota'
+    DetalleConteo:
+      type: object
+      required: [medicamento, cantidad_fisica, cantidad_sistema, diferencia]
+      properties:
+        medicamento:
+          $ref: '#/components/schemas/MedicamentoResumen'
+        cantidad_fisica:
+          $ref: '#/components/schemas/Saldo'
+        cantidad_sistema:
+          description: Foto del saldo registrado al capturar el renglón.
+          $ref: '#/components/schemas/Saldo'
+        diferencia:
+          $ref: '#/components/schemas/Diferencia'
+    DetalleConteoCaptura:
+      type: object
+      additionalProperties: false
+      required: [cantidad_fisica]
+      properties:
+        cantidad_fisica:
+          type: number
+          minimum: 0
+          maximum: 99999999.99
+          multipleOf: 0.01
+
+    # ---------------- Reporte mensual ----------------
+    LineaReporte:
+      description: 'Invariante: `saldo_final = saldo_inicial + entradas + transferencias_recibidas - transferencias_enviadas - bajas`.'
+      type: object
+      required: [medicamento, saldo_inicial, entradas, transferencias_recibidas, transferencias_enviadas, bajas,
+                 bajas_por_motivo, saldo_final]
+      properties:
+        medicamento:
+          $ref: '#/components/schemas/MedicamentoResumen'
+        saldo_inicial:
+          $ref: '#/components/schemas/Saldo'
+        entradas:
+          $ref: '#/components/schemas/Saldo'
+        transferencias_recibidas:
+          $ref: '#/components/schemas/Saldo'
+        transferencias_enviadas:
+          $ref: '#/components/schemas/Saldo'
+        bajas:
+          $ref: '#/components/schemas/Saldo'
+        bajas_por_motivo:
+          description: Dosis dadas de baja por clave de motivo.
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/Saldo'
+        saldo_final:
+          $ref: '#/components/schemas/Saldo'
+    ReporteMensual:
+      type: object
+      required: [anio, mes, desde, hasta, generado_en, entidades]
+      properties:
+        anio:
+          type: integer
+        mes:
+          type: integer
+          minimum: 1
+          maximum: 12
+        desde:
+          type: string
+          format: date
+        hasta:
+          type: string
+          format: date
+        generado_en:
+          $ref: '#/components/schemas/FechaHora'
+        entidades:
+          type: array
+          items:
+            type: object
+            required: [entidad, medicamentos]
+            properties:
+              entidad:
+                $ref: '#/components/schemas/EntidadResumen'
+              medicamentos:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LineaReporte'

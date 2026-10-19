@@ -630,7 +630,7 @@ C4Container
 | **Unitario (conteos)** | Conteo físico de 18 dosis cuando el sistema registra 20 | La diferencia reportada es −2. |
 | **Permisos** | Usuario `Solo lectura` envía un `POST` para registrar una baja | Responde `403` y no se crea el movimiento. |
 | **Permisos** | Usuario sin sesión accede a cualquier pantalla | Redirige al login. |
-| **API** | `GET /api/existencias/?entidad=<id>` sin autenticación / autenticado | `403` / `200` con solo las existencias de esa entidad. |
+| **API** | `GET /api/v1/existencias?entidad_id=<id>` sin autenticación / autenticado | `401` / `200` con solo las existencias de esa entidad (casos completos en la sección 4.6). |
 | **Extremo a extremo** | Login → alta de medicamento → entrada a residente → consulta filtrada por principio activo | El medicamento aparece con la existencia correcta. |
 
 **Criterio:** cobertura ≥ 80 % en las capas de servicios y permisos, que concentran las reglas críticas del negocio.
@@ -1545,6 +1545,297 @@ Para volver a empezar: `docker compose down -v`, `docker compose up -d`, `migrat
 ## 4. Especificación de la API
 
 > Si tu backend se comunica a través de API, describe los endpoints principales (máximo 3) en formato OpenAPI. Opcionalmente puedes añadir un ejemplo de petición y de respuesta para mayor claridad
+
+**Alcance del MVP: 3 endpoints de solo lectura.** La aplicación genera sus páginas en el servidor (sección 2), así que las 7 funcionalidades del MVP se operan desde **pantallas web**, que llaman directamente a `services.py`. En el MVP la API REST expone solo las 3 consultas de mayor valor, para integraciones y para documentar el contrato:
+
+| Endpoint | Funcionalidad | Por qué este |
+|---|---|---|
+| `GET /existencias` | 5. Existencias por paciente, medicamento o principio activo | Es la consulta más valiosa del sistema |
+| `GET /medicamentos?q=` | 2. Búsqueda sin acentos por nombre o principio activo | Usa la búsqueda optimizada de la sección 3.3 |
+| `GET /reportes/mensual` | 7. Movimientos y saldos del mes | Es la salida que pide la dirección |
+
+**Contrato completo:** [`docs/api/openapi.yaml`](docs/api/openapi.yaml), escrito en **OpenAPI 3.2.0** con un enfoque *design-first*. Tiene 27 rutas y 34 operaciones, y cada operación declara su alcance en la extensión **`x-alcance`**:
+- **`MVP`**: los 3 endpoints anteriores.
+- **`V2`**: las otras 31, que quedan **diseñadas para una versión posterior** con clientes externos, por ejemplo una app móvil. Incluyen autenticación, altas, movimientos y conteos por API.
+
+Se validó con **Redocly CLI** (`npx @redocly/cli lint docs/api/openapi.yaml`): **0 errores**. Quedan 2 advertencias intencionales, las dos en operaciones `V2`:
+- Un ejemplo de petición inválido a propósito, para provocar el error `400`.
+- `GET /auth/csrf` no tiene respuestas 4XX.
+
+#### 4.1. Convenciones
+
+| Aspecto | Decisión | Alcance |
+|---|---|---|
+| URL base | `https://{host}/api/v1`. La versión va en la ruta | MVP |
+| Formato | JSON UTF-8, campos en `snake_case` y en español (iguales al modelo de datos) | MVP |
+| Cantidades | En **dosis**, `number` con hasta 2 decimales (`multipleOf: 0.01`), por ejemplo 0.5 tableta | MVP |
+| Fechas | `YYYY-MM-DD`. Fecha y hora en ISO 8601 con zona: `2026-10-01T10:00:00-06:00` | MVP |
+| Paginación | `?pagina=1&por_pagina=20` (máximo 100). Respuesta `{ total, pagina, por_pagina, resultados[] }` | MVP |
+| Búsqueda | `q` con un mínimo de 3 caracteres, parcial, sin mayúsculas ni acentos: usa los índices trigram de la sección 3.3 | MVP |
+| Solo lectura | Los endpoints del MVP solo aceptan `GET`; cualquier otro método responde `405` | MVP |
+| Peticiones estrictas | `additionalProperties: false`: un campo desconocido responde `400` con `CAMPO_DESCONOCIDO` | V2 |
+| Baja lógica | Acciones explícitas (`POST .../baja`, `POST .../egreso`), no `DELETE` | V2 |
+| Inmutabilidad | Los movimientos no tienen `PUT`, `PATCH` ni `DELETE` (`405`). Se corrigen con `POST /movimientos/{id}/correccion` | V2 |
+| Doble envío | Cabecera `Idempotency-Key` en los `POST` de movimientos (requiere la tabla `clave_idempotencia`) | V2 |
+| Respuesta de movimientos | `201` con el movimiento y los saldos resultantes de las entidades afectadas | V2 |
+
+> **Doble envío en el MVP:** las pantallas web lo resuelven sin tabla nueva. Después de guardar se redirige (patrón *Post/Redirect/Get*) y el botón de enviar se desactiva al pulsarlo.
+
+#### 4.2. Autenticación y niveles de acceso
+
+**MVP:** la API usa la **misma sesión de Django** que la aplicación web. El usuario inicia sesión en la pantalla de login y el navegador envía la cookie `sessionid` (30 min de inactividad). No hay endpoints de login ni tokens.
+- Los 3 endpoints son de lectura, así que **cualquier usuario autenticado** puede usarlos: `Solo lectura`, `Lectura y escritura` o Administrador.
+- Al ser `GET`, no requieren la cabecera CSRF.
+- Sin sesión responden `401`.
+
+**V2:** se agregan `GET /auth/csrf`, `POST /auth/login`, `POST /auth/logout` y `GET /auth/me`, y las operaciones de escritura, que exigen la cabecera `X-CSRFToken`. Cada operación declara su nivel en `x-nivel-acceso`:
+
+| Nivel | Puede |
+|---|---|
+| `SOLO_LECTURA` | Todos los `GET` |
+| `LECTURA_ESCRITURA` | Todo lo anterior y las operaciones de escritura |
+| `ADMINISTRADOR` | Igual que lectura y escritura, y además el panel `/admin/` |
+
+La gestión de usuarios se hace en `/admin/` y no forma parte de la API.
+
+#### 4.3. Endpoints
+
+| Funcionalidad | Método y ruta | Nivel | Alcance |
+|---|---|---|---|
+| 2. Medicamentos | `GET /medicamentos` (filtros `q`, `principio_activo_id`, `tipo`, `presentacion_id`, `activo`) | Lectura | **MVP** |
+| 5. Existencias | `GET /existencias` (filtros `entidad_id`, `medicamento_id`, `principio_activo_id`, `q`, `incluir_sin_saldo`) | Lectura | **MVP** |
+| 7. Reporte mensual | `GET /reportes/mensual?anio=&mes=&entidad_id=` | Lectura | **MVP** |
+| 1. Sesión | `GET /auth/csrf` · `POST /auth/login` · `POST /auth/logout` · `GET /auth/me` | Público / autenticado | V2 |
+| Catálogos | `GET /presentaciones` · `GET /motivos-baja` · `GET /principios-activos` · `POST /principios-activos` | Lectura / escritura | V2 |
+| 2. Medicamentos | `GET /medicamentos/{id}` · `POST /medicamentos` · `PATCH /medicamentos/{id}` · `POST /medicamentos/{id}/baja` · `POST /medicamentos/{id}/reactivacion` | Lectura / escritura | V2 |
+| 3. Entidades y residentes | `GET /entidades` · `GET /residentes` · `GET /residentes/{id}` · `POST /residentes` · `PATCH /residentes/{id}` · `POST /residentes/{id}/egreso` | Lectura / escritura | V2 |
+| 4. Movimientos | `GET /movimientos` · `GET /movimientos/{id}` · `POST /movimientos/entradas` · `POST /movimientos/transferencias` · `POST /movimientos/bajas` · `POST /movimientos/{id}/correccion` | Lectura / escritura | V2 |
+| 6. Conteo físico | `GET /conteos` · `GET /conteos/{id}` · `POST /conteos` · `PUT /conteos/{id}/detalles/{medicamento_id}` · `DELETE /conteos/{id}/detalles/{medicamento_id}` · `POST /conteos/{id}/cierre` | Lectura / escritura | V2 |
+
+#### 4.4. Errores
+
+Todos los errores usan **Problem Details (RFC 9457)**, con el tipo `application/problem+json`. Además del estándar llevan un `code` estable que la aplicación puede usar en sus condiciones, y `errores[]` con el detalle por campo:
+
+```json
+{
+  "type": "https://hogar.example/errores/validacion",
+  "title": "Datos inválidos",
+  "status": 400,
+  "code": "VALIDACION",
+  "detail": "La petición tiene 1 error de validación.",
+  "instance": "/api/v1/medicamentos",
+  "errores": [
+    { "campo": "q", "codigo": "LONGITUD_INVALIDA", "mensaje": "La búsqueda requiere al menos 3 caracteres." }
+  ]
+}
+```
+
+**Errores que pueden devolver los endpoints del MVP:**
+
+| HTTP | `code` | Cuándo ocurre |
+|---|---|---|
+| 400 | `VALIDACION` | Un parámetro no es válido. `errores[].codigo`: `LONGITUD_INVALIDA` (`q` con menos de 3 caracteres), `TIPO_INVALIDO` (`entidad_id=abc`), `VALOR_FUERA_DE_RANGO` (`mes=13`, `por_pagina=500`), `OPCION_INVALIDA` (`tipo=OTRO`) |
+| 401 | `NO_AUTENTICADO` | No hay sesión o la sesión expiró |
+| 404 | `NO_ENCONTRADO` | `entidad_id` inexistente en el reporte mensual |
+| 405 | `METODO_NO_PERMITIDO` | Cualquier método distinto de `GET` |
+| 500 | `ERROR_INTERNO` | Error inesperado; el detalle no expone información interna |
+
+El contrato define además los códigos de las operaciones `V2`: `CREDENCIALES_INVALIDAS`, `SIN_PERMISO`, `CSRF_INVALIDO`, `ESTADO_INVALIDO`, `MEDICAMENTO_DUPLICADO`, `PRINCIPIO_ACTIVO_DUPLICADO`, `MEDICAMENTO_CON_EXISTENCIAS`, `MOVIMIENTO_YA_CORREGIDO`, `MOVIMIENTO_ES_CORRECCION`, `CONTEO_CERRADO`, `IDEMPOTENCIA_CONFLICTO`, `EXISTENCIA_INSUFICIENTE`, `ENTIDAD_INACTIVA`, `MEDICAMENTO_INACTIVO`, `MISMA_ENTIDAD`, `MOTIVO_RESERVADO`, `REFERENCIA_INVALIDA`, `CONTEO_SIN_RENGLONES` y `DEMASIADOS_INTENTOS`. El criterio es `409` cuando la operación choca con el estado del recurso y `422` cuando viola una regla de negocio.
+
+En el MVP, esas mismas reglas de negocio las valida `services.py` y las pantallas web las muestran como mensajes en el formulario.
+
+#### 4.5. Endpoints principales (MVP)
+
+**1. `GET /existencias`: consultar existencias por paciente, medicamento o principio activo**
+
+```yaml
+/existencias:
+  get:
+    tags: [Existencias]
+    operationId: listarExistencias
+    summary: Consultar existencias
+    description: Filtros combinables. Por defecto solo devuelve saldos mayores a 0.
+    x-alcance: MVP
+    x-nivel-acceso: SOLO_LECTURA
+    parameters:
+      - { name: entidad_id,          in: query, description: Paciente o el Hogar, schema: { type: integer, format: int64, minimum: 1 } }
+      - { name: medicamento_id,      in: query, schema: { type: integer, format: int64, minimum: 1 } }
+      - { name: principio_activo_id, in: query, schema: { type: integer, format: int64, minimum: 1 } }
+      - { name: q,                   in: query, schema: { type: string, minLength: 3, maxLength: 100 } }
+      - { name: incluir_sin_saldo,   in: query, schema: { type: boolean, default: false } }
+      - $ref: '#/components/parameters/Pagina'
+      - $ref: '#/components/parameters/PorPagina'
+    responses:
+      '200':
+        description: Página de existencias, ordenada por entidad (Hogar primero) y nombre comercial.
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PaginaExistencias' }   # entidad, medicamento, saldo, actualizado_en
+      '400': { $ref: '#/components/responses/Validacion' }
+      '401': { $ref: '#/components/responses/NoAutenticado' }
+```
+
+```http
+GET /api/v1/existencias?principio_activo_id=2
+Cookie: sessionid=<sesión>
+```
+
+```json
+200 OK
+{
+  "total": 3, "pagina": 1, "por_pagina": 20,
+  "resultados": [
+    { "entidad": { "id": 1, "tipo": "HOGAR", "nombre": "Hogar Gerontológico Demo", "activa": true },
+      "medicamento": { "id": 2, "nombre_comercial": "Losartán", "presentacion": "tableta", "concentracion": "50 mg" },
+      "saldo": 20, "actualizado_en": "2026-10-02T09:00:00-06:00" },
+    { "entidad": { "id": 102, "tipo": "RESIDENTE", "nombre": "José Luis Ramírez Ortega", "activa": true },
+      "medicamento": { "id": 3, "nombre_comercial": "Cozaar", "presentacion": "tableta", "concentracion": "50 mg" },
+      "saldo": 32, "actualizado_en": "2026-10-03T11:00:00-06:00" },
+    { "entidad": { "id": 102, "tipo": "RESIDENTE", "nombre": "José Luis Ramírez Ortega", "activa": true },
+      "medicamento": { "id": 2, "nombre_comercial": "Losartán", "presentacion": "tableta", "concentracion": "50 mg" },
+      "saldo": 10, "actualizado_en": "2026-10-02T09:00:00-06:00" }
+  ]
+}
+```
+
+**2. `GET /medicamentos`: buscar medicamentos por nombre o principio activo, sin acentos**
+
+```yaml
+/medicamentos:
+  get:
+    tags: [Medicamentos]
+    operationId: listarMedicamentos
+    summary: Buscar medicamentos
+    description: q busca en el nombre comercial o en cualquiera de sus principios activos, sin mayúsculas ni acentos.
+    x-alcance: MVP
+    x-nivel-acceso: SOLO_LECTURA
+    parameters:
+      - { name: q,                   in: query, schema: { type: string, minLength: 3, maxLength: 100 } }
+      - { name: principio_activo_id, in: query, schema: { type: integer, format: int64, minimum: 1 } }
+      - { name: tipo,                in: query, schema: { type: string, enum: [GENERICO, ORIGINAL] } }
+      - { name: presentacion_id,     in: query, schema: { type: integer, format: int64, minimum: 1 } }
+      - { name: activo,              in: query, schema: { type: boolean, default: true } }
+      - { name: orden,               in: query, schema: { type: string, enum: [nombre_comercial, -nombre_comercial, creado_en, -creado_en], default: nombre_comercial } }
+      - $ref: '#/components/parameters/Pagina'
+      - $ref: '#/components/parameters/PorPagina'
+    responses:
+      '200':
+        description: Página de medicamentos con su presentación y principios activos.
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PaginaMedicamentos' }
+      '400': { $ref: '#/components/responses/Validacion' }
+      '401': { $ref: '#/components/responses/NoAutenticado' }
+```
+
+```http
+GET /api/v1/medicamentos?q=paracetamol
+Cookie: sessionid=<sesión>
+```
+
+```json
+200 OK
+{
+  "total": 2, "pagina": 1, "por_pagina": 20,
+  "resultados": [
+    { "id": 6, "nombre_comercial": "Paracetamol", "tipo": "GENERICO",
+      "presentacion": { "id": 1, "nombre": "tableta" }, "concentracion": "500 mg",
+      "principios_activos": [ { "id": 5, "nombre": "Paracetamol" } ],
+      "activo": true, "creado_en": "2026-09-01T08:00:00-06:00", "actualizado_en": "2026-09-01T08:00:00-06:00" },
+    { "id": 7, "nombre_comercial": "Tempra", "tipo": "ORIGINAL",
+      "presentacion": { "id": 3, "nombre": "jarabe" }, "concentracion": "160 mg / 5 ml",
+      "principios_activos": [ { "id": 5, "nombre": "Paracetamol" } ],
+      "activo": true, "creado_en": "2026-09-01T08:00:00-06:00", "actualizado_en": "2026-09-01T08:00:00-06:00" }
+  ]
+}
+```
+
+Tempra aparece aunque su nombre no coincida, porque su principio activo es paracetamol.
+
+**3. `GET /reportes/mensual`: movimientos y saldos de un mes**
+
+```yaml
+/reportes/mensual:
+  get:
+    tags: [Reportes]
+    operationId: obtenerReporteMensual
+    summary: Movimientos y saldos de un mes
+    description: Se calcula al momento a partir de movimiento; un mes en curso muestra el saldo a la fecha.
+    x-alcance: MVP
+    x-nivel-acceso: SOLO_LECTURA
+    parameters:
+      - { name: anio,       in: query, required: true, schema: { type: integer, minimum: 2020, maximum: 2100 } }
+      - { name: mes,        in: query, required: true, schema: { type: integer, minimum: 1, maximum: 12 } }
+      - { name: entidad_id, in: query, description: Si se omite incluye todas las entidades, schema: { type: integer, format: int64, minimum: 1 } }
+    responses:
+      '200':
+        description: Por entidad y medicamento, saldo_inicial, entradas, transferencias, bajas (total y por motivo) y saldo_final.
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReporteMensual' }
+      '400': { $ref: '#/components/responses/Validacion' }
+      '401': { $ref: '#/components/responses/NoAutenticado' }
+      '404': { $ref: '#/components/responses/NoEncontrado' }
+```
+
+```http
+GET /api/v1/reportes/mensual?anio=2026&mes=10&entidad_id=101
+Cookie: sessionid=<sesión>
+```
+
+```json
+200 OK
+{
+  "anio": 2026, "mes": 10, "desde": "2026-10-01", "hasta": "2026-10-31",
+  "generado_en": "2026-10-19T09:00:00-06:00",
+  "entidades": [
+    { "entidad": { "id": 101, "tipo": "RESIDENTE", "nombre": "María Guadalupe Hernández López", "activa": true },
+      "medicamentos": [
+        { "medicamento": { "id": 9, "nombre_comercial": "Atorvastatina", "presentacion": "tableta", "concentracion": "20 mg" },
+          "saldo_inicial": 1, "entradas": 0, "transferencias_recibidas": 0, "transferencias_enviadas": 0,
+          "bajas": 0, "bajas_por_motivo": {}, "saldo_final": 1 },
+        { "medicamento": { "id": 1, "nombre_comercial": "Metformina", "presentacion": "tableta", "concentracion": "850 mg" },
+          "saldo_inicial": 2, "entradas": 660, "transferencias_recibidas": 0, "transferencias_enviadas": 0,
+          "bajas": 600, "bajas_por_motivo": { "CORRECCION": 600 }, "saldo_final": 62 }
+      ] }
+  ]
+}
+```
+
+El reporte de octubre de María muestra la corrección: 660 de entradas (600 capturadas por error y 60 correctas) y 600 de baja `CORRECCION`. El saldo final cuadra: 2 + 660 − 600 = 62.
+
+#### 4.6. Casos de prueba de la API del MVP (sobre el dataset mock)
+
+Con el mock de la sección 3.4 recién cargado. La sesión es la de `operador.demo` salvo que se indique otra cosa.
+
+| # | Petición | Esperado |
+|---|---|---|
+| 1 | `GET /existencias` sin sesión | `401 NO_AUTENTICADO` |
+| 2 | Con la sesión de `consulta.demo` (solo lectura): `GET /existencias` | `200`: el nivel de solo lectura puede consultar la API |
+| 3 | `GET /existencias?principio_activo_id=2` | `200`, `total: 3`: Hogar Losartán 20, José Luis Cozaar 32, José Luis Losartán 10 |
+| 4 | `GET /existencias?entidad_id=103` | `200`: Eutirox 33, Exelon 3, Paracetamol 14 |
+| 5 | `GET /existencias?entidad_id=1&incluir_sin_saldo=true` | `200`, `total: 5`, incluye Tempra con saldo 0 |
+| 6 | `GET /existencias?q=lo` | `400 VALIDACION`, `errores[0].codigo: LONGITUD_INVALIDA` |
+| 7 | `GET /medicamentos?q=losartan` | `200`, `total: 3`: Cozaar, Hyzaar y Losartán |
+| 8 | `GET /medicamentos?q=paracetamol` | `200`, `total: 2`: Paracetamol y Tempra (por principio activo) |
+| 9 | `GET /medicamentos?q=ACIDO` | `200`: Aspirina Protect, por "Ácido acetilsalicílico" (sin mayúsculas ni acentos) |
+| 10 | `GET /medicamentos?tipo=ORIGINAL` | `200`, `total: 7` |
+| 11 | `GET /medicamentos?por_pagina=500` | `400 VALIDACION`, `VALOR_FUERA_DE_RANGO` |
+| 12 | `GET /reportes/mensual?anio=2026&mes=9&entidad_id=101` | Metformina 0 + 60 − 58 = 2; Atorvastatina 0 + 30 − 29 = 1 |
+| 13 | `GET /reportes/mensual?anio=2026&mes=10&entidad_id=101` | Metformina 2 + 660 − 600 = 62, `bajas_por_motivo: { CORRECCION: 600 }` |
+| 14 | `GET /reportes/mensual?anio=2026&mes=13` | `400 VALIDACION`, `VALOR_FUERA_DE_RANGO` |
+| 15 | `GET /reportes/mensual?anio=2026&mes=9&entidad_id=999` | `404 NO_ENCONTRADO` |
+| 16 | `POST /existencias` | `405 METODO_NO_PERMITIDO` |
+
+Las reglas de escritura (saldo insuficiente, duplicados, conteo cerrado, corrección, permisos de solo lectura) se prueban en el MVP desde los tests de `services.py` y de las pantallas web (sección 2.6). Los casos de la API `V2` están en los ejemplos de `openapi.yaml`.
+
+#### 4.7. Implementación
+
+- **MVP:** 3 vistas de Django REST Framework de solo lectura (`ListAPIView`), con `SessionAuthentication` y el permiso `IsAuthenticated`. Las consultas son las de la sección 3.3 y reusan los mismos índices.
+- **Un `EXCEPTION_HANDLER` propio** traduce las excepciones a Problem Details: `ValidationError` → `400 VALIDACION`, `NotAuthenticated` → `401`, `NotFound` → `404`, `MethodNotAllowed` → `405`.
+- **Tests de contrato:** las pruebas de `pytest` validan cada respuesta de los 3 endpoints contra los esquemas de `openapi.yaml` con un validador de JSON Schema 2020-12 (`jsonschema`). Los 16 casos de la tabla anterior son la base de esos tests.
+- **V2:** las operaciones marcadas `V2` se implementan sobre la misma capa `services.py`. Las vistas de la API serán delgadas y aplicarán las mismas reglas que las pantallas web.
+- **Herramientas y OpenAPI 3.2:** drf-spectacular genera un esquema 3.0/3.1 para la documentación interactiva (Swagger UI en `/api/v1/docs/`). El archivo 3.2 es el contrato de diseño y la fuente de verdad. Si alguna herramienta todavía no soporta 3.2, el contrato se baja a 3.1 cambiando `dataValue` por `value` y quitando el campo `summary` de los tags.
 
 ---
 

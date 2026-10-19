@@ -211,12 +211,62 @@ Lo suficientemente realista para hacer el demo y que sea sencillo de entender.
 ### 4. Especificación de la API
 
 **Prompt 1:**
+```
+Definamos la API REST: Como Software Architect, especialista en el diseño e implementacion de API REST diseña la API REST y todos los endpoints necesarios para el sistema de Gestion Medicamentos Hogar Gerontologico.
 
-**Prompt 2:**
+Considera estos requisitos:
+- Endpoints: Para las operaciones detalladas en los requisitos funcionales
+#	Funcionalidad
+1	Inicio de sesión y 2 niveles de acceso.
+2	Catálogo de medicamentos (alta, baja y cambio), con principio activo, presentación y búsqueda sin acentos	
+3	Residentes (alta, baja y cambio), con el Hogar como entidad fija
+4	Movimientos: entrada (con quién entregó), transferencia, baja con motivo y corrección
+5	Consulta de existencias filtrada por paciente, medicamento o principio activo
+6	Conteo físico simple: capturar lo que hay físicamente, ver la diferencia contra lo registrado y cerrar el conteo
+7	Reporte mensual en pantalla: movimientos y saldos por mes
+
+- Especificacion OpenAPI 3.2.0
+- Validaciones de request/response
+- Codigo de errores detallados
+- Ejemplos realistas para tests
+
+```
+**Respuesta clave de Claude Code Opus 5.5 High:**
+> "Diseñé la API completa del MVP. El contrato está en `docs/api/openapi.yaml` y la sección 4 del `readme.md` lo documenta.
+
+**Contrato (`docs/api/openapi.yaml`, OpenAPI 3.2.0):**
+- **27 rutas, 34 operaciones, 57 esquemas y 21 parámetros**, organizados en 9 *tags*.
+- Validado con **Redocly CLI**: 0 errores y 2 advertencias intencionales (un ejemplo inválido a propósito para provocar el `400`, y `GET /auth/csrf` sin respuestas 4XX).
+- Usa lo propio de 3.2: `summary` en los *tags* y `dataValue` en los ejemplos. Los esquemas son JSON Schema 2020-12, con tipos `[string, 'null']`.
+- Cada operación declara su nivel en `x-nivel-acceso`."
+
+
+**Impacto en el proyecto:**
+> "Creo increiblemente rapido la API Rest solicitada para el MVP facilitando enormemente el desarrollo, con todo y validaciones, y lleno toda la seccion 4.Luego pidio unas validaciones que este promp contradice en el diseño"
+
+
+
+**Prompt 2:Confirmar como reducir a 3 endpoints para el MVP (v1)**
+```Este prompt no lo registres, es viable hacer un MVP con solo 3 endpoints?
+```
+**Respuesta clave de Claude Code Opus 5.5 High:**
+> "Sí, es viable. Con la arquitectura que ya definimos, es incluso lo más natural."
+
+**Impacto en el proyecto:**
+> "Redujo racionalmente el MVP de 27 rutas a solo 3. Lo que facilita enormemente la salida del MVP y de este proyecto."
 
 **Prompt 3:**
+```Si 3 endpoints en el MVP y el resto marcado para despues la V2., entonces registra el prompt anterior, con tus respuestas, y ejecuta las acciones que propones para este MVP de 3 endpoints: 1. Marcar el alcance openapi.yaml, 2. Cambiarla seccion 4.5, 3. Reducir la tabla de casos de prueba. Ademas reformula las 7 preguntas anteriores, solo las que apliquen.
+```
+**Respuesta clave de Claude Code Opus 5.5 High:**
+> ""
+
+**Impacto en el proyecto:**
+> ""
 
 ---
+
+
 
 ### 5. Historias de Usuario
 
