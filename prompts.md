@@ -283,7 +283,21 @@ Agrega solo en el 04-api.md una seccion al final con ejemplos de uso de los endp
 
 ### 5. Historias de Usuario
 
-**Prompt 1:**
+**Prompt 1:Definir Historias de Usario (Use Cases) principales para MVP viable**
+Trabajemos con las historias de usuario. Como Product Owner experimentado, crea historias de usuario, limitándote a las 3 más críticas o importantes para lograr el MVP y el máximo impacto en el proyecto. Toma en cuenta lo que hemos documentado, con especial foco en los requisitos funcionales:
+
+- Creación de valor inmediata.
+- Viabilidad técnica para el MVP en 6 semanas.
+- ROI desde el primer día.
+
+Enfócate en las funcionalidades más importantes para lograr un MVP efectivo.
+
+**Respuesta clave de Claude Code Opus 5.5 High:**
+> "Escribí la sección 5 del `readme.md` con las 3 historias que resuelven el problema central del hogar: **cuánto medicamento hay, de quién es y si coincide con el anaquel**."
+>
+**Impacto en el proyecto:**
+>  Definio 3 historias para poder realizar un MVP entregando valor inmediatamente, con plan semanal de implementacion. Señalo las ventajs del panel /admin/ de DJango para disparar los habilitadores, como crear  login, catálogo y residentes,
+>  tambien el orden, las dependencias, los story points y con criterios de aceptacion Gherkin basados  en el dataset del mock previamente definido.
 
 **Prompt 2:**
 
