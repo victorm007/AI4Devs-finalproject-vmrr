@@ -296,8 +296,8 @@ Enfócate en las funcionalidades más importantes para lograr un MVP efectivo.
 > "Escribí la sección 5 del `readme.md` con las 3 historias que resuelven el problema central del hogar: **cuánto medicamento hay, de quién es y si coincide con el anaquel**."
 >
 **Impacto en el proyecto:**
->  Definio 3 historias para poder realizar un MVP entregando valor inmediatamente, con plan semanal de implementacion. Señalo las ventajs del panel /admin/ de DJango para disparar los habilitadores, como crear  login, catálogo y residentes,
->  tambien el orden, las dependencias, los story points y con criterios de aceptacion Gherkin basados  en el dataset del mock previamente definido.
+>  Definio 3 historias para poder realizar un MVP entregando valor inmediatamente, con plan semanal de implementacion. Señalo las ventajas del panel /admin/ de DJango para disparar los habilitadores, como crear  login, catálogo y residentes,
+>  tambien el orden, las dependencias, los story points y con criterios de aceptacion Gherkin basados  en el dataset del mock previamente definido, de cada historia de usuario.
 
 **Prompt 2:**
 
@@ -308,6 +308,37 @@ Enfócate en las funcionalidades más importantes para lograr un MVP efectivo.
 ### 6. Tickets de Trabajo
 
 **Prompt 1:**
+```
+Excelente especificacion de Historias de Usuario. Ahora trabajemos en la seccion 6 de Tickets de Trabajo.
+Como Tech Lead Experimentado, a partir de las historias de usuario que justo creaste, crea 3 tickets de trabajo principales para el desarrollo, uno de backend, uno de frontend, y uno de bases de datos.
+Da todo el detalle requerido para desarrollar la tarea de inicio a fin teniendo en cuenta las buenas prácticas al respecto. 
+Incluye en cada ticket:
+- Descripcion tecnica
+- Criterios de aceptacion
+- Definicion de hecho (definition of done)
+- Estimacion en story points
+```
+
+**Respuesta clave de Claude Code Opus 5.5 High:**
+Escribí la sección 6 del `readme.md` con los 3 tickets del camino crítico del MVP: el esquema que guarda los saldos, la lógica que los mueve y la pantalla que los muestra.
+
+| Ticket | Tipo | Historia | Puntos |
+|---|---|---|---|
+| TK-01 | Base de datos: esquema de existencias, movimientos y conteos, con restricciones, *triggers* e índices | HU-01, HU-02, HU-03 | 5 |
+| TK-02 | Backend: servicio de movimientos (entradas, transferencias, bajas y correcciones) | HU-01 | 5 |
+| TK-03 | Frontend: pantalla de consulta de existencias con filtros en vivo y diseño para celular | HU-02 | 3 |
+
+**Cada ticket incluye:**
+- Encabezado con tipo, historia, prioridad, estimación, rama y dependencias.
+- Contexto: por qué existe el ticket.
+- Descripción técnica con archivos, modelos, firmas de funciones y fragmentos de código.
+- Lo que queda fuera de alcance.
+- Criterios de aceptación verificables, con los datos del mock.
+- Pruebas, definición de hecho y riesgos.
+
+**Impacto en el proyecto:**
+> Creo los 3 tickets por capa como se le pidio, el orden recomendado, historias con las que se relaciona, cual ticket bloquea a cual, story points,.
+> 
 
 **Prompt 2:**
 
