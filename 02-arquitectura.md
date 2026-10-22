@@ -640,6 +640,8 @@ AI4Devs-finalproject-vmrr/
 ├── readme.md                  # documentación del proyecto
 ├── prompts.md                 # prompts utilizados con IA
 ├── docs/                      # documentación de apoyo y diagramas
+│   ├── api/openapi.yaml       # contrato de la API (sección 4)
+│   └── tickets/               # guías paso a paso de los tickets (sección 6)
 ├── docker-compose.yml         # servicios: nginx, web, db
 ├── .env.example               # variables de entorno de ejemplo (el .env real no se versiona)
 ├── .github/workflows/ci.yml   # integración continua: lint + tests

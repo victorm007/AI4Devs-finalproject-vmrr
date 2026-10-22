@@ -453,6 +453,8 @@ AI4Devs-finalproject-vmrr/
 ├── readme.md                  # documentación del proyecto
 ├── prompts.md                 # prompts utilizados con IA
 ├── docs/                      # documentación de apoyo y diagramas
+│   ├── api/openapi.yaml       # contrato de la API (sección 4)
+│   └── tickets/               # guías paso a paso de los tickets (sección 6)
 ├── docker-compose.yml         # servicios: nginx, web, db
 ├── .env.example               # variables de entorno de ejemplo (el .env real no se versiona)
 ├── .github/workflows/ci.yml   # integración continua: lint + tests
@@ -1220,9 +1222,9 @@ ORDER BY m.nombre_comercial;
 | Índice | Tabla | Definición | Para qué |
 |---|---|---|---|
 | `ix_medicamento_nombre_trgm` | `medicamento` | `GIN (f_unaccent(lower(nombre_comercial)) gin_trgm_ops) WHERE activo` | Búsqueda parcial por nombre, solo en el catálogo vigente |
-| `ix_principio_activo_nombre_trgm` | `principio_activo` | `GIN (f_unaccent(lower(nombre)) gin_trgm_ops)` | Búsqueda parcial por principio activo |
+| `ix_principio_activo_trgm` | `principio_activo` | `GIN (f_unaccent(lower(nombre)) gin_trgm_ops)` | Búsqueda parcial por principio activo |
 | `ix_mpa_principio_medicamento` | `medicamento_principio_activo` | `(principio_activo_id, medicamento_id)` | Principio activo → medicamentos (el `UNIQUE (medicamento_id, principio_activo_id)` cubre el sentido inverso) |
-| `ix_existencia_medicamento_entidad` | `existencia` | `(medicamento_id, entidad_id)` | Medicamento → existencias en todas las entidades. El `UNIQUE (entidad_id, medicamento_id)` cubre entidad → medicamentos |
+| `ix_existencia_med_entidad` | `existencia` | `(medicamento_id, entidad_id)` | Medicamento → existencias en todas las entidades. El `UNIQUE (entidad_id, medicamento_id)` cubre entidad → medicamentos |
 
 > **Por qué `existencia.saldo` no va en el índice:** el saldo cambia en cada movimiento. Si estuviera indexado (incluso en `INCLUDE`), PostgreSQL no podría hacer actualizaciones *HOT* y tendría que reescribir los índices cada vez. Además, la tabla se declara con `fillfactor = 90` para dejar espacio a esas actualizaciones en la misma página.
 
@@ -1255,8 +1257,8 @@ WHERE (entidad_origen_id = :entidad_id OR entidad_destino_id = :entidad_id)
 | `ix_detalle_con_diferencia` | `detalle_conteo` | `(medicamento_id) WHERE diferencia <> 0` | Consulta b: solo los renglones con diferencias; índice muy pequeño |
 | `ix_conteo_entidad_periodo` | `conteo_fisico` | `(entidad_id, periodo_fin DESC)` | Conteos de un residente o del Hogar, del más reciente al más antiguo |
 | `ix_movimiento_origen_med_fecha` | `movimiento` | `(entidad_origen_id, medicamento_id, fecha_hora) WHERE entidad_origen_id IS NOT NULL` | Consulta c (salidas). Parcial: excluye las entradas, que no tienen origen |
-| `ix_movimiento_destino_med_fecha` | `movimiento` | `(entidad_destino_id, medicamento_id, fecha_hora) WHERE entidad_destino_id IS NOT NULL` | Consulta c (entradas). El planificador puede combinar ambos índices con un *BitmapOr*, o usar `ix_movimiento_medicamento_fecha` y filtrar por entidad, según las estadísticas de la tabla |
-| `ix_movimiento_medicamento_fecha` | `movimiento` | `(medicamento_id, fecha_hora)` | Historial (kárdex) de un medicamento en todas las entidades |
+| `ix_movimiento_dest_med_fecha` | `movimiento` | `(entidad_destino_id, medicamento_id, fecha_hora) WHERE entidad_destino_id IS NOT NULL` | Consulta c (entradas). El planificador puede combinar ambos índices con un *BitmapOr*, o usar `ix_movimiento_med_fecha` y filtrar por entidad, según las estadísticas de la tabla |
+| `ix_movimiento_med_fecha` | `movimiento` | `(medicamento_id, fecha_hora)` | Historial (kárdex) de un medicamento en todas las entidades |
 | `brin_movimiento_fecha` | `movimiento` | `BRIN (fecha_hora)` | Reporte mensual por rango de fechas. `movimiento` solo recibe inserciones en orden cronológico, el caso ideal para BRIN: el índice ocupa unos KB |
 
 #### Consulta 3 — Pautas por residente
@@ -1286,10 +1288,10 @@ SELECT * FROM pauta WHERE residente_id = :residente_id ORDER BY fecha_inicio DES
 -- Consulta 1
 CREATE INDEX ix_medicamento_nombre_trgm ON medicamento
     USING gin (f_unaccent(lower(nombre_comercial)) gin_trgm_ops) WHERE activo;
-CREATE INDEX ix_principio_activo_nombre_trgm ON principio_activo
+CREATE INDEX ix_principio_activo_trgm ON principio_activo
     USING gin (f_unaccent(lower(nombre)) gin_trgm_ops);
 CREATE INDEX ix_mpa_principio_medicamento ON medicamento_principio_activo (principio_activo_id, medicamento_id);
-CREATE INDEX ix_existencia_medicamento_entidad ON existencia (medicamento_id, entidad_id);
+CREATE INDEX ix_existencia_med_entidad ON existencia (medicamento_id, entidad_id);
 ALTER TABLE existencia SET (fillfactor = 90);
 
 -- Consulta 2
@@ -1299,9 +1301,9 @@ CREATE INDEX ix_detalle_con_diferencia ON detalle_conteo (medicamento_id) WHERE 
 CREATE INDEX ix_conteo_entidad_periodo ON conteo_fisico (entidad_id, periodo_fin DESC);
 CREATE INDEX ix_movimiento_origen_med_fecha ON movimiento (entidad_origen_id, medicamento_id, fecha_hora)
     WHERE entidad_origen_id IS NOT NULL;
-CREATE INDEX ix_movimiento_destino_med_fecha ON movimiento (entidad_destino_id, medicamento_id, fecha_hora)
+CREATE INDEX ix_movimiento_dest_med_fecha ON movimiento (entidad_destino_id, medicamento_id, fecha_hora)
     WHERE entidad_destino_id IS NOT NULL;
-CREATE INDEX ix_movimiento_medicamento_fecha ON movimiento (medicamento_id, fecha_hora);
+CREATE INDEX ix_movimiento_med_fecha ON movimiento (medicamento_id, fecha_hora);
 CREATE INDEX brin_movimiento_fecha ON movimiento USING brin (fecha_hora);
 
 -- Consulta 3
@@ -1317,9 +1319,9 @@ CREATE INDEX ix_residente_nombre ON residente (f_unaccent(lower(primer_apellido)
 | `medicamento_principio_activo.medicamento_id` | `UNIQUE (medicamento_id, principio_activo_id)` |
 | `medicamento_principio_activo.principio_activo_id` | `ix_mpa_principio_medicamento` |
 | `existencia.entidad_id` | `uq_existencia (entidad_id, medicamento_id)` |
-| `existencia.medicamento_id` | `ix_existencia_medicamento_entidad` |
-| `movimiento.entidad_origen_id` / `entidad_destino_id` | `ix_movimiento_origen_med_fecha` / `ix_movimiento_destino_med_fecha` |
-| `movimiento.medicamento_id` | `ix_movimiento_medicamento_fecha` |
+| `existencia.medicamento_id` | `ix_existencia_med_entidad` |
+| `movimiento.entidad_origen_id` / `entidad_destino_id` | `ix_movimiento_origen_med_fecha` / `ix_movimiento_dest_med_fecha` |
+| `movimiento.medicamento_id` | `ix_movimiento_med_fecha` |
 | `detalle_conteo.conteo_id` / `medicamento_id` | `uq_detalle_conteo` / `ix_detalle_medicamento_conteo` |
 | `conteo_fisico.entidad_id` | `ix_conteo_entidad_periodo` |
 | `pauta.residente_id` | `ix_pauta_residente_inicio` |
@@ -1433,6 +1435,7 @@ CREATE TRIGGER tg_detalle_conteo_cerrado BEFORE INSERT OR UPDATE OR DELETE ON de
   - Índices por expresión, con `GinIndex(OpClass(Func(Lower('nombre_comercial'), function='f_unaccent'), name='gin_trgm_ops'), condition=Q(activo=True))`.
   - Índices compuestos y parciales, con `Index(fields=[...], condition=Q(...), include=[...])`.
   - El índice de fechas de movimiento, con `BrinIndex(fields=['fecha_hora'])`.
+  - Django no acepta nombres de índice de más de 30 caracteres (error `models.E034`), por eso los nombres usan abreviaturas como `med` y `dest`.
 - **Extensiones, función, *triggers* y `fillfactor`:** se agregan en migraciones con `RunSQL`, cada una con su `reverse_sql` para poder revertirla.
 - **Búsquedas desde el ORM:** se usa una expresión anotada, `annotate(n=Func(Lower('nombre_comercial'), function='f_unaccent')).filter(n__contains=...)`. Así coincide exactamente con la expresión del índice.
 - **Verificación:**
@@ -1932,7 +1935,7 @@ El Hogar es una entidad fija que crean las migraciones, así que no se da de alt
 - **Baja:** motivo obligatorio del catálogo (consumo, caducidad, merma, rotura, devolución a la familia, defunción, egreso).
 - Ningún saldo puede quedar negativo. El movimiento y el cambio de saldo se guardan en la misma transacción.
 - Los movimientos **no se editan ni se borran**. Un error se corrige una sola vez con el movimiento inverso, que referencia al original.
-- Solo se registran movimientos para entidades activas y medicamentos activos.
+- Las entradas y transferencias solo pueden ir a entidades activas y con medicamentos activos. Un residente egresado o fallecido sí puede ceder o dar de baja sus sobrantes. Las correcciones quedan exentas.
 
 **Criterios de aceptación** (sobre el dataset mock de la sección 3.4)
 
@@ -2163,6 +2166,8 @@ Escenario: Usuario de solo lectura
 
 Los 3 tickets forman el camino crítico del MVP: el esquema que guarda los saldos, la lógica que los mueve y la pantalla que los muestra. Cada uno se desarrolla en su propia rama y se integra con un *pull request* (sección 7).
 
+Cada ticket tiene además una **guía paso a paso** en [`docs/tickets/`](docs/tickets/), pensada para que un desarrollador junior lo implemente sin bloqueos: tareas en orden, archivos a crear, código de referencia, tests con ejemplos, criterios de calidad, comandos de verificación con su resultado esperado y una tabla de problemas frecuentes.
+
 | Ticket | Tipo | Historia | Puntos | Depende de | Bloquea a |
 |---|---|---|---|---|---|
 | TK-01 | Base de datos | Base de HU-01, HU-02 y HU-03 | 5 | Habilitadores de la semana 1 (`catalogo`, `entidades`, `accounts`) | TK-02, TK-03, TK-06 |
@@ -2213,6 +2218,8 @@ Quedan fuera de esta cuenta los habilitadores de la semana 1 (en `/admin/`) y lo
 | Rama | `feature/TK-01-esquema-inventario` |
 | Depende de | Modelos `Medicamento`, `Entidad`, `Residente` y `Usuario` (semana 1), y extensiones `pg_trgm`, `unaccent`, `btree_gist` y función `f_unaccent` (sección 3.1) |
 
+**Guía paso a paso:** [`docs/tickets/TK-01-esquema-inventario.md`](docs/tickets/TK-01-esquema-inventario.md). Incluye tareas, archivos, código, tests con ejemplos, criterios de calidad y comandos de verificación.
+
 **Contexto.** Las 3 historias dependen de que el saldo sea confiable. Este ticket lleva a migraciones de Django las tablas D4, D5 y de conteos de la sección 3, para que la base de datos sea la **última barrera**: aunque un error de código intente dejar un saldo negativo o editar un movimiento, PostgreSQL lo rechaza.
 
 **Descripción técnica**
@@ -2223,7 +2230,7 @@ Quedan fuera de esta cuenta los habilitadores de la semana 1 (en `/admin/`) y lo
    |---|---|---|
    | `MotivoBaja` | `motivo_baja` | `clave` única; `activo` |
    | `Existencia` | `existencia` | `saldo` `DecimalField(10, 2)`, `db_default=0`; `actualizado_en` `db_default=Now()` |
-   | `Movimiento` | `movimiento` | `tipo` con `TextChoices`; `cantidad` `DecimalField(10, 2)`; `corrige_a` `OneToOneField('self', null=True, on_delete=PROTECT)`; `fecha_hora` `db_default=Now()` |
+   | `Movimiento` | `movimiento` | `tipo` con `TextChoices`; `cantidad` `DecimalField(10, 2)`; `corrige_a` `ForeignKey('self', null=True, on_delete=PROTECT)` con la restricción `uq_movimiento_corrige` (así conserva el nombre del DDL); `fecha_hora` `db_default=Now()` |
    | `ConteoFisico` | `conteo_fisico` | `estado` con `TextChoices`, `db_default='EN_PROCESO'`; `cerrado_en` nullable |
    | `DetalleConteo` | `detalle_conteo` | `diferencia = GeneratedField(expression=F('cantidad_fisica') - F('cantidad_sistema'), output_field=DecimalField(10, 2), db_persist=True)` |
 
@@ -2238,7 +2245,7 @@ Quedan fuera de esta cuenta los habilitadores de la semana 1 (en `/admin/`) y lo
 
 3. **Índices** en `Meta.indexes`: los de `existencia`, `movimiento`, `conteo_fisico` y `detalle_conteo` de la sección 3.3, incluidos los parciales, el `INCLUDE` y `BrinIndex(fields=['fecha_hora'], name='brin_movimiento_fecha')`.
 
-4. **Migración `RunSQL`** (`inventario/migrations/0002_triggers.py` y `conteos/migrations/0002_triggers.py`), cada sentencia con su `reverse_sql`:
+4. **Migraciones `RunSQL`** (`inventario/migrations/0004_sql.py` y `conteos/migrations/0002_triggers.py`), cada sentencia con su `reverse_sql`:
    - `fn_movimiento_inmutable` + `tg_movimiento_inmutable`.
    - `fn_movimiento_validar_destino` + `tg_movimiento_validar_destino`.
    - `fn_conteo_cerrado` + `tg_conteo_cerrado`, y `fn_detalle_conteo_cerrado` + `tg_detalle_conteo_cerrado`.
@@ -2288,9 +2295,11 @@ Quedan fuera de esta cuenta los habilitadores de la semana 1 (en `/admin/`) y lo
    - **`scripts/migrate.sh`**: ejecuta `migrate` con las credenciales de `app_owner` (`docker compose run --rm -e DB_USER=app_owner -e DB_PASSWORD=... web python manage.py migrate`). El contenedor `web` arranca con `DB_USER=app_user`.
    - En desarrollo y CI, `app_owner` tiene además `CREATEDB` para que `pytest` cree la base de tests; en producción no lo tiene.
 
-6. **Migración de datos** de los 8 motivos de baja (`CONSUMO` … `CORRECCION`), idempotente con `update_or_create` por `clave` y con su función inversa.
+6. **Migración de datos** (`inventario/migrations/0002_motivos_baja.py`) de los 8 motivos de baja (`CONSUMO` … `CORRECCION`), idempotente con `update_or_create` por `clave` y con su función inversa.
 
-7. **Admin:** ninguno de estos modelos se registra en `/admin/` (sección 5, "Controles"). Se agrega un test que lo verifica.
+7. **Permisos de los grupos** (`inventario/migrations/0003_permisos_grupos.py`): los grupos se crearon en la semana 1, antes que estos modelos. La migración les asigna `view_existencia`, `view_movimiento` y `view_motivobaja`, y a *Lectura y escritura* además `add_movimiento`. Nadie recibe `change_movimiento` ni `delete_movimiento`.
+
+8. **Admin:** ninguno de estos modelos se registra en `/admin/` (sección 5, "Controles"). Se agrega un test que lo verifica.
 
 **Fuera de alcance:** la lógica de negocio (TK-02), las pantallas y la API, y las tablas de catálogo, entidades y pautas (semana 1).
 
@@ -2356,6 +2365,8 @@ Quedan fuera de esta cuenta los habilitadores de la semana 1 (en `/admin/`) y lo
 | Rama | `feature/TK-02-servicio-movimientos` |
 | Depende de | TK-01 |
 
+**Guía paso a paso:** [`docs/tickets/TK-02-servicio-movimientos.md`](docs/tickets/TK-02-servicio-movimientos.md).
+
 **Contexto.** HU-01 exige que cada movimiento actualice el saldo de forma atómica, que ningún saldo quede negativo ni con usuarios concurrentes, y que los errores se corrijan con el movimiento inverso. Este ticket construye la capa `services.py`, que es **el único punto del sistema que escribe en `movimiento` y `existencia`**. Las pantallas de HU-01, el conteo de HU-03 y la API V2 la reutilizan.
 
 **Descripción técnica**
@@ -2365,7 +2376,8 @@ Quedan fuera de esta cuenta los habilitadores de la semana 1 (en `/admin/`) y lo
    | Excepción | `code` | Cuándo |
    |---|---|---|
    | `ErrorInventario` | — | Base de todas |
-   | `CantidadInvalida` | `VALIDACION` | Cantidad ≤ 0 o con más de 2 decimales |
+   | `DatoInvalido` | `VALIDACION` | Falta un dato obligatorio (origen de la entrada, quién entregó) o tiene un valor no permitido (motivo inactivo) |
+   | `CantidadInvalida` | `VALIDACION` | Subclase de `DatoInvalido`: cantidad ≤ 0, con más de 2 decimales o fuera de rango |
    | `ExistenciaInsuficiente` | `EXISTENCIA_INSUFICIENTE` | El origen no tiene saldo suficiente. Incluye el disponible |
    | `MismaEntidad` | `MISMA_ENTIDAD` | Transferencia con origen = destino |
    | `EntidadInactiva` | `ENTIDAD_INACTIVA` | Destino egresado o fallecido (salvo correcciones) |
@@ -2413,7 +2425,8 @@ Quedan fuera de esta cuenta los habilitadores de la semana 1 (en `/admin/`) y lo
      | `TRANSFERENCIA` X → Y | `TRANSFERENCIA` Y → X |
 
      La corrección lleva `corrige_a` al original y la misma cantidad y medicamento. Si el saldo ya no alcanza (por ejemplo, la entrada errónea ya se consumió), se lanza `ExistenciaInsuficiente`. Las correcciones quedan exentas de la regla de entidad o medicamento activo.
-   - **Carrera en la corrección:** si dos usuarios corrigen el mismo movimiento a la vez, el `IntegrityError` de `uq_movimiento_corrige` se traduce a `MovimientoYaCorregido`.
+   - **Carrera en la corrección:** si dos usuarios corrigen el mismo movimiento a la vez, el `IntegrityError` de `uq_movimiento_corrige` se traduce a `MovimientoYaCorregido`. No se usa `select_for_update` sobre `movimiento`: PostgreSQL exige permiso de `UPDATE` para `FOR UPDATE`, y `app_user` no lo tiene.
+   - **Los tests corren como `app_user`** (`SET LOCAL ROLE app_user`), igual que en producción, para detectar cualquier operación que necesite un permiso que la aplicación no tiene.
 
 5. **Autorización.** El servicio no decide permisos: las vistas usan `PermissionRequiredMixin` con `inventario.add_movimiento` (sección 2.5). El servicio recibe `usuario` solo para registrar quién hizo el movimiento.
 
@@ -2466,6 +2479,8 @@ Quedan fuera de esta cuenta los habilitadores de la semana 1 (en `/admin/`) y lo
 | Rama | `feature/TK-03-pantalla-existencias` |
 | Depende de | TK-01. TK-02 para probar con saldos reales; para desarrollar basta con el mock |
 
+**Guía paso a paso:** [`docs/tickets/TK-03-pantalla-existencias.md`](docs/tickets/TK-03-pantalla-existencias.md).
+
 **Contexto.** Es la pantalla que más se usará: responde "¿cuánto le queda a este residente?". Se consulta desde la computadora de la dirección y desde el celular, a pie de anaquel. Será la **página de inicio** después del login.
 
 **Descripción técnica**
@@ -2507,7 +2522,7 @@ Quedan fuera de esta cuenta los habilitadores de la semana 1 (en `/admin/`) y lo
 5. **Diseño *responsive*** (Bootstrap 5):
    - **≥ 768 px:** tabla con Entidad · Medicamento (nombre, presentación y concentración) · Saldo · Último movimiento.
    - **< 768 px:** cada existencia es una tarjeta (`list-group`) con el medicamento en negritas, la entidad debajo y el saldo alineado a la derecha. No hay desplazamiento horizontal.
-   - **Formato:** saldo con `floatformat:"-2"` (`10`, `0.5`, `62`) y la palabra "dosis"; saldo 0 en gris con la etiqueta "Agotado". Fecha en formato `d/m/Y H:i`, hora de `America/Mexico_City`.
+   - **Formato:** saldo con el filtro propio `dosis` (`10`, `0.5`, `62`, sin ceros sobrantes) y la palabra "dosis"; saldo 0 en gris con la etiqueta "Agotado". Fecha en formato `d/m/Y H:i`, hora de `America/Mexico_City`.
    - **Estado vacío:** "No hay existencias que coincidan con la búsqueda", con el botón "Limpiar filtros".
    - Controles táctiles de al menos 44 × 44 px y etiquetas `<label>` visibles en todos los campos.
 
@@ -2525,7 +2540,7 @@ Quedan fuera de esta cuenta los habilitadores de la semana 1 (en `/admin/`) y lo
 - [ ] Los resultados se actualizan sin recargar la página, y la URL refleja los filtros. Al abrir esa URL en otra pestaña se ve el mismo resultado.
 - [ ] Sin sesión, la pantalla redirige al login y, después de iniciar sesión, vuelve a la consulta.
 - [ ] En un viewport de 390 × 844 (celular) no hay desplazamiento horizontal y se ven las tarjetas en lugar de la tabla.
-- [ ] Sin N+1: la página hace el mismo número de consultas a la base de datos con 1 resultado que con 20.
+- [ ] Sin N+1: la página hace el mismo número de consultas a la base de datos con 1 resultado que con todas las existencias del mock (13).
 - [ ] Con el mock, la respuesta del fragmento tarda menos de 300 ms en el servidor local.
 
 **Pruebas**

@@ -48,7 +48,7 @@ END $$;
 INSERT INTO usuario (username, password, first_name, last_name, email,
                      is_active, is_superuser, is_staff, date_joined)
 SELECT u.username, u.password_hash, u.first_name, u.last_name, u.email,
-       true, false, false, now()
+       true, false, true, now()   -- is_staff: entran a /admin/ (habilitadores, sección 5)
 FROM mock CROSS JOIN LATERAL
      jsonb_to_recordset(doc -> 'usuarios')
          AS u(username text, password_hash text, first_name text, last_name text, email text);

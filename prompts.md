@@ -338,10 +338,32 @@ Escribí la sección 6 del `readme.md` con los 3 tickets del camino crítico del
 
 **Impacto en el proyecto:**
 > Creo los 3 tickets por capa como se le pidio, el orden recomendado, historias con las que se relaciona, cual ticket bloquea a cual, story points. 
-> Un hallazgo importante es que los tickets son secuenciales por su naturaleza. 
+> Un hallazgo importante es que los tickets son secuenciales por su naturaleza.Definio otros tickets que le siguen y que se van al backlog no sin confirmar para que la suma de story points fuera correcta. 
 
 **Prompt 2:**
+```
+Para que un desarrollador junior pueda hacer el ticket sin bloqueos, detalla cada ticket con:
+- Tareas especificas paso a paso
+- Archivos y estructura de codigo a crear
+- Test requeridos con ejemplos
+- Criterios de calidad
+- Comandos/pasos especificos para la verificacion
+```
 
+**Respuesta clave de Claude Code Opus 5.5 High:**
+
+> Creé una guía paso a paso por ticket en `docs/tickets/` y la enlacé desde cada ticket de la sección 6. Las puse en archivos aparte porque cada una tiene entre 800 y 1,100 líneas, y así el readme sigue siendo legible.
+
+| Guía | Contenido principal |
+|---|---|
+| [`TK-01-esquema-inventario.md`](docs/tickets/TK-01-esquema-inventario.md) | Usuarios `app_owner`/`app_user`, modelos completos, 5 migraciones, fixture que carga el mock en pytest, tests de cada restricción y de privilegios |
+| [`TK-02-servicio-movimientos.md`](docs/tickets/TK-02-servicio-movimientos.md) | Excepciones y `services.py` completos, conceptos de bloqueo explicados, tests de reglas y de concurrencia con hilos |
+| [`TK-03-pantalla-existencias.md`](docs/tickets/TK-03-pantalla-existencias.md) | Selector, formulario, vista, plantillas HTMX y *responsive*, filtro `dosis`, tests de vista y Playwright |
+
+
+**Impacto en el proyecto:**
+> 
+> 
 **Prompt 3:**
 
 ---

@@ -772,9 +772,9 @@ ORDER BY m.nombre_comercial;
 | Índice | Tabla | Definición | Para qué |
 |---|---|---|---|
 | `ix_medicamento_nombre_trgm` | `medicamento` | `GIN (f_unaccent(lower(nombre_comercial)) gin_trgm_ops) WHERE activo` | Búsqueda parcial por nombre, solo en el catálogo vigente |
-| `ix_principio_activo_nombre_trgm` | `principio_activo` | `GIN (f_unaccent(lower(nombre)) gin_trgm_ops)` | Búsqueda parcial por principio activo |
+| `ix_principio_activo_trgm` | `principio_activo` | `GIN (f_unaccent(lower(nombre)) gin_trgm_ops)` | Búsqueda parcial por principio activo |
 | `ix_mpa_principio_medicamento` | `medicamento_principio_activo` | `(principio_activo_id, medicamento_id)` | Principio activo → medicamentos (el `UNIQUE (medicamento_id, principio_activo_id)` cubre el sentido inverso) |
-| `ix_existencia_medicamento_entidad` | `existencia` | `(medicamento_id, entidad_id)` | Medicamento → existencias en todas las entidades. El `UNIQUE (entidad_id, medicamento_id)` cubre entidad → medicamentos |
+| `ix_existencia_med_entidad` | `existencia` | `(medicamento_id, entidad_id)` | Medicamento → existencias en todas las entidades. El `UNIQUE (entidad_id, medicamento_id)` cubre entidad → medicamentos |
 
 > **Por qué `existencia.saldo` no va en el índice:** el saldo cambia en cada movimiento. Si estuviera indexado (incluso en `INCLUDE`), PostgreSQL no podría hacer actualizaciones *HOT* y tendría que reescribir los índices cada vez. Además, la tabla se declara con `fillfactor = 90` para dejar espacio a esas actualizaciones en la misma página.
 
@@ -807,8 +807,8 @@ WHERE (entidad_origen_id = :entidad_id OR entidad_destino_id = :entidad_id)
 | `ix_detalle_con_diferencia` | `detalle_conteo` | `(medicamento_id) WHERE diferencia <> 0` | Consulta b: solo los renglones con diferencias; índice muy pequeño |
 | `ix_conteo_entidad_periodo` | `conteo_fisico` | `(entidad_id, periodo_fin DESC)` | Conteos de un residente o del Hogar, del más reciente al más antiguo |
 | `ix_movimiento_origen_med_fecha` | `movimiento` | `(entidad_origen_id, medicamento_id, fecha_hora) WHERE entidad_origen_id IS NOT NULL` | Consulta c (salidas). Parcial: excluye las entradas, que no tienen origen |
-| `ix_movimiento_destino_med_fecha` | `movimiento` | `(entidad_destino_id, medicamento_id, fecha_hora) WHERE entidad_destino_id IS NOT NULL` | Consulta c (entradas). El planificador puede combinar ambos índices con un *BitmapOr*, o usar `ix_movimiento_medicamento_fecha` y filtrar por entidad, según las estadísticas de la tabla |
-| `ix_movimiento_medicamento_fecha` | `movimiento` | `(medicamento_id, fecha_hora)` | Historial (kárdex) de un medicamento en todas las entidades |
+| `ix_movimiento_dest_med_fecha` | `movimiento` | `(entidad_destino_id, medicamento_id, fecha_hora) WHERE entidad_destino_id IS NOT NULL` | Consulta c (entradas). El planificador puede combinar ambos índices con un *BitmapOr*, o usar `ix_movimiento_med_fecha` y filtrar por entidad, según las estadísticas de la tabla |
+| `ix_movimiento_med_fecha` | `movimiento` | `(medicamento_id, fecha_hora)` | Historial (kárdex) de un medicamento en todas las entidades |
 | `brin_movimiento_fecha` | `movimiento` | `BRIN (fecha_hora)` | Reporte mensual por rango de fechas. `movimiento` solo recibe inserciones en orden cronológico, el caso ideal para BRIN: el índice ocupa unos KB |
 
 #### Consulta 3 — Pautas por residente
@@ -838,10 +838,10 @@ SELECT * FROM pauta WHERE residente_id = :residente_id ORDER BY fecha_inicio DES
 -- Consulta 1
 CREATE INDEX ix_medicamento_nombre_trgm ON medicamento
     USING gin (f_unaccent(lower(nombre_comercial)) gin_trgm_ops) WHERE activo;
-CREATE INDEX ix_principio_activo_nombre_trgm ON principio_activo
+CREATE INDEX ix_principio_activo_trgm ON principio_activo
     USING gin (f_unaccent(lower(nombre)) gin_trgm_ops);
 CREATE INDEX ix_mpa_principio_medicamento ON medicamento_principio_activo (principio_activo_id, medicamento_id);
-CREATE INDEX ix_existencia_medicamento_entidad ON existencia (medicamento_id, entidad_id);
+CREATE INDEX ix_existencia_med_entidad ON existencia (medicamento_id, entidad_id);
 ALTER TABLE existencia SET (fillfactor = 90);
 
 -- Consulta 2
@@ -851,9 +851,9 @@ CREATE INDEX ix_detalle_con_diferencia ON detalle_conteo (medicamento_id) WHERE 
 CREATE INDEX ix_conteo_entidad_periodo ON conteo_fisico (entidad_id, periodo_fin DESC);
 CREATE INDEX ix_movimiento_origen_med_fecha ON movimiento (entidad_origen_id, medicamento_id, fecha_hora)
     WHERE entidad_origen_id IS NOT NULL;
-CREATE INDEX ix_movimiento_destino_med_fecha ON movimiento (entidad_destino_id, medicamento_id, fecha_hora)
+CREATE INDEX ix_movimiento_dest_med_fecha ON movimiento (entidad_destino_id, medicamento_id, fecha_hora)
     WHERE entidad_destino_id IS NOT NULL;
-CREATE INDEX ix_movimiento_medicamento_fecha ON movimiento (medicamento_id, fecha_hora);
+CREATE INDEX ix_movimiento_med_fecha ON movimiento (medicamento_id, fecha_hora);
 CREATE INDEX brin_movimiento_fecha ON movimiento USING brin (fecha_hora);
 
 -- Consulta 3
@@ -869,9 +869,9 @@ CREATE INDEX ix_residente_nombre ON residente (f_unaccent(lower(primer_apellido)
 | `medicamento_principio_activo.medicamento_id` | `UNIQUE (medicamento_id, principio_activo_id)` |
 | `medicamento_principio_activo.principio_activo_id` | `ix_mpa_principio_medicamento` |
 | `existencia.entidad_id` | `uq_existencia (entidad_id, medicamento_id)` |
-| `existencia.medicamento_id` | `ix_existencia_medicamento_entidad` |
-| `movimiento.entidad_origen_id` / `entidad_destino_id` | `ix_movimiento_origen_med_fecha` / `ix_movimiento_destino_med_fecha` |
-| `movimiento.medicamento_id` | `ix_movimiento_medicamento_fecha` |
+| `existencia.medicamento_id` | `ix_existencia_med_entidad` |
+| `movimiento.entidad_origen_id` / `entidad_destino_id` | `ix_movimiento_origen_med_fecha` / `ix_movimiento_dest_med_fecha` |
+| `movimiento.medicamento_id` | `ix_movimiento_med_fecha` |
 | `detalle_conteo.conteo_id` / `medicamento_id` | `uq_detalle_conteo` / `ix_detalle_medicamento_conteo` |
 | `conteo_fisico.entidad_id` | `ix_conteo_entidad_periodo` |
 | `pauta.residente_id` | `ix_pauta_residente_inicio` |
@@ -985,6 +985,7 @@ CREATE TRIGGER tg_detalle_conteo_cerrado BEFORE INSERT OR UPDATE OR DELETE ON de
   - Índices por expresión, con `GinIndex(OpClass(Func(Lower('nombre_comercial'), function='f_unaccent'), name='gin_trgm_ops'), condition=Q(activo=True))`.
   - Índices compuestos y parciales, con `Index(fields=[...], condition=Q(...), include=[...])`.
   - El índice de fechas de movimiento, con `BrinIndex(fields=['fecha_hora'])`.
+  - Django no acepta nombres de índice de más de 30 caracteres (error `models.E034`), por eso los nombres usan abreviaturas como `med` y `dest`.
 - **Extensiones, función, *triggers* y `fillfactor`:** se agregan en migraciones con `RunSQL`, cada una con su `reverse_sql` para poder revertirla.
 - **Búsquedas desde el ORM:** se usa una expresión anotada, `annotate(n=Func(Lower('nombre_comercial'), function='f_unaccent')).filter(n__contains=...)`. Así coincide exactamente con la expresión del índice.
 - **Verificación:**

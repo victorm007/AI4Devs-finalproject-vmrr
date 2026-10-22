@@ -169,7 +169,7 @@ El Hogar es una entidad fija que crean las migraciones, así que no se da de alt
 - **Baja:** motivo obligatorio del catálogo (consumo, caducidad, merma, rotura, devolución a la familia, defunción, egreso).
 - Ningún saldo puede quedar negativo. El movimiento y el cambio de saldo se guardan en la misma transacción.
 - Los movimientos **no se editan ni se borran**. Un error se corrige una sola vez con el movimiento inverso, que referencia al original.
-- Solo se registran movimientos para entidades activas y medicamentos activos.
+- Las entradas y transferencias solo pueden ir a entidades activas y con medicamentos activos. Un residente egresado o fallecido sí puede ceder o dar de baja sus sobrantes. Las correcciones quedan exentas.
 
 **Criterios de aceptación** (sobre el dataset mock de la sección 3.4)
 
