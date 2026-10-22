@@ -35,7 +35,7 @@ Tipos: feat, fix, refactor, test, docs, chore. Borra los comentarios y las secci
 **Definición de hecho común**
 - [ ] `ruff check` y `ruff format --check` sin errores; sin `print` ni código comentado.
 - [ ] CI en verde: lint, `makemigrations --check`, `pytest` (incluida la prueba de integración) contra PostgreSQL 17.
-- [ ] Cobertura ≥ 80 % en servicios y permisos, y no baja respecto de `main`.
+- [ ] Cobertura ≥ 80 % en `apps/` (la exige el CI), el umbral propio del ticket se cumple y la total no baja respecto de `main`.
 - [ ] Sin secretos en el código ni datos personales en los logs (LFPDPPP).
 - [ ] La documentación afectada del `readme.md` está actualizada.
 

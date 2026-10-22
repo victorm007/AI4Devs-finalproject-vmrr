@@ -388,7 +388,7 @@ erDiagram
 | D6 Pautas | `pauta` |
 | Conteos físicos | `conteo_fisico`, `detalle_conteo` |
 
-**Restricciones avanzadas (DDL PostgreSQL).** Django genera la mayoría con `UniqueConstraint`, `CheckConstraint`, `ExclusionConstraint` y `GeneratedField`. Las demás se agregan en migraciones con `RunSQL`.
+**Restricciones avanzadas (DDL PostgreSQL).** Django genera la mayoría con `UniqueConstraint`, `CheckConstraint`, `ExclusionConstraint` y `GeneratedField`. Las demás se agregan en migraciones con `RunSQL`. Los índices únicos por expresión (`uq_medicamento_nombre_pres_conc` y `uq_principio_activo_nombre`) se declaran como `UniqueConstraint` con expresiones en `Meta.constraints`, no con `RunSQL`: así los formularios de Django (incluido `/admin/`) los validan y muestran el error junto al campo, en lugar de un error `500`.
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS btree_gist;  -- para la restricción de exclusión de pautas
@@ -498,7 +498,7 @@ ALTER TABLE detalle_conteo
 | `email` | varchar(254) | NOT NULL, DEFAULT `''` | Opcional |
 | `is_active` | boolean | NOT NULL, DEFAULT true | `false` = usuario dado de baja (no se borra) |
 | `is_superuser` | boolean | NOT NULL, DEFAULT false | `true` = **Administrador** |
-| `is_staff` | boolean | NOT NULL, DEFAULT false | Acceso al panel `/admin/` (solo el Administrador) |
+| `is_staff` | boolean | NOT NULL, DEFAULT false | Acceso al panel `/admin/`: el Administrador y los usuarios de los 2 grupos (habilitadores, sección 5). Solo el Administrador gestiona usuarios y grupos |
 | `last_login` | timestamptz | NULL | Último inicio de sesión |
 | `date_joined` | timestamptz | NOT NULL, DEFAULT now() | Fecha de alta |
 
@@ -1062,8 +1062,10 @@ Las contraseñas vienen como hash **PBKDF2** con el formato de Django (`pbkdf2_s
 
 ```bash
 docker compose cp app/fixtures/mock/. db:/tmp/mock/
-docker compose exec db psql -U <usuario> -d <base> -v ON_ERROR_STOP=1 -f /tmp/mock/cargar_mock.sql
+docker compose exec db psql -U app_owner -d <base> -v ON_ERROR_STOP=1 -f /tmp/mock/cargar_mock.sql
 ```
+
+Se carga con `app_owner` (sección 6, TK-01): el script crea una vista temporal y reajusta las secuencias, y `app_user` no tiene permiso para ninguna de las 2 cosas.
 
 Para volver a empezar: `docker compose down -v`, `docker compose up -d`, `migrate` y cargar de nuevo.
 
@@ -1087,7 +1089,7 @@ Para volver a empezar: `docker compose down -v`, `docker compose up -d`, `migrat
 | 4 | Ver el historial de María | La entrada errónea de 600, su corrección y la entrada correcta: los movimientos son inmutables |
 | 5 | Ver las existencias de José Luis | El préstamo de losartán genérico del Hogar |
 | 6 | Abrir el conteo 2 del Hogar y terminarlo | Conteo en proceso, diferencia calculada y cierre |
-| 7 | Dar de baja Tempra (saldo 0) y luego Paracetamol (saldo > 0) | La primera se permite (baja lógica); la segunda se rechaza |
+| 7 | Dar de baja Tempra (saldo 0) y luego Paracetamol (saldo > 0) en `/admin/` | La primera se permite (baja lógica); la segunda se rechaza con un mensaje en el formulario |
 | 8 | Ver las pautas de Carmen | Pauta "en caso necesario" (PRN) |
 
 **Verificación realizada:** el dataset se cargó en un contenedor `postgres:17` sobre las tablas y el DDL de las secciones 3.1 y 3.3, tal como están documentados. Resultado:

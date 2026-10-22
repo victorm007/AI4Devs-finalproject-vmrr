@@ -85,6 +85,49 @@ Registro de administración por turno (MAR), alertas de stock mínimo o caducida
 ### **1.4. Instrucciones de instalación:**
 > Documenta de manera precisa las instrucciones para instalar y poner en marcha el proyecto en local (librerías, backend, frontend, servidor, base de datos, migraciones y semillas de datos, etc.)
 
+> **Estado:** el código está en desarrollo. Estos son los pasos previstos, que reúnen lo definido en las secciones 2.4, 3.4 y 6. Se validan y ajustan con el primer PR de código.
+
+**Requisitos:** Git, Docker con Docker Compose v2 y [`mkcert`](https://github.com/FiloSottile/mkcert) para el HTTPS local. En Windows, usa Git Bash y los `.sh` deben tener fin de línea LF (TK-01 agrega un `.gitattributes` que lo fuerza).
+
+```bash
+# 1. Código y configuración
+git clone <url-del-repositorio> && cd AI4Devs-finalproject-vmrr
+cp .env.example .env
+#    Edita .env: POSTGRES_PASSWORD, DB_OWNER_PASSWORD, DB_APP_PASSWORD y la clave secreta de Django.
+#    DB_OWNER_CREATEDB=true solo en desarrollo (permite que pytest cree la base de tests).
+
+# 2. Certificado HTTPS local (los nombres deben coincidir con nginx/default.conf)
+mkcert -install
+mkcert -cert-file nginx/certs/local.pem -key-file nginx/certs/local-key.pem localhost 127.0.0.1
+
+# 3. Contenedores: al crear el volumen, db crea los usuarios app_owner y app_user
+docker compose up -d --build
+
+# 4. Esquema y datos semilla (Hogar, grupos, motivos de baja, presentaciones), como app_owner
+./scripts/migrate.sh
+
+# 5. Administrador y archivos estáticos
+docker compose exec web python manage.py createsuperuser
+docker compose exec web python manage.py collectstatic --noinput
+
+# 6. (Opcional, solo desarrollo y demo) Dataset mock de la sección 3.4
+docker compose cp app/fixtures/mock/. db:/tmp/mock/
+docker compose exec db sh -c 'psql -U app_owner -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -f /tmp/mock/cargar_mock.sql'
+```
+
+Abre <https://localhost>: después del login aparece la consulta de existencias. Con el mock cargado, entra como `consulta.demo` / `DemoLectura2026!` (solo lectura) u `operador.demo` / `DemoEscritura2026!` (lectura y escritura). El panel de administración está en <https://localhost/admin/>.
+
+**Pruebas:**
+
+```bash
+set -a && . ./.env && set +a
+docker compose exec -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PASSWORD" web pytest -q
+```
+
+**Volver a empezar** (borra la base local): `docker compose down -v`, y repite desde el paso 3.
+
+Las guías de `docs/tickets/` tienen los comandos de verificación de cada parte, y la sección 2.4 describe el despliegue en el servidor del hogar y en el VPS.
+
 **Documentación proceso para esta seccion:** [01-descripcion-general-producto.md](01-descripcion-general-producto.md)
 
 ---
@@ -438,9 +481,9 @@ flowchart TB
 ```
 
 - **accounts:** inicio y cierre de sesión. Grupos `Solo lectura` y `Lectura y escritura`. El Administrador (superusuario) gestiona los usuarios desde el panel de administración de Django.
-- **catalogo:** alta, baja y cambio de medicamentos (nombre comercial, principio activo, genérico u original, presentación, concentración) y búsqueda.
-- **entidades:** el hogar y los residentes (nombre, fecha de nacimiento, estado). Cada uno es una *entidad* dueña de existencias.
-- **pautas:** dosis y frecuencia de cada medicamento por residente (informativo).
+- **catalogo:** alta, baja y cambio de medicamentos (nombre comercial, principio activo, genérico u original, presentación, concentración) y búsqueda. En el MVP, el alta, la baja y el cambio se hacen desde `/admin/` (sección 5); las pantallas propias quedan para la V2.
+- **entidades:** el hogar y los residentes (nombre, fecha de nacimiento, estado). Cada uno es una *entidad* dueña de existencias. En el MVP, los residentes se gestionan desde `/admin/` (sección 5).
+- **pautas:** dosis y frecuencia de cada medicamento por residente (informativo; prioridad *Could*, sección 5).
 - **inventario:** existencias por entidad y medicamento (en dosis) y registro de **movimientos** (entrada, transferencia, baja con motivo). Incluye `services.py` con las reglas de negocio.
 - **conteos:** conteo físico a demanda por entidad y rango de fechas, y comparación contra lo registrado.
 - **reportes:** reporte mensual en pantalla de existencias y movimientos.
@@ -485,8 +528,10 @@ AI4Devs-finalproject-vmrr/
     │   ├── entidades/
     │   ├── pautas/
     │   ├── inventario/
-    │   │   ├── models.py      # Existencia, Movimiento
-    │   │   ├── services.py    # reglas: registrar_entrada, transferir, dar_de_baja
+    │   │   ├── models.py      # Existencia, Movimiento, MotivoBaja
+    │   │   ├── services.py    # reglas: registrar_entrada, transferir, dar_de_baja, corregir
+    │   │   ├── exceptions.py  # errores de negocio con code (sección 4.4)
+    │   │   ├── selectors.py   # consultas de lectura (buscar_existencias)
     │   │   ├── forms.py
     │   │   ├── views.py
     │   │   ├── urls.py
@@ -497,7 +542,10 @@ AI4Devs-finalproject-vmrr/
     │   └── api/               # serializers.py, views.py, urls.py
     ├── templates/             # base.html y layout común (Bootstrap)
     ├── static/                # css, js (htmx), imágenes
-    └── fixtures/              # datos de ejemplo y grupos de permisos
+    ├── fixtures/mock/         # dataset mock para demo y desarrollo (sección 3.4)
+    ├── e2e/                   # pruebas de extremo a extremo con Playwright
+    ├── conftest.py            # fixtures de pytest compartidos (datos_demo, demo, como_app_user)
+    └── pruebas.py             # helpers de los tests (ejecutar_sql, saldo)
 ```
 
 **Patrón:** estructura estándar de Django organizada **por dominio**: cada app contiene sus modelos, servicios, vistas, plantillas y tests. La configuración está separada por entorno (`local` / `prod`) y se controla con variables de entorno, siguiendo la metodología *12-factor*. La infraestructura (`nginx/`, `scripts/`, `docker-compose.yml`) queda fuera del código de la aplicación.
@@ -576,7 +624,7 @@ C4Container
 | Contenedor | Imagen / tecnología | Responsabilidad | Puertos | Volúmenes | Redes |
 |---|---|---|---|---|---|
 | **`nginx`** — proxy inverso | `nginx:stable-alpine` | Único punto de entrada. Termina **HTTPS** (`mkcert` en la red local, Let's Encrypt en el VPS) y redirige 80 → 443. Sirve `/static/` sin pasar por Django. Aplica cabeceras de seguridad (HSTS, CSP, `X-Frame-Options`) y límites de tamaño de petición. Reenvía el resto a `web`. | **80 y 443 publicados** al host | `static` (solo lectura), `nginx/certs` | `frontend` |
-| **`web`** — app + API backend | Imagen propia: Python 3.12 + Django 5.2 + Gunicorn | **App web:** renderiza las páginas HTML (Bootstrap + HTMX) de catálogo, entidades, movimientos, pautas, conteos y reportes. **API REST** (DRF): 3 endpoints JSON de solo lectura bajo `/api/`, con esquema OpenAPI. **Backend:** autenticación, sesiones, permisos por grupo, reglas de inventario (`services.py`) y panel `/admin/` para gestionar usuarios. | 8000 (solo interno, no publicado) | `static` (escribe con `collectstatic`) | `frontend` y `backend` |
+| **`web`** — app + API backend | Imagen propia: Python 3.12 + Django 5.2 + Gunicorn | **App web:** renderiza las páginas HTML (Bootstrap + HTMX) de existencias, movimientos, conteos y reportes. En el MVP, el catálogo y los residentes se operan desde `/admin/`, y las pautas son *Could* (sección 5). **API REST** (DRF): 3 endpoints JSON de solo lectura bajo `/api/`, con esquema OpenAPI. **Backend:** autenticación, sesiones, permisos por grupo, reglas de inventario (`services.py`) y panel `/admin/` para gestionar usuarios. | 8000 (solo interno, no publicado) | `static` (escribe con `collectstatic`) | `frontend` y `backend` |
 | **`db`** — base de datos | `postgres:17-alpine` | Persistencia relacional de los almacenes D1 a D6. Garantiza transacciones atómicas y bloqueo de filas (`SELECT ... FOR UPDATE`) para que las existencias nunca queden negativas. | 5432 (solo interno, no publicado) | `pgdata` (datos persistentes) | `backend` |
 
 **Flujos de comunicación entre contenedores:**
@@ -605,7 +653,7 @@ C4Container
    - `DB_OWNER_PASSWORD`: `app_owner`, para las migraciones.
    - `DB_APP_PASSWORD`: `app_user`, para la aplicación.
 
-   Al crear el volumen `pgdata`, el contenedor `db` ejecuta `db/init/01_roles.sh`, que crea `app_owner` y `app_user` (sección 6, TK-01). Después se generan los certificados (`mkcert` en local, `certbot` en el VPS), se crea el superusuario con `createsuperuser` y se cargan los grupos de permisos con `loaddata grupos`.
+   Al crear el volumen `pgdata`, el contenedor `db` ejecuta `db/init/01_roles.sh`, que crea `app_owner` y `app_user` (sección 6, TK-01). Después se generan los certificados (`mkcert` en local, `certbot` en el VPS), se crea el superusuario con `createsuperuser`. Los grupos de permisos, el Hogar y los catálogos semilla no se cargan aparte: los crean las migraciones de datos (sección 3.1).
 4. **Respaldos:** un cron diario ejecuta `scripts/backup_db.sh`, que genera un `pg_dump` comprimido y cifrado, con retención de 14 días y copia a un disco externo. Una vez al mes se prueba la restauración con `scripts/restore_db.sh`.
 5. **Migración a hosting:** se aprovisiona el VPS con Ubuntu y Docker, se clona el repositorio, se restaura el último respaldo y se apunta el dominio. No hay cambios de código, solo variables de entorno.
 
@@ -619,7 +667,7 @@ C4Container
 | **Contraseñas** | Hash **Argon2** (`django[argon2]`) y validadores de longitud y complejidad de Django. |
 | **Sesiones** | Expiran tras 30 min de inactividad (`SESSION_COOKIE_AGE=1800`, `SESSION_SAVE_EVERY_REQUEST=True`) y al cerrar el navegador. Cookies `HttpOnly` y `SameSite=Lax`. |
 | **Fuerza bruta** | `django-axes`: bloquea temporalmente la cuenta tras 5 intentos fallidos. |
-| **Autorización** | Grupos `Solo lectura` / `Lectura y escritura` con permisos de Django, validados **en el backend** (`PermissionRequiredMixin` en vistas y `DjangoModelPermissions` en la API). La interfaz oculta botones según el nivel, pero la autorización real ocurre en el servidor. Ejemplo: un usuario de solo lectura que envía un `POST` a `/inventario/bajas/` recibe `403`. |
+| **Autorización** | Grupos `Solo lectura` / `Lectura y escritura` con permisos de Django, validados **en el backend** (`PermissionRequiredMixin` en las vistas; en la API, `IsAuthenticated`, porque sus 3 endpoints son de solo lectura, sección 4.2). La interfaz oculta botones según el nivel, pero la autorización real ocurre en el servidor. Ejemplo: un usuario de solo lectura que envía un `POST` a `/inventario/bajas/` recibe `403`. |
 | **API** | Solo lectura (`GET`), requiere sesión autenticada y no expone métodos de escritura. |
 | **Vulnerabilidades web** | CSRF por defecto en formularios y peticiones HTMX. Protección contra XSS por el *autoescape* de plantillas. Protección contra inyección SQL al usar el ORM con consultas parametrizadas. `X-Frame-Options: DENY` y `Content-Security-Policy` en Nginx. |
 | **Secretos y configuración** | `SECRET_KEY` y credenciales de base de datos en `.env` (no versionado). `DEBUG=False` y `ALLOWED_HOSTS` restringido en producción. |
@@ -634,7 +682,7 @@ C4Container
 
 > Describe brevemente algunos de los tests realizados
 
-**Herramientas:** `pytest` + `pytest-django` + `factory_boy`, ejecutados en CI contra PostgreSQL real. Playwright (Python) para el flujo de extremo a extremo.
+**Herramientas:** `pytest` + `pytest-django`, con el dataset mock de la sección 3.4 como *fixture* (`datos_demo`), ejecutados en CI contra PostgreSQL real. Playwright (Python) para el flujo de extremo a extremo.
 
 | Tipo | Caso | Resultado esperado |
 |---|---|---|
@@ -648,7 +696,7 @@ C4Container
 | **API** | `GET /api/v1/existencias?entidad_id=<id>` sin autenticación / autenticado | `401` / `200` con solo las existencias de esa entidad (casos completos en la sección 4.6). |
 | **Extremo a extremo** | Login → alta de medicamento → entrada a residente → consulta filtrada por principio activo | El medicamento aparece con la existencia correcta. |
 
-**Criterio:** cobertura ≥ 80 % en las capas de servicios y permisos, que concentran las reglas críticas del negocio.
+**Criterio:** cobertura ≥ 80 % en todo el código de `apps/`, que el CI exige en cada PR (sección 7.3). Las capas de servicios y permisos, que concentran las reglas críticas del negocio, tienen además el umbral de su ticket (por ejemplo, ≥ 90 % en `services.py`).
 
 **Documentación proceso para esta seccion:**[02-arquitectura.md](02-arquitectura.md)
 
@@ -844,7 +892,7 @@ erDiagram
 | D6 Pautas | `pauta` |
 | Conteos físicos | `conteo_fisico`, `detalle_conteo` |
 
-**Restricciones avanzadas (DDL PostgreSQL).** Django genera la mayoría con `UniqueConstraint`, `CheckConstraint`, `ExclusionConstraint` y `GeneratedField`. Las demás se agregan en migraciones con `RunSQL`.
+**Restricciones avanzadas (DDL PostgreSQL).** Django genera la mayoría con `UniqueConstraint`, `CheckConstraint`, `ExclusionConstraint` y `GeneratedField`. Las demás se agregan en migraciones con `RunSQL`. Los índices únicos por expresión (`uq_medicamento_nombre_pres_conc` y `uq_principio_activo_nombre`) se declaran como `UniqueConstraint` con expresiones en `Meta.constraints`, no con `RunSQL`: así los formularios de Django (incluido `/admin/`) los validan y muestran el error junto al campo, en lugar de un error `500`.
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS btree_gist;  -- para la restricción de exclusión de pautas
@@ -954,7 +1002,7 @@ ALTER TABLE detalle_conteo
 | `email` | varchar(254) | NOT NULL, DEFAULT `''` | Opcional |
 | `is_active` | boolean | NOT NULL, DEFAULT true | `false` = usuario dado de baja (no se borra) |
 | `is_superuser` | boolean | NOT NULL, DEFAULT false | `true` = **Administrador** |
-| `is_staff` | boolean | NOT NULL, DEFAULT false | Acceso al panel `/admin/` (solo el Administrador) |
+| `is_staff` | boolean | NOT NULL, DEFAULT false | Acceso al panel `/admin/`: el Administrador y los usuarios de los 2 grupos (habilitadores, sección 5). Solo el Administrador gestiona usuarios y grupos |
 | `last_login` | timestamptz | NULL | Último inicio de sesión |
 | `date_joined` | timestamptz | NOT NULL, DEFAULT now() | Fecha de alta |
 
@@ -1518,8 +1566,10 @@ Las contraseñas vienen como hash **PBKDF2** con el formato de Django (`pbkdf2_s
 
 ```bash
 docker compose cp app/fixtures/mock/. db:/tmp/mock/
-docker compose exec db psql -U <usuario> -d <base> -v ON_ERROR_STOP=1 -f /tmp/mock/cargar_mock.sql
+docker compose exec db psql -U app_owner -d <base> -v ON_ERROR_STOP=1 -f /tmp/mock/cargar_mock.sql
 ```
+
+Se carga con `app_owner` (sección 6, TK-01): el script crea una vista temporal y reajusta las secuencias, y `app_user` no tiene permiso para ninguna de las 2 cosas.
 
 Para volver a empezar: `docker compose down -v`, `docker compose up -d`, `migrate` y cargar de nuevo.
 
@@ -1543,7 +1593,7 @@ Para volver a empezar: `docker compose down -v`, `docker compose up -d`, `migrat
 | 4 | Ver el historial de María | La entrada errónea de 600, su corrección y la entrada correcta: los movimientos son inmutables |
 | 5 | Ver las existencias de José Luis | El préstamo de losartán genérico del Hogar |
 | 6 | Abrir el conteo 2 del Hogar y terminarlo | Conteo en proceso, diferencia calculada y cierre |
-| 7 | Dar de baja Tempra (saldo 0) y luego Paracetamol (saldo > 0) | La primera se permite (baja lógica); la segunda se rechaza |
+| 7 | Dar de baja Tempra (saldo 0) y luego Paracetamol (saldo > 0) en `/admin/` | La primera se permite (baja lógica); la segunda se rechaza con un mensaje en el formulario |
 | 8 | Ver las pautas de Carmen | Pauta "en caso necesario" (PRN) |
 
 **Verificación realizada:** el dataset se cargó en un contenedor `postgres:17` sobre las tablas y el DDL de las secciones 3.1 y 3.3, tal como están documentados. Resultado:
@@ -1614,7 +1664,7 @@ Se validó con **Redocly CLI** (`npx @redocly/cli lint docs/api/openapi.yaml`): 
 |---|---|
 | `SOLO_LECTURA` | Todos los `GET` |
 | `LECTURA_ESCRITURA` | Todo lo anterior y las operaciones de escritura |
-| `ADMINISTRADOR` | Igual que lectura y escritura, y además el panel `/admin/` |
+| `ADMINISTRADOR` | Igual que lectura y escritura, y además la gestión de usuarios y grupos en `/admin/` |
 
 La gestión de usuarios se hace en `/admin/` y no forma parte de la API.
 
@@ -1893,7 +1943,7 @@ El Hogar es una entidad fija que crean las migraciones, así que no se da de alt
 
 **Ventajas para un desarrollo rápido:**
 - **Poco código:** cada modelo se configura en unas 20–30 líneas de `admin.py` (columnas, búsqueda, filtros y campos editables). Toda la configuración de la semana 1 cabe en horas, no en días.
-- **Validaciones gratis:** los formularios del panel aplican las validaciones del modelo y las restricciones de la base de datos (por ejemplo, rechaza un segundo "Losartán 50 mg tableta") y muestran el error junto al campo.
+- **Validaciones incluidas:** los formularios del panel aplican las validaciones del modelo y las restricciones declaradas en `Meta.constraints` (por ejemplo, rechazan un segundo "Losartán 50 mg tableta") y muestran el error junto al campo.
 - **Permisos ya resueltos:** el panel respeta los permisos de Django por grupo (`view`, `add`, `change`), validados en el servidor.
 - **Búsqueda, filtros y paginación** incluidos sin código.
 - **Historial de cambios:** el panel registra quién creó o modificó cada registro y cuándo (`LogEntry`).
@@ -1905,6 +1955,7 @@ El Hogar es una entidad fija que crean las migraciones, así que no se da de alt
 - **Movimientos, existencias y conteos no se registran en el panel.** Solo se operan desde las pantallas de HU-01 y HU-03, así nadie puede editar un saldo ni un movimiento a mano.
 - **Principios activos en línea:** en el formulario del medicamento se agregan sus principios activos en la misma pantalla (*inline* de la tabla puente).
 - **Acceso de los grupos:** los usuarios de los 2 grupos tienen `is_staff = True` para entrar al panel. Solo el Administrador ve las secciones de usuarios y grupos.
+- **Reglas que viven en *triggers*:** el formulario las valida antes de guardar, para que el usuario vea un mensaje y no un error `500`. Por ejemplo, el formulario de `MedicamentoAdmin` rechaza desmarcar `activo` si el medicamento tiene existencias ("No se puede dar de baja: hay existencias de este medicamento"); el *trigger* `tg_medicamento_baja` queda como última barrera.
 
 **Limitaciones aceptadas para el MVP:** la interfaz es genérica (no tiene el estilo de la aplicación) y es menos cómoda en el celular. Como estas operaciones se hacen pocas veces y desde la computadora, no afecta el uso diario.
 
@@ -1912,7 +1963,8 @@ El Hogar es una entidad fija que crean las migraciones, así que no se da de alt
 
 | Semana | Entrega |
 |---|---|
-| 1 | Proyecto Django + Docker, modelo de datos (sección 3), login, grupos y habilitadores en `/admin/` |
+| 1 | Proyecto Django + Docker, login, grupos, catálogo y entidades (sección 3: D1 a D3) y habilitadores en `/admin/` |
+| 2 | **TK-01**: esquema de existencias, movimientos y conteos, usuarios de base de datos y permisos (sección 6) |
 | 2–3 | **HU-01** (servicios, pantallas y tests de concurrencia) |
 | 3–4 | **HU-02** (pantalla con filtros HTMX y `GET /existencias`) |
 | 4–5 | **HU-03** (captura, diferencias y cierre) |
@@ -2057,7 +2109,7 @@ Escenario: La API devuelve lo mismo que la pantalla
 
 **Requisitos no funcionales:** el resultado se actualiza al escribir, sin recargar la página (HTMX), y responde en menos de 1 segundo con los volúmenes de la sección 3.3 gracias a los índices trigram. La tabla se lee en el celular sin desplazamiento horizontal.
 
-**Definición de terminado:** tests de las consultas con el mock (casos 1 a 11 de la sección 4.6), test de contrato de `GET /existencias` contra `openapi.yaml`, plan de ejecución que usa los índices de la sección 3.3, y revisión en pantalla de celular.
+**Definición de terminado:** tests de las consultas con el mock (casos 1 a 6 de la sección 4.6; los casos 7 a 11 son de `GET /medicamentos`, que se hará con la historia de reportes), test de contrato de `GET /existencias` contra `openapi.yaml`, plan de ejecución que usa los índices de la sección 3.3, y revisión en pantalla de celular.
 
 ---
 
@@ -2210,7 +2262,7 @@ Quedan fuera de esta cuenta los habilitadores de la semana 1 (en `/admin/`) y lo
 **Definición de hecho común** (aplica a los 3 tickets, además de la propia de cada uno):
 - El código pasa `ruff check` y `ruff format --check`, y no hay `print` ni código comentado.
 - CI en verde: lint, `python manage.py makemigrations --check` y `pytest` contra PostgreSQL 17.
-- Cobertura ≥ 80 % en servicios y permisos (sección 2.6).
+- Cobertura ≥ 80 % en `apps/` (la exige el CI), más el umbral propio del ticket (sección 2.6).
 - *Pull request* revisado y aprobado, con la descripción, cómo probarlo y el enlace al ticket. Se integra a `main` con *squash merge*.
 - No hay secretos en el código ni datos personales en los logs (LFPDPPP).
 - La documentación afectada del `readme.md` está actualizada.
@@ -2759,7 +2811,7 @@ Un PR se integra a `main` solo si cumple **todos**:
 |---|---|---|
 | **Pruebas** | `pytest` completo en verde contra PostgreSQL 17, incluida la prueba de integración de la sección 6. Si toca el frontend, también los e2e de Playwright | *Checks* obligatorios `tests` y `e2e` |
 | **Calidad estática** | `ruff check`, `ruff format --check` y `makemigrations --check` sin errores | *Checks* obligatorios `lint` (ruff) y `tests` (migraciones) |
-| **Cobertura** | ≥ 80 % en servicios y permisos (sección 2.6), más el umbral del ticket (TK-02 ≥ 90 % en `services.py`); la cobertura total no baja respecto de `main` | El *job* `tests` falla con menos de 80 % (`--cov-fail-under=80`) y guarda `coverage.xml`; el umbral del ticket y la comparación con `main` los verifica el autor y los anota en la plantilla |
+| **Cobertura** | ≥ 80 % en todo `apps/` (sección 2.6), más el umbral del ticket (TK-02 ≥ 90 % en `services.py`); la cobertura total no baja respecto de `main` | El *job* `tests` falla con menos de 80 % (`--cov-fail-under=80`) y guarda `coverage.xml`; el umbral del ticket y la comparación con `main` los verifica el autor y los anota en la plantilla |
 | **Aprobaciones** | 1 aprobación sin comentarios bloqueantes abiertos. Con un solo desarrollador: autorrevisión y revisión con IA registradas en el PR | Revisión en GitHub y conversaciones resueltas |
 | **Definición de hecho** | La común y la del ticket (sección 6), con todos los criterios de aceptación cumplidos | Checklist del autor, revisada por el revisor |
 | **Integración** | Rama al día con `main`; ningún contrato de "Puntos de integración" cambiado sin avisar | Protección de rama "*require branches to be up to date*" |

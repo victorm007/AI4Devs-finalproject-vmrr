@@ -8,7 +8,8 @@
 --
 -- Uso (desde la raíz del repositorio):
 --   docker compose cp app/fixtures/mock/. db:/tmp/mock/
---   docker compose exec db psql -U <usuario> -d <base> -v ON_ERROR_STOP=1 -f /tmp/mock/cargar_mock.sql
+--   docker compose exec db psql -U app_owner -d <base> -v ON_ERROR_STOP=1 -f /tmp/mock/cargar_mock.sql
+--   (con app_owner: el script crea una vista temporal y reajusta secuencias; app_user no puede)
 --
 -- Todo corre en una sola transacción: si cualquier validación falla, no se
 -- carga nada. Los triggers y CHECK de la sección 3 del readme siguen activos

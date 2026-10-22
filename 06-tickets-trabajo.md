@@ -185,7 +185,7 @@ Quedan fuera de esta cuenta los habilitadores de la semana 1 (en `/admin/`) y lo
 **Definición de hecho común** (aplica a los 3 tickets, además de la propia de cada uno):
 - El código pasa `ruff check` y `ruff format --check`, y no hay `print` ni código comentado.
 - CI en verde: lint, `python manage.py makemigrations --check` y `pytest` contra PostgreSQL 17.
-- Cobertura ≥ 80 % en servicios y permisos (sección 2.6).
+- Cobertura ≥ 80 % en `apps/` (la exige el CI), más el umbral propio del ticket (sección 2.6).
 - *Pull request* revisado y aprobado, con la descripción, cómo probarlo y el enlace al ticket. Se integra a `main` con *squash merge*.
 - No hay secretos en el código ni datos personales en los logs (LFPDPPP).
 - La documentación afectada del `readme.md` está actualizada.
@@ -670,3 +670,5 @@ No agrega dependencias nuevas.
 **Riesgos**
 - Que la búsqueda no use el índice si la expresión del ORM no coincide exactamente con la del índice: se cubre con el test de plan de ejecución de TK-01 aplicado al selector.
 - Tablas con nombres largos en el celular: se resuelve con las tarjetas y con `text-break`.
+
+**Documentación proceso para esta seccion:** [06-tickets-trabajo.md](06-tickets-trabajo.md)

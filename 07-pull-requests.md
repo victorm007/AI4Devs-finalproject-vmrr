@@ -161,7 +161,7 @@ Un PR se integra a `main` solo si cumple **todos**:
 |---|---|---|
 | **Pruebas** | `pytest` completo en verde contra PostgreSQL 17, incluida la prueba de integración de la sección 6. Si toca el frontend, también los e2e de Playwright | *Checks* obligatorios `tests` y `e2e` |
 | **Calidad estática** | `ruff check`, `ruff format --check` y `makemigrations --check` sin errores | *Checks* obligatorios `lint` (ruff) y `tests` (migraciones) |
-| **Cobertura** | ≥ 80 % en servicios y permisos (sección 2.6), más el umbral del ticket (TK-02 ≥ 90 % en `services.py`); la cobertura total no baja respecto de `main` | El *job* `tests` falla con menos de 80 % (`--cov-fail-under=80`) y guarda `coverage.xml`; el umbral del ticket y la comparación con `main` los verifica el autor y los anota en la plantilla |
+| **Cobertura** | ≥ 80 % en todo `apps/` (sección 2.6), más el umbral del ticket (TK-02 ≥ 90 % en `services.py`); la cobertura total no baja respecto de `main` | El *job* `tests` falla con menos de 80 % (`--cov-fail-under=80`) y guarda `coverage.xml`; el umbral del ticket y la comparación con `main` los verifica el autor y los anota en la plantilla |
 | **Aprobaciones** | 1 aprobación sin comentarios bloqueantes abiertos. Con un solo desarrollador: autorrevisión y revisión con IA registradas en el PR | Revisión en GitHub y conversaciones resueltas |
 | **Definición de hecho** | La común y la del ticket (sección 6), con todos los criterios de aceptación cumplidos | Checklist del autor, revisada por el revisor |
 | **Integración** | Rama al día con `main`; ningún contrato de "Puntos de integración" cambiado sin avisar | Protección de rama "*require branches to be up to date*" |
@@ -371,3 +371,5 @@ dtest apps/inventario/tests/test_integracion.py -q          # la integración de
 - **Los *triggers* son la última barrera, no el mensaje al usuario.** Si el servicio no valida antes, el usuario ve un error `500` en lugar de un mensaje claro. Esto se agregó a los criterios de revisión de backend.
 - **El patrón de la migración de permisos se repite en cada app nueva.** Conviene convertirlo en una función compartida antes de TK-07.
 - **Que el conteo no ajuste existencias simplificó el servicio:** no necesita bloquear saldos, porque las diferencias se resuelven con el servicio de TK-02, que ya está probado.
+
+**Documentación proceso para esta seccion:** [07-pull-requests.md](07-pull-requests.md)

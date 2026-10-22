@@ -625,9 +625,9 @@ flowchart TB
 ```
 
 - **accounts:** inicio y cierre de sesión. Grupos `Solo lectura` y `Lectura y escritura`. El Administrador (superusuario) gestiona los usuarios desde el panel de administración de Django.
-- **catalogo:** alta, baja y cambio de medicamentos (nombre comercial, principio activo, genérico u original, presentación, concentración) y búsqueda.
-- **entidades:** el hogar y los residentes (nombre, fecha de nacimiento, estado). Cada uno es una *entidad* dueña de existencias.
-- **pautas:** dosis y frecuencia de cada medicamento por residente (informativo).
+- **catalogo:** alta, baja y cambio de medicamentos (nombre comercial, principio activo, genérico u original, presentación, concentración) y búsqueda. En el MVP, el alta, la baja y el cambio se hacen desde `/admin/` (sección 5); las pantallas propias quedan para la V2.
+- **entidades:** el hogar y los residentes (nombre, fecha de nacimiento, estado). Cada uno es una *entidad* dueña de existencias. En el MVP, los residentes se gestionan desde `/admin/` (sección 5).
+- **pautas:** dosis y frecuencia de cada medicamento por residente (informativo; prioridad *Could*, sección 5).
 - **inventario:** existencias por entidad y medicamento (en dosis) y registro de **movimientos** (entrada, transferencia, baja con motivo). Incluye `services.py` con las reglas de negocio.
 - **conteos:** conteo físico a demanda por entidad y rango de fechas, y comparación contra lo registrado.
 - **reportes:** reporte mensual en pantalla de existencias y movimientos.
@@ -670,8 +670,10 @@ AI4Devs-finalproject-vmrr/
     │   ├── entidades/
     │   ├── pautas/
     │   ├── inventario/
-    │   │   ├── models.py      # Existencia, Movimiento
-    │   │   ├── services.py    # reglas: registrar_entrada, transferir, dar_de_baja
+    │   │   ├── models.py      # Existencia, Movimiento, MotivoBaja
+    │   │   ├── services.py    # reglas: registrar_entrada, transferir, dar_de_baja, corregir
+    │   │   ├── exceptions.py  # errores de negocio con code (sección 4.4)
+    │   │   ├── selectors.py   # consultas de lectura (buscar_existencias)
     │   │   ├── forms.py
     │   │   ├── views.py
     │   │   ├── urls.py
@@ -682,7 +684,10 @@ AI4Devs-finalproject-vmrr/
     │   └── api/               # serializers.py, views.py, urls.py
     ├── templates/             # base.html y layout común (Bootstrap)
     ├── static/                # css, js (htmx), imágenes
-    └── fixtures/              # datos de ejemplo y grupos de permisos
+    ├── fixtures/mock/         # dataset mock para demo y desarrollo (sección 3.4)
+    ├── e2e/                   # pruebas de extremo a extremo con Playwright
+    ├── conftest.py            # fixtures de pytest compartidos (datos_demo, demo, como_app_user)
+    └── pruebas.py             # helpers de los tests (ejecutar_sql, saldo)
 ```
 
 **Patrón:** estructura estándar de Django organizada **por dominio**: cada app contiene sus modelos, servicios, vistas, plantillas y tests. La configuración está separada por entorno (`local` / `prod`) y se controla con variables de entorno, siguiendo la metodología *12-factor*. La infraestructura (`nginx/`, `scripts/`, `docker-compose.yml`) queda fuera del código de la aplicación.
@@ -759,7 +764,7 @@ C4Container
 | Contenedor | Imagen / tecnología | Responsabilidad | Puertos | Volúmenes | Redes |
 |---|---|---|---|---|---|
 | **`nginx`** — proxy inverso | `nginx:stable-alpine` | Único punto de entrada. Termina **HTTPS** (`mkcert` en la red local, Let's Encrypt en el VPS) y redirige 80 → 443. Sirve `/static/` sin pasar por Django. Aplica cabeceras de seguridad (HSTS, CSP, `X-Frame-Options`) y límites de tamaño de petición. Reenvía el resto a `web`. | **80 y 443 publicados** al host | `static` (solo lectura), `nginx/certs` | `frontend` |
-| **`web`** — app + API backend | Imagen propia: Python 3.12 + Django 5.2 + Gunicorn | **App web:** renderiza las páginas HTML (Bootstrap + HTMX) de catálogo, entidades, movimientos, pautas, conteos y reportes. **API REST** (DRF): 3 endpoints JSON de solo lectura bajo `/api/`, con esquema OpenAPI. **Backend:** autenticación, sesiones, permisos por grupo, reglas de inventario (`services.py`) y panel `/admin/` para gestionar usuarios. | 8000 (solo interno, no publicado) | `static` (escribe con `collectstatic`) | `frontend` y `backend` |
+| **`web`** — app + API backend | Imagen propia: Python 3.12 + Django 5.2 + Gunicorn | **App web:** renderiza las páginas HTML (Bootstrap + HTMX) de existencias, movimientos, conteos y reportes. En el MVP, el catálogo y los residentes se operan desde `/admin/`, y las pautas son *Could* (sección 5). **API REST** (DRF): 3 endpoints JSON de solo lectura bajo `/api/`, con esquema OpenAPI. **Backend:** autenticación, sesiones, permisos por grupo, reglas de inventario (`services.py`) y panel `/admin/` para gestionar usuarios. | 8000 (solo interno, no publicado) | `static` (escribe con `collectstatic`) | `frontend` y `backend` |
 | **`db`** — base de datos | `postgres:17-alpine` | Persistencia relacional de los almacenes D1 a D6. Garantiza transacciones atómicas y bloqueo de filas (`SELECT ... FOR UPDATE`) para que las existencias nunca queden negativas. | 5432 (solo interno, no publicado) | `pgdata` (datos persistentes) | `backend` |
 
 **Flujos de comunicación entre contenedores:**
@@ -788,7 +793,7 @@ C4Container
    - `DB_OWNER_PASSWORD`: `app_owner`, para las migraciones.
    - `DB_APP_PASSWORD`: `app_user`, para la aplicación.
 
-   Al crear el volumen `pgdata`, el contenedor `db` ejecuta `db/init/01_roles.sh`, que crea `app_owner` y `app_user` (sección 6, TK-01). Después se generan los certificados (`mkcert` en local, `certbot` en el VPS), se crea el superusuario con `createsuperuser` y se cargan los grupos de permisos con `loaddata grupos`.
+   Al crear el volumen `pgdata`, el contenedor `db` ejecuta `db/init/01_roles.sh`, que crea `app_owner` y `app_user` (sección 6, TK-01). Después se generan los certificados (`mkcert` en local, `certbot` en el VPS), se crea el superusuario con `createsuperuser`. Los grupos de permisos, el Hogar y los catálogos semilla no se cargan aparte: los crean las migraciones de datos (sección 3.1).
 4. **Respaldos:** un cron diario ejecuta `scripts/backup_db.sh`, que genera un `pg_dump` comprimido y cifrado, con retención de 14 días y copia a un disco externo. Una vez al mes se prueba la restauración con `scripts/restore_db.sh`.
 5. **Migración a hosting:** se aprovisiona el VPS con Ubuntu y Docker, se clona el repositorio, se restaura el último respaldo y se apunta el dominio. No hay cambios de código, solo variables de entorno.
 
@@ -800,7 +805,7 @@ C4Container
 | **Contraseñas** | Hash **Argon2** (`django[argon2]`) y validadores de longitud y complejidad de Django. |
 | **Sesiones** | Expiran tras 30 min de inactividad (`SESSION_COOKIE_AGE=1800`, `SESSION_SAVE_EVERY_REQUEST=True`) y al cerrar el navegador. Cookies `HttpOnly` y `SameSite=Lax`. |
 | **Fuerza bruta** | `django-axes`: bloquea temporalmente la cuenta tras 5 intentos fallidos. |
-| **Autorización** | Grupos `Solo lectura` / `Lectura y escritura` con permisos de Django, validados **en el backend** (`PermissionRequiredMixin` en vistas y `DjangoModelPermissions` en la API). La interfaz oculta botones según el nivel, pero la autorización real ocurre en el servidor. Ejemplo: un usuario de solo lectura que envía un `POST` a `/inventario/bajas/` recibe `403`. |
+| **Autorización** | Grupos `Solo lectura` / `Lectura y escritura` con permisos de Django, validados **en el backend** (`PermissionRequiredMixin` en las vistas; en la API, `IsAuthenticated`, porque sus 3 endpoints son de solo lectura, sección 4.2). La interfaz oculta botones según el nivel, pero la autorización real ocurre en el servidor. Ejemplo: un usuario de solo lectura que envía un `POST` a `/inventario/bajas/` recibe `403`. |
 | **API** | Solo lectura (`GET`), requiere sesión autenticada y no expone métodos de escritura. |
 | **Vulnerabilidades web** | CSRF por defecto en formularios y peticiones HTMX. Protección contra XSS por el *autoescape* de plantillas. Protección contra inyección SQL al usar el ORM con consultas parametrizadas. `X-Frame-Options: DENY` y `Content-Security-Policy` en Nginx. |
 | **Secretos y configuración** | `SECRET_KEY` y credenciales de base de datos en `.env` (no versionado). `DEBUG=False` y `ALLOWED_HOSTS` restringido en producción. |
@@ -813,7 +818,7 @@ C4Container
 
 ### 2.6. Tests
 
-**Herramientas:** `pytest` + `pytest-django` + `factory_boy`, ejecutados en CI contra PostgreSQL real. Playwright (Python) para el flujo de extremo a extremo.
+**Herramientas:** `pytest` + `pytest-django`, con el dataset mock de la sección 3.4 como *fixture* (`datos_demo`), ejecutados en CI contra PostgreSQL real. Playwright (Python) para el flujo de extremo a extremo.
 
 | Tipo | Caso | Resultado esperado |
 |---|---|---|
@@ -827,4 +832,4 @@ C4Container
 | **API** | `GET /api/v1/existencias?entidad_id=<id>` sin autenticación / autenticado | `401` / `200` con solo las existencias de esa entidad (casos completos en la sección 4.6). |
 | **Extremo a extremo** | Login → alta de medicamento → entrada a residente → consulta filtrada por principio activo | El medicamento aparece con la existencia correcta. |
 
-**Criterio:** cobertura ≥ 80 % en las capas de servicios y permisos, que concentran las reglas críticas del negocio.
+**Criterio:** cobertura ≥ 80 % en todo el código de `apps/`, que el CI exige en cada PR (sección 7.3). Las capas de servicios y permisos, que concentran las reglas críticas del negocio, tienen además el umbral de su ticket (por ejemplo, ≥ 90 % en `services.py`).

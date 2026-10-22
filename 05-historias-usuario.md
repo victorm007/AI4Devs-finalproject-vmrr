@@ -117,7 +117,7 @@ El Hogar es una entidad fija que crean las migraciones, así que no se da de alt
 
 **Ventajas para un desarrollo rápido:**
 - **Poco código:** cada modelo se configura en unas 20–30 líneas de `admin.py` (columnas, búsqueda, filtros y campos editables). Toda la configuración de la semana 1 cabe en horas, no en días.
-- **Validaciones gratis:** los formularios del panel aplican las validaciones del modelo y las restricciones de la base de datos (por ejemplo, rechaza un segundo "Losartán 50 mg tableta") y muestran el error junto al campo.
+- **Validaciones incluidas:** los formularios del panel aplican las validaciones del modelo y las restricciones declaradas en `Meta.constraints` (por ejemplo, rechazan un segundo "Losartán 50 mg tableta") y muestran el error junto al campo.
 - **Permisos ya resueltos:** el panel respeta los permisos de Django por grupo (`view`, `add`, `change`), validados en el servidor.
 - **Búsqueda, filtros y paginación** incluidos sin código.
 - **Historial de cambios:** el panel registra quién creó o modificó cada registro y cuándo (`LogEntry`).
@@ -129,6 +129,7 @@ El Hogar es una entidad fija que crean las migraciones, así que no se da de alt
 - **Movimientos, existencias y conteos no se registran en el panel.** Solo se operan desde las pantallas de HU-01 y HU-03, así nadie puede editar un saldo ni un movimiento a mano.
 - **Principios activos en línea:** en el formulario del medicamento se agregan sus principios activos en la misma pantalla (*inline* de la tabla puente).
 - **Acceso de los grupos:** los usuarios de los 2 grupos tienen `is_staff = True` para entrar al panel. Solo el Administrador ve las secciones de usuarios y grupos.
+- **Reglas que viven en *triggers*:** el formulario las valida antes de guardar, para que el usuario vea un mensaje y no un error `500`. Por ejemplo, el formulario de `MedicamentoAdmin` rechaza desmarcar `activo` si el medicamento tiene existencias ("No se puede dar de baja: hay existencias de este medicamento"); el *trigger* `tg_medicamento_baja` queda como última barrera.
 
 **Limitaciones aceptadas para el MVP:** la interfaz es genérica (no tiene el estilo de la aplicación) y es menos cómoda en el celular. Como estas operaciones se hacen pocas veces y desde la computadora, no afecta el uso diario.
 
@@ -136,7 +137,8 @@ El Hogar es una entidad fija que crean las migraciones, así que no se da de alt
 
 | Semana | Entrega |
 |---|---|
-| 1 | Proyecto Django + Docker, modelo de datos (sección 3), login, grupos y habilitadores en `/admin/` |
+| 1 | Proyecto Django + Docker, login, grupos, catálogo y entidades (sección 3: D1 a D3) y habilitadores en `/admin/` |
+| 2 | **TK-01**: esquema de existencias, movimientos y conteos, usuarios de base de datos y permisos (sección 6) |
 | 2–3 | **HU-01** (servicios, pantallas y tests de concurrencia) |
 | 3–4 | **HU-02** (pantalla con filtros HTMX y `GET /existencias`) |
 | 4–5 | **HU-03** (captura, diferencias y cierre) |
@@ -281,7 +283,7 @@ Escenario: La API devuelve lo mismo que la pantalla
 
 **Requisitos no funcionales:** el resultado se actualiza al escribir, sin recargar la página (HTMX), y responde en menos de 1 segundo con los volúmenes de la sección 3.3 gracias a los índices trigram. La tabla se lee en el celular sin desplazamiento horizontal.
 
-**Definición de terminado:** tests de las consultas con el mock (casos 1 a 11 de la sección 4.6), test de contrato de `GET /existencias` contra `openapi.yaml`, plan de ejecución que usa los índices de la sección 3.3, y revisión en pantalla de celular.
+**Definición de terminado:** tests de las consultas con el mock (casos 1 a 6 de la sección 4.6; los casos 7 a 11 son de `GET /medicamentos`, que se hará con la historia de reportes), test de contrato de `GET /existencias` contra `openapi.yaml`, plan de ejecución que usa los índices de la sección 3.3, y revisión en pantalla de celular.
 
 ---
 
@@ -391,3 +393,5 @@ Escenario: Usuario de solo lectura
 **Requisitos no funcionales:** la captura funciona en el celular, frente al anaquel: un campo numérico por renglón que se guarda al salir del campo (HTMX), sin perder lo capturado si se interrumpe.
 
 **Definición de terminado:** tests de la diferencia calculada (18 contra 20 = −2, sección 2.6), test del *trigger* que impide modificar un conteo cerrado, test de permisos, y el paso 6 del guion de demo (sección 3.4) ejecutado de extremo a extremo con Playwright.
+
+**Documentación proceso para esta seccion:** [05-historias-usuario.md](05-historias-usuario.md)

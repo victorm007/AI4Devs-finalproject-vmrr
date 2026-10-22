@@ -244,7 +244,7 @@ Se validó con **Redocly CLI** (`npx @redocly/cli lint docs/api/openapi.yaml`): 
 |---|---|
 | `SOLO_LECTURA` | Todos los `GET` |
 | `LECTURA_ESCRITURA` | Todo lo anterior y las operaciones de escritura |
-| `ADMINISTRADOR` | Igual que lectura y escritura, y además el panel `/admin/` |
+| `ADMINISTRADOR` | Igual que lectura y escritura, y además la gestión de usuarios y grupos en `/admin/` |
 
 La gestión de usuarios se hace en `/admin/` y no forma parte de la API.
 
@@ -487,7 +487,7 @@ Las reglas de escritura (saldo insuficiente, duplicados, conteo cerrado, correcc
 - **V2:** las operaciones marcadas `V2` se implementan sobre la misma capa `services.py`. Las vistas de la API serán delgadas y aplicarán las mismas reglas que las pantallas web.
 - **Herramientas y OpenAPI 3.2:** drf-spectacular genera un esquema 3.0/3.1 para la documentación interactiva (Swagger UI en `/api/v1/docs/`). El archivo 3.2 es el contrato de diseño y la fuente de verdad. Si alguna herramienta todavía no soporta 3.2, el contrato se baja a 3.1 cambiando `dataValue` por `value` y quitando el campo `summary` de los tags.
 
----
+**Documentación proceso para esta seccion:** [04-api.md](04-api.md)
 
 ## Ejemplos de uso con curl para testing
 
