@@ -2203,6 +2203,84 @@ Quedan fuera de esta cuenta los habilitadores de la semana 1 (en `/admin/`) y lo
 - No hay secretos en el código ni datos personales en los logs (LFPDPPP).
 - La documentación afectada del `readme.md` está actualizada.
 
+#### Orden de ejecución
+
+```mermaid
+flowchart LR
+    S1["Semana 1<br/>habilitadores"] --> T1["TK-01 · BD<br/>esquema, permisos y fixtures"]
+    T1 --> T2["TK-02 · Backend<br/>services.py"]
+    T1 --> T3["TK-03 · Frontend<br/>pantalla de existencias"]
+    T2 --> INT{{"Prueba de integración<br/>los 3 en main"}}
+    T3 --> INT
+    INT --> BL["Backlog<br/>TK-04 a TK-07"]
+```
+
+1. **TK-01 primero y sin paralelo.** Crea las tablas, los permisos de los grupos y los *fixtures* de prueba que usan los otros 2. Se integra a `main` antes de empezar TK-02 o TK-03.
+2. **TK-02 y TK-03 pueden avanzar en paralelo.** TK-03 se desarrolla con los saldos del mock y no necesita el servicio. Con un solo desarrollador, va primero TK-02, porque está en el camino crítico de TK-04 y TK-06.
+3. **Orden de integración: TK-01 → TK-02 → TK-03.** El último en integrar hace `git rebase main`, ejecuta la **prueba de integración** (más abajo) en su rama y la deja en el repositorio. Desde ahí corre en CI en cada PR.
+
+**Archivos que tocan varios tickets** (reglas para evitar conflictos):
+
+| Archivo | TK-01 | TK-02 | TK-03 | Regla |
+|---|---|---|---|---|
+| `app/conftest.py`, `app/pruebas.py` | Los crea | Solo los usa | Solo los usa | Solo TK-01 los modifica. Un *fixture* nuevo se pide en el PR de TK-01 o en uno propio |
+| `apps/inventario/migrations/` | `0001` a `0004` | — | — | TK-02 y TK-03 no crean migraciones. Si alguno la necesita, se renumera después del *rebase* |
+| `config/settings/base.py` | `DATABASES` | — | `django_htmx`, `LOGIN_REDIRECT_URL` | Cambios en bloques distintos |
+| `requirements.txt` / `requirements-dev.txt` | — | `pytest-cov` | `django-htmx` / `pytest-playwright` | Una dependencia por línea, en orden alfabético |
+| `docker-compose.yml`, `.env.example` | Usuarios de BD | — | — | Solo TK-01 |
+
+#### Puntos de integración
+
+Son los contratos entre las capas. Si un ticket cambia uno, avisa en su PR a los tickets que lo consumen.
+
+| # | Punto de integración | Lo provee | Lo consume | Contrato | Cómo se verifica |
+|---|---|---|---|---|---|
+| 1 | Modelos `Existencia`, `Movimiento`, `MotivoBaja` | TK-01 | TK-02, TK-03 | Nombres de campos de la sección 3.2; `Movimiento.Tipo` y `Movimiento.OrigenEntrada`; relaciones `existencias` y `correcciones` | Los tests de TK-02 y TK-03 importan los modelos |
+| 2 | Escritura de saldos | TK-02 | TK-03 | Solo `services.py` escribe `existencia.saldo` (≥ 0, 2 decimales) y `actualizado_en` en cada movimiento; TK-03 solo lee | `git grep` de TK-02 y prueba de integración |
+| 3 | Restricciones de la base ↔ excepciones de dominio | TK-01 | TK-02 | El servicio valida antes de escribir; la base es la última barrera. `uq_movimiento_corrige` se traduce a `MovimientoYaCorregido` | Tests de esquema (TK-01) y de servicios (TK-02) |
+| 4 | Privilegios de `app_user` | TK-01 | TK-02, TK-03 | La aplicación solo hace `SELECT`/`INSERT` en `movimiento`, sin `FOR UPDATE` sobre esa tabla | Los tests de TK-02 y la prueba de integración corren como `app_user` |
+| 5 | Permisos de los grupos | TK-01 (migración `0003`) | TK-03 (y TK-04) | Los 2 grupos tienen `view_existencia`; *Lectura y escritura* además `add_movimiento` | Tests de vista de TK-03 con `consulta.demo` |
+| 6 | Búsqueda sin acentos | Semana 1 (`f_unaccent`, índices trigram) | TK-03 | El ORM usa exactamente `f_unaccent(lower(campo))` | Plan de ejecución (TK-03, verificación 4) |
+| 7 | *Fixtures* de prueba | TK-01 | TK-02, TK-03 | `datos_demo`, `demo`, `como_app_user`, `ejecutar_sql`, `saldo` | Los 3 tickets los usan sin modificarlos |
+| 8 | Vista de conciliación | TK-01 | TK-02, prueba de integración | `v_conciliacion_existencia` vacía = todo cuadra | *Fixture* `autouse` de TK-02 |
+| 9 | Selector `buscar_existencias` | TK-03 | TK-05 (API) | Argumentos por nombre, igual que los campos de `FiltroExistenciasForm`; devuelve un `QuerySet[Existencia]` ordenado | Tests de selector de TK-03 |
+| 10 | Excepciones con `code` y `campo` | TK-02 | TK-04 (formularios), TK-05/V2 (API) | `code` igual a la sección 4.4; `DatoInvalido.campo` indica qué campo del formulario marcar | Tests de servicios de TK-02 |
+| 11 | `Entidad.activa` y `Entidad.__str__` | Semana 1 | TK-02, TK-03 | `activa`: el Hogar siempre, un residente solo si su estado es `ACTIVO`. `__str__`: nombre del Hogar o nombre completo del residente | Requisitos previos de cada guía |
+
+#### Prueba de integración final
+
+Comprueba que los 3 tickets funcionan juntos: lo que registra el servicio (TK-02), guardado con las reglas de la base (TK-01), aparece en la pantalla (TK-03). La escribe quien integra el último ticket, en `apps/inventario/tests/test_integracion.py`, y desde entonces corre en CI en cada PR. Código, pasos y resultado esperado: [`docs/tickets/integracion.md`](docs/tickets/integracion.md).
+
+| # | Escenario (como `app_user`, con el mock) | Resultado esperado |
+|---|---|---|
+| 1 | Entrada de 30 Eutirox a Carmen y transferencia de 0.5 Omeprazol del Hogar a Carmen; se consulta la pantalla filtrada por Carmen | Eutirox 63, Exelon 3, Omeprazol "0.5 dosis" y Paracetamol 14 |
+| 2 | Baja de 5 Atorvastatina de María (saldo 1) | `ExistenciaInsuficiente`; la pantalla sigue mostrando 1 |
+| 3 | Baja de la última Atorvastatina de María | Desaparece de la búsqueda y reaparece como "Agotado" con "Incluir sin saldo" |
+| 4 | Corrección de la entrada de Eutirox | La pantalla vuelve a mostrar 33 |
+| 5 | Al final de cada escenario | `v_conciliacion_existencia` vacía |
+
+Además, sobre una instalación desde cero (`docker compose down -v`, `migrate.sh` y el mock), se ejecutan la suite completa, los e2e de Playwright y una prueba de humo con curl (ver la guía).
+
+#### Criterios de revisión de código
+
+Quién revisa: el Tech Lead, o, si el autor es el único desarrollador, el propio autor al día siguiente con esta lista más una revisión asistida por IA, registrada en el PR. Se aprueba solo si no queda ningún comentario **bloqueante**.
+
+| Ámbito | El revisor comprueba que… | Severidad si falla |
+|---|---|---|
+| Alcance | El PR hace solo lo del ticket y cumple todos sus criterios de aceptación | Bloqueante |
+| Tamaño | Menos de ~400 líneas sin contar migraciones generadas ni plantillas; si no, se divide | Sugerencia |
+| Tests | Cada criterio de aceptación tiene un test; los tests fallan si se quita el código que prueban | Bloqueante |
+| Integración | No cambia un punto de integración sin avisar; la prueba de integración pasa | Bloqueante |
+| Seguridad | Sin secretos, sin datos personales en logs, permisos validados en el servidor, sin el filtro `safe` ni SQL armado con texto del usuario | Bloqueante |
+| Datos | Cantidades en `Decimal`; escrituras de inventario solo por `services.py`, dentro de una transacción | Bloqueante |
+| **BD** (TK-01) | Nombres idénticos a las secciones 3.1 y 3.3; toda migración reversible; `sqlmigrate` revisado; sin índices duplicados; privilegios de `app_user` intactos | Bloqueante |
+| **Backend** (TK-02) | Bloqueo en orden fijo; sin `FOR UPDATE` sobre `movimiento`; cada excepción con su `code`; *docstrings* con ejemplo | Bloqueante |
+| **Frontend** (TK-03) | Sin JavaScript en línea (CSP); `<label>` en cada campo; *responsive* a 390 px; la vista sin lógica de búsqueda; sin N+1 | Bloqueante |
+| Legibilidad | Nombres y comentarios en español, como el resto del código; funciones cortas; sin código muerto | Sugerencia |
+| Documentación | El readme refleja cualquier cambio de diseño | Bloqueante si cambia un contrato |
+
+Los comentarios se marcan como **[bloqueante]**, **[sugerencia]** o **[nit]** (detalle menor). El autor responde cada uno: lo corrige o explica por qué no.
+
 ---
 
 **Ticket 1**
@@ -2223,6 +2301,20 @@ Quedan fuera de esta cuenta los habilitadores de la semana 1 (en `/admin/`) y lo
 **Contexto.** Las 3 historias dependen de que el saldo sea confiable. Este ticket lleva a migraciones de Django las tablas D4, D5 y de conteos de la sección 3, para que la base de datos sea la **última barrera**: aunque un error de código intente dejar un saldo negativo o editar un movimiento, PostgreSQL lo rechaza.
 
 **Descripción técnica**
+
+**Tecnologías y librerías**
+
+| Tecnología | Versión | Uso en este ticket |
+|---|---|---|
+| PostgreSQL | 17 (`postgres:17-alpine`) | Tablas, `CHECK`, `UNIQUE`, columna generada, índices parciales, `INCLUDE` y BRIN, *triggers* en PL/pgSQL, vista de conciliación |
+| Extensiones `pg_trgm`, `unaccent`, `btree_gist` | Las de PostgreSQL 17 | Ya instaladas en la semana 1; este ticket las usa en índices y restricciones |
+| Django ORM y migraciones | Django 5.2 LTS | `CheckConstraint(condition=...)`, `UniqueConstraint`, `GeneratedField`, `db_default`, `Index(include=..., condition=...)`, `RunSQL` y `RunPython` |
+| `django.contrib.postgres` | Incluido en Django | `BrinIndex` |
+| psycopg | 3.x (`psycopg[binary]`) | Controlador de PostgreSQL de Django |
+| Docker Compose + `docker-entrypoint-initdb.d` | El del proyecto | Crear `app_owner` y `app_user` al inicializar el volumen |
+| pytest + pytest-django | Las del proyecto (sección 2.6) | Tests de esquema y de privilegios |
+
+No agrega dependencias nuevas.
 
 1. **Modelos** (`apps/inventario/models.py` y `apps/conteos/models.py`), con los tipos y nombres de la sección 3.2:
 
@@ -2301,6 +2393,8 @@ Quedan fuera de esta cuenta los habilitadores de la semana 1 (en `/admin/`) y lo
 
 8. **Admin:** ninguno de estos modelos se registra en `/admin/` (sección 5, "Controles"). Se agrega un test que lo verifica.
 
+9. **Fixtures de prueba compartidos** (punto de integración 7): `datos_demo` (carga el mock con `cargar_mock.sql` adaptado), `demo` (accesos a entidades, medicamentos, motivos y usuario), `como_app_user` (el test corre con los permisos de la aplicación) y los helpers `ejecutar_sql` y `saldo`. TK-02 y TK-03 los usan sin modificarlos.
+
 **Fuera de alcance:** la lógica de negocio (TK-02), las pantallas y la API, y las tablas de catálogo, entidades y pautas (semana 1).
 
 **Criterios de aceptación**
@@ -2370,6 +2464,17 @@ Quedan fuera de esta cuenta los habilitadores de la semana 1 (en `/admin/`) y lo
 **Contexto.** HU-01 exige que cada movimiento actualice el saldo de forma atómica, que ningún saldo quede negativo ni con usuarios concurrentes, y que los errores se corrijan con el movimiento inverso. Este ticket construye la capa `services.py`, que es **el único punto del sistema que escribe en `movimiento` y `existencia`**. Las pantallas de HU-01, el conteo de HU-03 y la API V2 la reutilizan.
 
 **Descripción técnica**
+
+**Tecnologías y librerías**
+
+| Tecnología | Versión | Uso en este ticket |
+|---|---|---|
+| Python | 3.12 | `decimal.Decimal` para cantidades, `logging`, *type hints* |
+| Django | 5.2 LTS | `transaction.atomic`, `select_for_update`, `bulk_create(ignore_conflicts=True)`, expresión `Now()` |
+| PostgreSQL | 17 | Bloqueo de filas (`SELECT ... FOR UPDATE`), `INSERT ... ON CONFLICT DO NOTHING`, nivel de aislamiento *read committed* |
+| pytest + pytest-django | Las del proyecto | `django_db(transaction=True, serialized_rollback=True)` para los tests con hilos |
+| `threading` y `concurrent.futures` | Biblioteca estándar | Tests de concurrencia y de *deadlocks* |
+| pytest-cov | Última estable, fijada en `requirements-dev.txt` | Cobertura de `services.py` y `exceptions.py` (**dependencia nueva de desarrollo**, si no estaba) |
 
 1. **Excepciones de dominio** (`apps/inventario/exceptions.py`). Cada una lleva un `code` igual al del contrato de la API (sección 4.4) y un mensaje para el usuario:
 
@@ -2449,7 +2554,7 @@ Quedan fuera de esta cuenta los habilitadores de la semana 1 (en `/admin/`) y lo
 - [ ] Después de cada test, `v_conciliacion_existencia` está vacía.
 
 **Pruebas**
-- `apps/inventario/tests/test_services.py`: un test por criterio, con `factory_boy` y el mock como *fixture*.
+- `apps/inventario/tests/test_services.py`: un test por criterio, sobre el mock con los *fixtures* `demo` y `como_app_user` de TK-01.
 - `apps/inventario/tests/test_concurrencia.py`: `TransactionTestCase` (o `@pytest.mark.django_db(transaction=True)`) con `threading` y `connection.close()` en cada hilo.
 - Un *fixture* `autouse` que verifica la vista de conciliación al terminar cada test del módulo.
 
@@ -2484,6 +2589,18 @@ Quedan fuera de esta cuenta los habilitadores de la semana 1 (en `/admin/`) y lo
 **Contexto.** Es la pantalla que más se usará: responde "¿cuánto le queda a este residente?". Se consulta desde la computadora de la dirección y desde el celular, a pie de anaquel. Será la **página de inicio** después del login.
 
 **Descripción técnica**
+
+**Tecnologías y librerías**
+
+| Tecnología | Versión | Uso en este ticket |
+|---|---|---|
+| Django | 5.2 LTS | `ListView`, `LoginRequiredMixin`, `PermissionRequiredMixin`, formularios, filtro de plantilla propio y la etiqueta `{% querystring %}` (Django 5.1+) |
+| Bootstrap | 5.3 (de `base.html`, semana 1) | Rejilla *responsive*, tabla en escritorio y `list-group` en el celular, `d-md-none` / `d-md-table` |
+| HTMX | 2.0.x, servido desde `static/` | `hx-get`, `hx-trigger` con espera, `hx-target`, `hx-push-url`, `hx-swap-oob`, `hx-indicator` |
+| django-htmx | Última estable, fijada en `requirements.txt` | `request.htmx` y `HttpResponseClientRedirect` (**dependencia nueva**) |
+| pytest-django | La del proyecto | Tests de selector y de vista (`client`, `CaptureQueriesContext`) |
+| pytest-playwright + Chromium | Última estable, fijada en `requirements-dev.txt` | Pruebas de extremo a extremo: búsqueda en vivo, celular y teclado (**dependencia nueva de desarrollo**) |
+| Lighthouse (Chrome DevTools) | El del navegador | Accesibilidad ≥ 90 |
 
 1. **Consulta reutilizable** (`apps/inventario/selectors.py`): `buscar_existencias(*, entidad=None, medicamento=None, principio_activo=None, q=None, incluir_sin_saldo=False) -> QuerySet[Existencia]`.
    - `select_related("entidad", "entidad__residente", "medicamento", "medicamento__presentacion")`, para evitar N+1.
@@ -2550,7 +2667,7 @@ Quedan fuera de esta cuenta los habilitadores de la semana 1 (en `/admin/`) y lo
   - `q` corto con `HX-Reswap: none`.
   - Redirección sin sesión.
   - Mismo número de consultas con 1 y con 20 resultados (`django_assert_num_queries`).
-- `e2e/test_existencias.py` (Playwright):
+- `app/e2e/test_existencias.py` (Playwright):
   - Escribir "losartan" y esperar 3 renglones.
   - Viewport de celular: `document.documentElement.scrollWidth <= window.innerWidth`.
   - Navegación solo con teclado por los filtros.

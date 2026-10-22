@@ -3,6 +3,8 @@
 > **Ticket:** [readme, sección 6, TK-03](../../readme.md#6-tickets-de-trabajo) · **Tipo:** frontend (plantillas Django + Bootstrap 5 + HTMX) · **Estimación:** 3 puntos · **Rama:** `feature/TK-03-pantalla-existencias`
 >
 > Esta guía explica **cómo** hacerlo. El **qué** y el **porqué** están en el ticket y en HU-02 (sección 5). Si algo de esta guía contradice al readme, manda el readme: avisa en el PR.
+>
+> **Integración** (readme, sección 6, "Puntos de integración"): este ticket **provee** los puntos 9 y **consume** los puntos 1, 2, 5, 6, 7 y 11. No cambies un punto que provees sin avisar en el PR. La prueba conjunta de los 3 tickets está en [`integracion.md`](integracion.md).
 
 **Resultado al terminar:** en `/existencias/` el usuario escribe "losartan" y, sin recargar la página, ve cuánto hay de cada medicamento por entidad. En el celular los resultados son tarjetas legibles y sin desplazamiento horizontal. Es la página de inicio después del login.
 

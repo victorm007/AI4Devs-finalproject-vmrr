@@ -3,6 +3,8 @@
 > **Ticket:** [readme, sección 6, TK-01](../../readme.md#6-tickets-de-trabajo) · **Tipo:** base de datos · **Estimación:** 5 puntos · **Rama:** `feature/TK-01-esquema-inventario`
 >
 > Esta guía explica **cómo** hacerlo. El **qué** y el **porqué** están en el ticket y en la sección 3 del readme. Si algo de esta guía contradice al readme, manda el readme: avisa en el PR.
+>
+> **Integración** (readme, sección 6, "Puntos de integración"): este ticket **provee** los puntos 1, 3, 4, 5, 7 y 8 y **consume** los puntos 11 (`Entidad.activa`, de la semana 1). No cambies un punto que provees sin avisar en el PR. La prueba conjunta de los 3 tickets está en [`integracion.md`](integracion.md).
 
 **Resultado al terminar:** las tablas `motivo_baja`, `existencia`, `movimiento`, `conteo_fisico` y `detalle_conteo` existen con todas sus restricciones, *triggers* e índices. La aplicación se conecta como `app_user`, que no puede modificar ni borrar movimientos. El mock de la sección 3.4 carga sin errores y cuadra.
 
@@ -81,8 +83,8 @@ AI4Devs-finalproject-vmrr/
 ├── db/init/01_roles.sh                    # NUEVO: crea app_owner y app_user
 ├── scripts/migrate.sh                     # NUEVO: migrate como app_owner
 └── app/
-    ├── conftest.py                        # MODIFICAR: fixture datos_demo (carga el mock)
-    ├── pruebas.py                         # NUEVO: helper ejecutar_sql para los tests
+    ├── conftest.py                        # MODIFICAR: fixtures datos_demo, demo y como_app_user
+    ├── pruebas.py                         # NUEVO: helpers ejecutar_sql y saldo para los tests
     ├── pyproject.toml (o pytest.ini)      # MODIFICAR: marcador "lento"
     ├── config/settings/base.py            # MODIFICAR: DATABASES desde variables de entorno
     └── apps/
@@ -776,7 +778,7 @@ La última consulta del script muestra el resumen. Debe decir: 2 usuarios, 13 pr
 
 ### Paso 9. Fixtures de pytest para el mock y para SQL directo (≈ 45 min)
 
-Agrega a `app/conftest.py`. Estos fixtures los reutilizan TK-02 y TK-03:
+Agrega a `app/conftest.py`. Estos fixtures son un **punto de integración**: TK-02 y TK-03 los usan tal cual, así que no cambies sus nombres ni lo que devuelven sin avisar.
 
 ```python
 import json
@@ -812,6 +814,38 @@ def datos_demo(db):
     json.loads(json_texto)  # falla rápido si el JSON está roto
     with connection.cursor() as cursor:
         cursor.execute(_sql_del_mock(), {"mock_json": json_texto})
+
+
+@pytest.fixture
+def demo(datos_demo):
+    """Accesos cómodos a los datos del mock: demo.carmen, demo.med["Eutirox"]...
+
+    Lo usan los tests de TK-02 y TK-03: por eso vive aquí y no en esos tickets.
+    """
+    from types import SimpleNamespace
+
+    from apps.accounts.models import Usuario
+    from apps.catalogo.models import Medicamento
+    from apps.entidades.models import Entidad
+    from apps.inventario.models import MotivoBaja
+
+    return SimpleNamespace(
+        hogar=Entidad.objects.get(tipo="HOGAR"),
+        maria=Entidad.objects.get(pk=101),
+        jose=Entidad.objects.get(pk=102),
+        carmen=Entidad.objects.get(pk=103),
+        operador=Usuario.objects.get(username="operador.demo"),
+        med={m.nombre_comercial: m for m in Medicamento.objects.all()},
+        motivo={m.clave: m for m in MotivoBaja.objects.all()},
+    )
+
+
+@pytest.fixture
+def como_app_user(demo):
+    """El resto del test corre como app_user, igual que la aplicación en producción."""
+    with connection.cursor() as cursor:
+        cursor.execute("SET LOCAL ROLE app_user")
+    return demo
 ```
 
 Crea `app/pruebas.py` con el helper para ejecutar SQL directo. Va en un módulo propio porque importar desde `conftest.py` es mala práctica en pytest:
@@ -835,6 +869,13 @@ def ejecutar_sql(sql: str, params=None, *, rol: str | None = None) -> list[tuple
         if rol:
             cursor.execute("RESET ROLE")
         return filas
+
+
+def saldo(entidad, medicamento):
+    """Saldo actual de una entidad y un medicamento (lo usan los tests de TK-02 y TK-03)."""
+    from apps.inventario.models import Existencia
+
+    return Existencia.objects.get(entidad=entidad, medicamento=medicamento).saldo
 ```
 
 En `pyproject.toml` (o `pytest.ini`) registra el marcador de los tests lentos y agrega `app/` a la ruta de importación, para que los tests puedan hacer `from pruebas import ejecutar_sql`:

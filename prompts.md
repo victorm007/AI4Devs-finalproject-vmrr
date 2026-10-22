@@ -362,10 +362,20 @@ Para que un desarrollador junior pueda hacer el ticket sin bloqueos, detalla cad
 
 
 **Impacto en el proyecto:**
-> 
+> Genero los pasos detallados para el desarrolo  de cda tickety esbozo el codigo, especifico los tests con ejemplos y su verificacion. Haciendo mas facile el desarrollo tanto para un agente como para un humano.
 > 
 **Prompt 3:**
+```
+Ahora define(si no lo esta ya):
+- Tecnologias y librerias a utilizar en el apartado de Descripcion Tecnica
+- Dependencias entre tickets y orden de ejecución
+- Puntos de integración entre frontend/backend/database
+- Criterios de revisión de código
+Asegúrate de que los 3 tickets se integren perfectamente al final.
+```
+**Respuesta clave de Claude Code Opus 5.5 High:**
 
+**Impacto en el proyecto:**
 ---
 
 ### 7. Pull Requests

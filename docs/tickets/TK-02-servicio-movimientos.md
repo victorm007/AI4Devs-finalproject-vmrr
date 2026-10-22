@@ -3,6 +3,8 @@
 > **Ticket:** [readme, sección 6, TK-02](../../readme.md#6-tickets-de-trabajo) · **Tipo:** backend · **Estimación:** 5 puntos · **Rama:** `feature/TK-02-servicio-movimientos`
 >
 > Esta guía explica **cómo** hacerlo. El **qué** y el **porqué** están en el ticket, en HU-01 (sección 5) y en la sección 3.2 (D4 y D5). Si algo de esta guía contradice al readme, manda el readme: avisa en el PR.
+>
+> **Integración** (readme, sección 6, "Puntos de integración"): este ticket **provee** los puntos 2 y 10 y **consume** los puntos 1, 3, 4, 7, 8 y 11. No cambies un punto que provees sin avisar en el PR. La prueba conjunta de los 3 tickets está en [`integracion.md`](integracion.md).
 
 **Resultado al terminar:** `apps/inventario/services.py` con 4 funciones públicas (`registrar_entrada`, `transferir`, `dar_de_baja` y `corregir`), que son el **único** código que escribe en `movimiento` y `existencia`. Ningún saldo queda negativo, ni siquiera con usuarios simultáneos, y cada error de negocio tiene una excepción con un código estable.
 
@@ -55,7 +57,7 @@ git switch -c feature/TK-02-servicio-movimientos
 
 ```
 app/
-├── conftest.py                                  # MODIFICAR: fixtures demo y como_app_user
+├── conftest.py                                  # NO SE MODIFICA: usa datos_demo, demo y como_app_user de TK-01
 └── apps/inventario/
     ├── exceptions.py                            # NUEVO: excepciones de dominio
     ├── services.py                              # NUEVO: las 4 operaciones
@@ -388,50 +390,22 @@ def corregir(*, usuario, movimiento: Movimiento, nota: str | None = None) -> Mov
 
 > **Por qué la corrección no bloquea el movimiento original:** no se puede usar `FOR UPDATE` sobre `movimiento` (paso 0.4). Si 2 usuarios corrigen a la vez, la restricción `uq_movimiento_corrige` deja pasar solo a uno; el otro recibe `MovimientoYaCorregido` y su transacción completa, incluido el cambio de saldo, se revierte.
 
-### Paso 4. Fixtures de los tests (≈ 30 min)
+### Paso 4. Comprueba los fixtures que ya trae TK-01 (≈ 10 min)
 
-Agrega a `app/conftest.py` (debajo de `datos_demo`, que viene de TK-01):
+No crees fixtures nuevos: TK-01 ya dejó los que necesitas, y TK-03 usa los mismos.
 
-```python
-from types import SimpleNamespace
+| Fixture o helper | Dónde | Para qué |
+|---|---|---|
+| `datos_demo` | `app/conftest.py` | Carga el mock de la sección 3.4 |
+| `demo` | `app/conftest.py` | `demo.carmen`, `demo.med["Eutirox"]`, `demo.motivo["CONSUMO"]`, `demo.operador`... |
+| `como_app_user` | `app/conftest.py` | El test corre como `app_user`, igual que la aplicación |
+| `ejecutar_sql`, `saldo` | `app/pruebas.py` | SQL directo en un savepoint y saldo actual de una entidad |
 
-from django.db import connection
-
-
-@pytest.fixture
-def demo(datos_demo):
-    """Accesos cómodos a los datos del mock: demo.carmen, demo.med["Eutirox"]..."""
-    from apps.accounts.models import Usuario
-    from apps.catalogo.models import Medicamento
-    from apps.entidades.models import Entidad
-    from apps.inventario.models import MotivoBaja
-
-    return SimpleNamespace(
-        hogar=Entidad.objects.get(tipo="HOGAR"),
-        maria=Entidad.objects.get(pk=101),
-        jose=Entidad.objects.get(pk=102),
-        carmen=Entidad.objects.get(pk=103),
-        operador=Usuario.objects.get(username="operador.demo"),
-        med={m.nombre_comercial: m for m in Medicamento.objects.all()},
-        motivo={m.clave: m for m in MotivoBaja.objects.all()},
-    )
-
-
-@pytest.fixture
-def como_app_user(demo):
-    """El resto del test corre como app_user, igual que la aplicación en producción."""
-    with connection.cursor() as cursor:
-        cursor.execute("SET LOCAL ROLE app_user")
-    return demo
-
-
-def saldo(entidad, medicamento):
-    from apps.inventario.models import Existencia
-
-    return Existencia.objects.get(entidad=entidad, medicamento=medicamento).saldo
+```bash
+dtest --fixtures apps/inventario | grep -E "datos_demo|demo|como_app_user"   # deben aparecer los 3
 ```
 
-> Mueve `saldo()` a `app/pruebas.py` (creado en TK-01) para importarlo desde los tests: `from pruebas import saldo`.
+Si te falta alguno, TK-01 no está completo en `main`: avisa antes de seguir.
 
 ### Paso 5. Tests de reglas de negocio (≈ 2 h)
 
