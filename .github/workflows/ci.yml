@@ -1,0 +1,216 @@
+# Integración continua (readme, secciones 2.4 y 7.3).
+#
+# Los nombres de los jobs `lint`, `tests` y `e2e` son los *checks* obligatorios de la
+# protección de la rama main: no los renombres ni los conviertas en matriz sin actualizar
+# también la protección de la rama (si no, los PR quedan esperando un check que no llega).
+#
+# Reglas (ver la nota de la sección 7.3):
+# - El workflow corre SIEMPRE: no uses `paths:` / `paths-ignore:` en `on:`.
+# - Un job saltado con `if:` cuenta como aprobado; así se omiten e2e sin bloquear el merge.
+# - Mientras no exista app/manage.py (solo documentación), lint, tests y e2e se saltan.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 8 * * *"          # 02:00 en Ciudad de México: incluye los tests marcados "lento"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:                      # un nuevo push al PR cancela la ejecución anterior
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  # Base de datos de CI: mismos usuarios que en producción (app_owner / app_user, TK-01)
+  POSTGRES_DB: hogar
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: postgres-ci
+  DB_OWNER_PASSWORD: owner-ci
+  DB_APP_PASSWORD: app-ci
+  DB_OWNER_CREATEDB: "true"       # pytest crea la base de tests como app_owner
+  # Configuración de Django (sección 2.3: config/settings/local.py)
+  DJANGO_SETTINGS_MODULE: config.settings.local
+  SECRET_KEY: solo-para-ci-no-es-secreto
+  DEBUG: "False"
+  DB_HOST: localhost
+  DB_PORT: "5432"
+  DB_NAME: hogar
+  DB_USER: app_owner              # los tests corren como app_owner y cambian a app_user con SET ROLE
+  DB_PASSWORD: owner-ci
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Detecta qué cambió. No es un check obligatorio.
+  # ---------------------------------------------------------------------------
+  detectar:
+    name: detectar cambios
+    runs-on: ubuntu-latest
+    outputs:
+      hay_codigo: ${{ steps.codigo.outputs.existe }}
+      frontend: ${{ steps.filtro.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: codigo
+        run: |
+          if [ -f app/manage.py ]; then echo "existe=true" >> "$GITHUB_OUTPUT"
+          else echo "existe=false" >> "$GITHUB_OUTPUT"; echo "Aún no hay código Django: se omiten lint, tests y e2e"; fi
+      - uses: dorny/paths-filter@v3
+        id: filtro
+        with:
+          filters: |
+            frontend:
+              - 'app/**/templates/**'
+              - 'app/static/**'
+              - 'app/apps/**/views.py'
+              - 'app/apps/**/forms.py'
+              - 'app/apps/**/urls.py'
+              - 'app/apps/**/selectors.py'
+              - 'app/apps/**/templatetags/**'
+              - 'app/config/**'
+              - 'app/e2e/**'
+              - 'app/requirements*.txt'
+
+  # ---------------------------------------------------------------------------
+  # Check obligatorio: calidad estática
+  # ---------------------------------------------------------------------------
+  lint:
+    name: lint
+    needs: detectar
+    if: needs.detectar.outputs.hay_codigo == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Instalar ruff (versión fijada en requirements-dev.txt)
+        run: pip install "$(grep -iE '^ruff[=<>~ ]' requirements-dev.txt || echo ruff)"
+      - run: ruff check .
+      - run: ruff format --check .
+
+  # ---------------------------------------------------------------------------
+  # Check obligatorio: migraciones, pruebas (incluida la de integración) y cobertura
+  # ---------------------------------------------------------------------------
+  tests:
+    name: tests
+    needs: detectar
+    if: needs.detectar.outputs.hay_codigo == 'true'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:                      # el contexto env no está disponible en services: mismos valores que arriba
+          POSTGRES_DB: hogar
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres-ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: app/requirements*.txt
+      - name: Crear app_owner y app_user (igual que db/init en Docker)
+        env:
+          PGHOST: localhost
+          PGPASSWORD: ${{ env.POSTGRES_PASSWORD }}
+        run: sh db/init/01_roles.sh
+      - name: Instalar dependencias
+        working-directory: app
+        run: pip install -r requirements.txt -r requirements-dev.txt
+      - name: Migraciones al día
+        working-directory: app
+        run: python manage.py makemigrations --check --dry-run
+      - name: Pruebas y cobertura
+        working-directory: app
+        env:
+          # En el CI nocturno también corren los tests "lento" (planes de ejecución)
+          MARCADORES: ${{ github.event_name == 'schedule' && 'not e2e' || 'not e2e and not lento' }}
+        run: >-
+          pytest -m "$MARCADORES"
+          --cov=apps --cov-branch --cov-report=term-missing --cov-report=xml
+          --cov-fail-under=80
+      - name: Guardar el reporte de cobertura
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cobertura
+          path: app/coverage.xml
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # Check obligatorio: extremo a extremo (se salta si el PR no toca el frontend)
+  # ---------------------------------------------------------------------------
+  e2e:
+    name: e2e
+    needs: [detectar, tests]
+    if: >-
+      needs.detectar.outputs.hay_codigo == 'true' &&
+      (github.event_name != 'pull_request' || needs.detectar.outputs.frontend == 'true')
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:                      # el contexto env no está disponible en services: mismos valores que arriba
+          POSTGRES_DB: hogar
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres-ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: app/requirements*.txt
+      - name: Crear app_owner y app_user
+        env:
+          PGHOST: localhost
+          PGPASSWORD: ${{ env.POSTGRES_PASSWORD }}
+        run: sh db/init/01_roles.sh
+      - name: Instalar dependencias y Chromium
+        working-directory: app
+        run: |
+          pip install -r requirements.txt -r requirements-dev.txt
+          python -m playwright install --with-deps chromium
+      - name: Pruebas de extremo a extremo
+        working-directory: app
+        env:
+          DJANGO_ALLOW_ASYNC_UNSAFE: "true"   # Playwright y el servidor de pruebas comparten proceso
+        run: pytest -m e2e e2e/ --tracing retain-on-failure --output test-results
+      - name: Guardar las trazas de Playwright si algo falló
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trazas-playwright
+          path: app/test-results
+
+  # ---------------------------------------------------------------------------
+  # Construcción de la imagen (sección 2.4). No es un check obligatorio.
+  # ---------------------------------------------------------------------------
+  imagen:
+    name: build de la imagen
+    needs: detectar
+    if: needs.detectar.outputs.hay_codigo == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t hogar-web:ci app

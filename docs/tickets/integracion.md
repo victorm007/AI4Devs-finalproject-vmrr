@@ -209,7 +209,7 @@ dpsql -c 'SELECT count(*) FROM v_conciliacion_existencia'               # 0
 ## 4. Lista de integración (en el PR del último ticket)
 
 - [ ] `git rebase main` sin conflictos pendientes; las reglas de "Archivos que tocan varios tickets" se respetaron.
-- [ ] Los 11 puntos de integración de la sección 6 siguen como están documentados; si alguno cambió, el readme está actualizado.
+- [ ] Los puntos de integración de la sección 6 siguen como están documentados; si alguno cambió, el readme está actualizado.
 - [ ] `test_integracion.py` está en el repositorio y pasa en CI.
 - [ ] Los 5 comandos de la sección 3 dan el resultado esperado; la salida de los pasos 2 y 4 está en la descripción del PR.
 - [ ] El guion de demo de la sección 3.4 (pasos 1, 2, 3 y 5) se puede hacer en la pantalla nueva.

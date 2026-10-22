@@ -381,12 +381,47 @@ Asegúrate de que los 3 tickets se integren perfectamente al final.
 3. **Puntos de integración:** 11 contratos entre capas, con quién los provee, quién los consume, el contrato y cómo se verifica. Cada guía indica al inicio qué puntos provee y cuáles consume.
 4. **Criterios de revisión de código:** tabla por ámbito (alcance, tests, integración, seguridad, datos, BD, backend, frontend, legibilidad y documentación) con su severidad, y la convención [bloqueante] / [sugerencia] / [nit].
 5. **Prueba de integración final:** 5 escenarios que registran movimientos con el servicio y comprueban la pantalla, todos como `app_user` y con la conciliación vacía al terminar. El código y la verificación completa desde una instalación limpia están en `docs/tickets/integracion.md`.
+
 **Impacto en el proyecto:**
+> Completo informacion critica para el manejo y ejecucion de las historias y los tickets relacionados.
 ---
 
 ### 7. Pull Requests
 
 **Prompt 1:**
+```aiignore
+Ahora a trabajar en la seccion 7:
+Como Principal Software Engineer, documentemos lo siguiente, para las 3 pull requests que necesitamos y de acuerdo al objetivo en la seccion para documentarlos PRs:
+
+- Template estandar para el PR con checklist, proceso de revision y aprobacion, archivos modificados, comentarios de la revision, metricas de impacto(si aplican), lecciones aprendidas.
+
+Criterios para hacer el merge: pruebas, coverage y aprobaciones y que cumpla la definicion de hecho.
+
+
+El objetivo es mantener la calidad del codigo y facilitar la colaboracion.
+
+
+Agrega 3 ejemplos de PR,uno por cada uno de las historias que se crearon en la seccion anterior.
+```
+**Respuesta clave de Claude Code Opus 5.5 High:**
+
+ Escribí la sección 7 del `readme.md` y creé la plantilla real de GitHub.
+
+**Plantilla (`.github/pull_request_template.md`).** GitHub la carga sola al abrir un PR. Tiene estas secciones:
+- Ticket e historia.
+- Qué cambia y por qué.
+- Cómo probarlo.
+- Archivos modificados por capa.
+- Puntos de integración afectados.
+- Checklist del autor: definición de hecho común, la del ticket y la del tipo de cambio.
+- Capturas.
+- Métricas de impacto (antes, después y objetivo).
+- Riesgos y cómo revertir.
+- Revisión, con una tabla de comentarios por severidad y resolución.
+- Lecciones aprendidas.
+
+**Impacto en el proyecto:**
+> Definio la plantilla para los datos del PR, el proceso aprobacion y revision del PR, criterios para un merge, ejemplos de PRs. un diagrama,el valor que agrega es un proceso claro que facilita mantener la calidad de codigo y de la aplicacion.
 
 **Prompt 2:**
 

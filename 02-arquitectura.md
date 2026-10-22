@@ -644,7 +644,9 @@ AI4Devs-finalproject-vmrr/
 │   └── tickets/               # guías paso a paso de los tickets (sección 6)
 ├── docker-compose.yml         # servicios: nginx, web, db
 ├── .env.example               # variables de entorno de ejemplo (el .env real no se versiona)
-├── .github/workflows/ci.yml   # integración continua: lint + tests
+├── .github/
+│   ├── workflows/ci.yml       # integración continua: lint + tests
+│   └── pull_request_template.md  # plantilla de PR (sección 7)
 ├── nginx/
 │   ├── default.conf           # proxy inverso, HTTPS, cabeceras de seguridad
 │   └── certs/                 # certificados locales (no versionados)
@@ -773,7 +775,7 @@ C4Container
 **Orden de arranque:** `db` declara un *healthcheck* (`pg_isready`). `web` arranca con `depends_on: condition: service_healthy` y `nginx` arranca después de `web`. Así `web` nunca intenta conectarse a una base de datos que todavía no responde.
 
 **Proceso de despliegue:**
-1. **Integración continua:** en cada *push* o *pull request* a `main`, GitHub Actions ejecuta `ruff` (lint), `pytest` contra un servicio PostgreSQL y el *build* de la imagen. Solo se integra a `main` con el pipeline en verde.
+1. **Integración continua:** en cada *push* o *pull request* a `main`, GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) ejecuta `ruff` (lint), `pytest` con cobertura contra un servicio PostgreSQL 17, las pruebas de extremo a extremo con Playwright si el PR toca el frontend, y el *build* de la imagen. Cada noche corren además los tests lentos. Solo se integra a `main` con los *checks* obligatorios en verde (sección 7.3).
 2. **Despliegue (local o VPS):** se hace manualmente por SSH, lo cual es suficiente para un solo mantenedor:
    ```bash
    git pull origin main
