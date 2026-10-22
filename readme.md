@@ -27,6 +27,7 @@ Gestion Medicamentos Hogar Gerontologico
 ### 0.5. URL o archivo comprimido del repositorio
 
 > Puedes tenerlo alojado en público o en privado, en cuyo caso deberás compartir los accesos de manera segura. Puedes enviarlos a [alvaro@lidr.co](mailto:alvaro@lidr.co) usando algún servicio como [onetimesecret](https://onetimesecret.com/). También puedes compartir por correo un archivo zip con el contenido
+> TBD
 ---
 
 ## 1. Descripción general del producto
@@ -84,8 +85,9 @@ Registro de administración por turno (MAR), alertas de stock mínimo o caducida
 ### **1.4. Instrucciones de instalación:**
 > Documenta de manera precisa las instrucciones para instalar y poner en marcha el proyecto en local (librerías, backend, frontend, servidor, base de datos, migraciones y semillas de datos, etc.)
 
----
+**Documentación proceso para esta seccion:** [01-descripcion-general-producto.md](01-descripcion-general-producto.md)
 
+---
 ## 2. Arquitectura del Sistema
 
 ### **2.1. Diagrama de arquitectura:**
@@ -647,6 +649,8 @@ C4Container
 | **Extremo a extremo** | Login → alta de medicamento → entrada a residente → consulta filtrada por principio activo | El medicamento aparece con la existencia correcta. |
 
 **Criterio:** cobertura ≥ 80 % en las capas de servicios y permisos, que concentran las reglas críticas del negocio.
+
+**Documentación proceso para esta seccion:**[02-arquitectura.md](02-arquitectura.md)
 
 ---
 
@@ -1554,6 +1558,8 @@ Para volver a empezar: `docker compose down -v`, `docker compose up -d`, `migrat
   - Una baja sin motivo.
   - Una segunda carga del mock.
 
+**Documentación proceso para esta seccion:** [03-modelo-datos.md](03-modelo-datos.md)
+
 ---
 
 ## 4. Especificación de la API
@@ -1850,6 +1856,8 @@ Las reglas de escritura (saldo insuficiente, duplicados, conteo cerrado, correcc
 - **Tests de contrato:** las pruebas de `pytest` validan cada respuesta de los 3 endpoints contra los esquemas de `openapi.yaml` con un validador de JSON Schema 2020-12 (`jsonschema`). Los 16 casos de la tabla anterior son la base de esos tests.
 - **V2:** las operaciones marcadas `V2` se implementan sobre la misma capa `services.py`. Las vistas de la API serán delgadas y aplicarán las mismas reglas que las pantallas web.
 - **Herramientas y OpenAPI 3.2:** drf-spectacular genera un esquema 3.0/3.1 para la documentación interactiva (Swagger UI en `/api/v1/docs/`). El archivo 3.2 es el contrato de diseño y la fuente de verdad. Si alguna herramienta todavía no soporta 3.2, el contrato se baja a 3.1 cambiando `dataValue` por `value` y quitando el campo `summary` de los tags.
+
+**Documentación proceso para esta seccion:** [04-api.md](04-api.md)
 
 ---
 
@@ -2159,6 +2167,8 @@ Escenario: Usuario de solo lectura
 **Requisitos no funcionales:** la captura funciona en el celular, frente al anaquel: un campo numérico por renglón que se guarda al salir del campo (HTMX), sin perder lo capturado si se interrumpe.
 
 **Definición de terminado:** tests de la diferencia calculada (18 contra 20 = −2, sección 2.6), test del *trigger* que impide modificar un conteo cerrado, test de permisos, y el paso 6 del guion de demo (sección 3.4) ejecutado de extremo a extremo con Playwright.
+
+**Documentación proceso para esta seccion:** [05-historias-usuario.md](05-historias-usuario.md)
 
 ---
 
@@ -2686,6 +2696,8 @@ No agrega dependencias nuevas.
 - Que la búsqueda no use el índice si la expresión del ORM no coincide exactamente con la del índice: se cubre con el test de plan de ejecución de TK-01 aplicado al selector.
 - Tablas con nombres largos en el celular: se resuelve con las tarjetas y con `text-break`.
 
+**Documentación proceso para esta seccion:** [06-tickets-trabajo.md](06-tickets-trabajo.md)
+
 ---
 
 ## 7. Pull Requests
@@ -2958,3 +2970,4 @@ dtest apps/inventario/tests/test_integracion.py -q          # la integración de
 - **El patrón de la migración de permisos se repite en cada app nueva.** Conviene convertirlo en una función compartida antes de TK-07.
 - **Que el conteo no ajuste existencias simplificó el servicio:** no necesita bloquear saldos, porque las diferencias se resuelven con el servicio de TK-02, que ya está probado.
 
+**Documentación proceso para esta seccion:** [07-pull-requests.md](07-pull-requests.md)

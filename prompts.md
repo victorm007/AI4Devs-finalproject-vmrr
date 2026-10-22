@@ -424,5 +424,14 @@ Agrega 3 ejemplos de PR,uno por cada uno de las historias que se crearon en la s
 > Definio la plantilla para los datos del PR, el proceso aprobacion y revision del PR, criterios para un merge, ejemplos de PRs. un diagrama,el valor que agrega es un proceso claro que facilita mantener la calidad de codigo y de la aplicacion.
 
 **Prompt 2:**
+```aiignore
+Confirmo 1,2 y 3. Crea el ci.yml completo con los 3 nombres de las pruebas/procesos y agrega a la seccion 7.3 una nota con las reglas (protecion de ramas solo funciona con repositorios publicos).
+```
+**Respuesta clave de Claude Code Opus 5.5 High:**
+> Creo el workflow de CI con los 3 jobs obligatorios (lint, tests, e2e), más uno que detecta cambios y otro que construye la imagen.
+>
+**Impacto en el proyecto:**
+> Crea de antemano el github workflow para los PRs dejando el camino preparado y actualiza las seccion 7 de PR para que la documentacion este coherente.
+
 
 **Prompt 3:**
