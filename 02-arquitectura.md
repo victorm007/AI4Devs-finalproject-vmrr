@@ -646,7 +646,10 @@ AI4Devs-finalproject-vmrr/
 ├── nginx/
 │   ├── default.conf           # proxy inverso, HTTPS, cabeceras de seguridad
 │   └── certs/                 # certificados locales (no versionados)
+├── db/
+│   └── init/01_roles.sh       # crea los usuarios app_owner y app_user al crear el volumen
 ├── scripts/
+│   ├── migrate.sh             # migrate con las credenciales de app_owner
 │   ├── backup_db.sh           # respaldo con pg_dump
 │   └── restore_db.sh          # restauración de un respaldo
 └── app/                       # proyecto Django
@@ -762,7 +765,7 @@ C4Container
 | 1 | Navegador → `nginx` | **HTTPS (TLS 1.2+) / 443** (80 solo redirige) | Peticiones de páginas, formularios (POST), fragmentos HTMX y llamadas `GET /api/...` | Certificado TLS, HSTS, cookie de sesión `Secure` + `HttpOnly` |
 | 2 | `nginx` → navegador | HTTPS / 443 | HTML completo o fragmentos HTMX, JSON de la API, archivos estáticos (CSS, JS, imágenes) | Cabeceras CSP, `X-Frame-Options: DENY`, `X-Content-Type-Options` |
 | 3 | `nginx` → `web` | **HTTP / 8000** (proxy inverso, red interna `frontend`) | La misma petición, con cabeceras `X-Forwarded-For` y `X-Forwarded-Proto` | No sale del host; Django confía en `X-Forwarded-Proto` solo desde `nginx` |
-| 4 | `web` → `db` | **Protocolo PostgreSQL sobre TCP / 5432** (red interna `backend`) | Consultas SQL parametrizadas del ORM y transacciones de inventario | Usuario de base de datos con privilegios mínimos; credenciales en `.env`; `nginx` no tiene ruta a `db` |
+| 4 | `web` → `db` | **Protocolo PostgreSQL sobre TCP / 5432** (red interna `backend`) | Consultas SQL parametrizadas del ORM y transacciones de inventario | Se conecta como `app_user`, con privilegios mínimos y sin ser dueño de las tablas; credenciales en `.env`; `nginx` no tiene ruta a `db` |
 | 5 | Host (cron) → `db` | `docker compose exec db pg_dump` | Respaldo diario comprimido y cifrado (GPG) | Se guarda fuera del contenedor, con retención de 14 días |
 
 **Orden de arranque:** `db` declara un *healthcheck* (`pg_isready`). `web` arranca con `depends_on: condition: service_healthy` y `nginx` arranca después de `web`. Así `web` nunca intenta conectarse a una base de datos que todavía no responde.
@@ -773,10 +776,15 @@ C4Container
    ```bash
    git pull origin main
    docker compose up -d --build
-   docker compose exec web python manage.py migrate
+   ./scripts/migrate.sh          # migrate como app_owner; web corre como app_user
    docker compose exec web python manage.py collectstatic --noinput
    ```
-3. **Primera instalación:** se copia `.env.example` a `.env` y se configuran los secretos, se generan los certificados (`mkcert` en local, `certbot` en el VPS), se crea el superusuario con `createsuperuser` y se cargan los grupos de permisos con `loaddata grupos`.
+3. **Primera instalación:** se copia `.env.example` a `.env` y se configuran los secretos, incluidas las contraseñas de los 3 usuarios de PostgreSQL:
+   - `POSTGRES_PASSWORD`: superusuario, solo para la inicialización.
+   - `DB_OWNER_PASSWORD`: `app_owner`, para las migraciones.
+   - `DB_APP_PASSWORD`: `app_user`, para la aplicación.
+
+   Al crear el volumen `pgdata`, el contenedor `db` ejecuta `db/init/01_roles.sh`, que crea `app_owner` y `app_user` (sección 6, TK-01). Después se generan los certificados (`mkcert` en local, `certbot` en el VPS), se crea el superusuario con `createsuperuser` y se cargan los grupos de permisos con `loaddata grupos`.
 4. **Respaldos:** un cron diario ejecuta `scripts/backup_db.sh`, que genera un `pg_dump` comprimido y cifrado, con retención de 14 días y copia a un disco externo. Una vez al mes se prueba la restauración con `scripts/restore_db.sh`.
 5. **Migración a hosting:** se aprovisiona el VPS con Ubuntu y Docker, se clona el repositorio, se restaura el último respaldo y se apunta el dominio. No hay cambios de código, solo variables de entorno.
 
@@ -792,7 +800,8 @@ C4Container
 | **API** | Solo lectura (`GET`), requiere sesión autenticada y no expone métodos de escritura. |
 | **Vulnerabilidades web** | CSRF por defecto en formularios y peticiones HTMX. Protección contra XSS por el *autoescape* de plantillas. Protección contra inyección SQL al usar el ORM con consultas parametrizadas. `X-Frame-Options: DENY` y `Content-Security-Policy` en Nginx. |
 | **Secretos y configuración** | `SECRET_KEY` y credenciales de base de datos en `.env` (no versionado). `DEBUG=False` y `ALLOWED_HOSTS` restringido en producción. |
-| **Aislamiento de red** | PostgreSQL sin puertos expuestos, accesible solo desde el contenedor `web`. El usuario de base de datos de la aplicación tiene privilegios mínimos. |
+| **Aislamiento de red** | PostgreSQL sin puertos expuestos, accesible solo desde el contenedor `web`. |
+| **Privilegios mínimos en la base de datos** | 2 usuarios: `app_owner` es dueño de las tablas y solo ejecuta migraciones; `app_user` es el que usa la aplicación, sin `UPDATE`, `DELETE` ni `TRUNCATE` sobre `movimiento` y sin poder alterar tablas ni desactivar *triggers*. Así, aunque alguien robe las credenciales de la aplicación, no puede reescribir el historial. Un test en CI verifica estos permisos. |
 | **Integridad y trazabilidad** | Cada movimiento guarda usuario y fecha/hora. Los movimientos **no se editan ni se borran**: los errores se corrigen con un movimiento inverso. Las operaciones de inventario corren en `transaction.atomic()` con `select_for_update()` para evitar saldos negativos. |
 | **Privacidad (LFPDPPP)** | Minimización de datos (solo nombre y fecha de nacimiento del residente), aviso de privacidad visible y residentes egresados o fallecidos marcados como inactivos en lugar de borrados, para conservar el historial. |
 | **Respaldos** | Diarios y cifrados (GPG), con retención limitada y prueba de restauración mensual. |

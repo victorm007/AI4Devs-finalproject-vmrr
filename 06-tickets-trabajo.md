@@ -62,11 +62,30 @@ Los 3 tickets forman el camino crítico del MVP: el esquema que guarda los saldo
 
 | Ticket | Tipo | Historia | Puntos | Depende de | Bloquea a |
 |---|---|---|---|---|---|
-| TK-01 | Base de datos | HU-01, HU-02, HU-03 | 5 | Habilitadores de la semana 1 (`catalogo`, `entidades`, `accounts`) | TK-02, TK-03 |
-| TK-02 | Backend | HU-01 | 5 | TK-01 | Pantallas de movimientos (HU-01), HU-03 |
-| TK-03 | Frontend | HU-02 | 3 | TK-01 (y TK-02 para tener saldos reales) | — |
+| TK-01 | Base de datos | Base de HU-01, HU-02 y HU-03 | 5 | Habilitadores de la semana 1 (`catalogo`, `entidades`, `accounts`) | TK-02, TK-03, TK-06 |
+| TK-02 | Backend | HU-01 | 5 | TK-01 | TK-04, TK-06 |
+| TK-03 | Frontend | HU-02 | 3 | TK-01 (y TK-02 para tener saldos reales) | TK-05 |
 
-**Estimación:** escala Fibonacci (1, 2, 3, 5, 8), relativa a la complejidad, al riesgo y al esfuerzo. Los tickets suman 13 de los 21 puntos de las 3 historias. El resto son las pantallas de movimientos (HU-01), el endpoint `GET /existencias` (HU-02) y el módulo de conteos (HU-03).
+**Estimación:** escala Fibonacci (1, 2, 3, 5, 8), relativa a la complejidad, al riesgo y al esfuerzo. TK-01 es trabajo de base que las estimaciones de las historias no incluían, así que el MVP suma **26 puntos**: 21 de las historias y 5 de la base.
+
+**Backlog del MVP** (tickets restantes, se detallan al planear su sprint):
+
+| Ticket | Tipo | Historia | Puntos | Depende de | Alcance |
+|---|---|---|---|---|---|
+| TK-04 | Frontend + vistas | HU-01 | 3 | TK-02 | Formularios de entrada, transferencia y baja; historial de movimientos por entidad con el botón "Corregir"; patrón *Post/Redirect/Get* y botón deshabilitado contra el doble envío |
+| TK-05 | Backend (API) | HU-02 | 2 | TK-03 | `GET /api/v1/existencias` con DRF sobre el selector de TK-03, manejador de errores Problem Details y tests de contrato contra `openapi.yaml` |
+| TK-06 | Backend | HU-03 | 3 | TK-01, TK-02 | Servicio de conteos: iniciar, capturar con foto del saldo, recapturar y cerrar, con sus excepciones (`CONTEO_CERRADO`, `CONTEO_SIN_RENGLONES`) |
+| TK-07 | Frontend | HU-03 | 5 | TK-04, TK-06 | Pantallas del conteo: captura en el celular que guarda al salir del campo, diferencias resaltadas, movimientos del período y "Registrar baja/entrada" desde el renglón |
+
+| Historia | Puntos | Tickets |
+|---|---|---|
+| HU-01 | 8 | TK-02 (5) + TK-04 (3) |
+| HU-02 | 5 | TK-03 (3) + TK-05 (2) |
+| HU-03 | 8 | TK-06 (3) + TK-07 (5) |
+| Base | 5 | TK-01 (5) |
+| **Total** | **26** | 13 documentados abajo + 13 en el backlog |
+
+Quedan fuera de esta cuenta los habilitadores de la semana 1 (en `/admin/`) y los endpoints `GET /medicamentos` y `GET /reportes/mensual`, que se estimarán con la historia de reportes.
 
 **Definición de hecho común** (aplica a los 3 tickets, además de la propia de cada uno):
 - El código pasa `ruff check` y `ruff format --check`, y no hay `print` ni código comentado.
@@ -143,7 +162,28 @@ Los 3 tickets forman el camino crítico del MVP: el esquema que guarda los saldo
      WHERE coalesce(e.saldo, 0) <> coalesce(s.total, 0);
      ```
 
-5. **Privilegios.** `REVOKE UPDATE, DELETE ON movimiento FROM <rol de la app>` va en `scripts/db_privilegios.sql`, parametrizado con la variable `APP_DB_USER`, porque el nombre del rol cambia por entorno. Se ejecuta en el despliegue después de `migrate`. El *trigger* protege aunque el script no se haya corrido.
+5. **Dos usuarios de base de datos y privilegios mínimos.** La inmutabilidad solo es real si la aplicación **no** se conecta con el dueño de las tablas: el dueño puede volver a darse permisos (`GRANT`) o desactivar el *trigger* (`ALTER TABLE ... DISABLE TRIGGER`). Por eso hay 2 usuarios, con el **mismo nombre en todos los entornos** (solo cambian las contraseñas). Así las migraciones son deterministas:
+
+   | Usuario | Lo usa | Puede | No puede |
+   |---|---|---|---|
+   | `app_owner` | `migrate`, la carga del mock y los tests | Crear y modificar tablas; es dueño de la base y del esquema `public` | — |
+   | `app_user` | La aplicación (`web`) en tiempo de ejecución | `SELECT`, `INSERT`, `UPDATE` y `DELETE` en las tablas | `UPDATE`, `DELETE` ni `TRUNCATE` en `movimiento`; crear o alterar tablas; desactivar *triggers* |
+
+   - **`db/init/01_roles.sh`**: script de inicio del contenedor de PostgreSQL, montado en `/docker-entrypoint-initdb.d/`. Crea los 2 usuarios con las contraseñas de `.env` (`DB_OWNER_PASSWORD`, `DB_APP_PASSWORD`), deja a `app_owner` como dueño de la base y le da a `app_user` solo `CONNECT` y `USAGE` en el esquema. Con `GRANT app_user TO app_owner`, los tests pueden actuar como `app_user` (`SET ROLE`); esto no le da a `app_user` ningún permiso del dueño. Es idempotente (`IF NOT EXISTS`). PostgreSQL lo ejecuta solo al crear el volumen `pgdata`; en una base existente se ejecuta a mano.
+   - **Migración `accounts/migrations/0002_privilegios.py`** (`RunSQL`, la primera del proyecto que toca permisos), ejecutada por `app_owner`:
+
+     ```sql
+     GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_user;
+     GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
+     -- Las tablas que creen las migraciones siguientes nacen con estos permisos
+     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_user;
+     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO app_user;
+     ```
+
+     Va en una migración, y no en el script de inicio, porque los permisos por defecto son de cada base: así también aplican en la base de tests que crea `pytest`.
+   - **En la migración de `movimiento`**, después de crear la tabla: `REVOKE UPDATE, DELETE, TRUNCATE ON movimiento FROM app_user;` (con su `reverse_sql`, que vuelve a dar esos permisos).
+   - **`scripts/migrate.sh`**: ejecuta `migrate` con las credenciales de `app_owner` (`docker compose run --rm -e DB_USER=app_owner -e DB_PASSWORD=... web python manage.py migrate`). El contenedor `web` arranca con `DB_USER=app_user`.
+   - En desarrollo y CI, `app_owner` tiene además `CREATEDB` para que `pytest` cree la base de tests; en producción no lo tiene.
 
 6. **Migración de datos** de los 8 motivos de baja (`CONSUMO` … `CORRECCION`), idempotente con `update_or_create` por `clave` y con su función inversa.
 
@@ -172,6 +212,11 @@ Los 3 tickets forman el camino crítico del MVP: el esquema que guarda los saldo
   | Entrada a un residente egresado | Error de `tg_movimiento_validar_destino` |
   | Insertar un renglón en el conteo 1 (cerrado) | Error de `tg_detalle_conteo_cerrado` |
   | `UPDATE detalle_conteo SET diferencia = 0` | Error: columna generada |
+  | Como `app_user`: `UPDATE`, `DELETE` o `TRUNCATE` sobre `movimiento` | `permission denied for table movimiento` |
+  | Como `app_user`: `ALTER TABLE movimiento DISABLE TRIGGER ALL` | `must be owner of table movimiento` |
+
+- [ ] El dueño de todas las tablas es `app_owner`, y `app_user` conserva `SELECT` e `INSERT` sobre `movimiento` y los 4 permisos sobre las demás tablas.
+- [ ] En una instalación nueva (`docker compose down -v` y `up`), los 2 usuarios se crean solos, y `scripts/migrate.sh` deja la base lista para que `web` arranque como `app_user`.
 
 - [ ] Con datos sintéticos de un año (175,000 movimientos), `EXPLAIN (ANALYZE, BUFFERS)` de las consultas 1c y 2 de la sección 3.3 usa sus índices, sin *Seq Scan* sobre `movimiento`.
 
@@ -179,12 +224,14 @@ Los 3 tickets forman el camino crítico del MVP: el esquema que guarda los saldo
 - `apps/inventario/tests/test_esquema.py` y `apps/conteos/tests/test_esquema.py`: un test por fila de la tabla anterior, con `pytest.raises(IntegrityError)` o `InternalError` y verificación del nombre de la restricción en el mensaje.
 - Test de migraciones: aplicar y revertir hasta `zero` en CI.
 - Test que comprueba que `admin.site` no tiene registrados `Movimiento`, `Existencia`, `ConteoFisico` ni `DetalleConteo`.
+- `apps/accounts/tests/test_privilegios.py`: consulta `has_table_privilege('app_user', 'movimiento', 'UPDATE' | 'DELETE' | 'TRUNCATE')` (falso) y `'INSERT'` (verdadero), recorre todas las tablas para verificar que el dueño sea `app_owner`, y ejecuta las 2 últimas filas de la tabla anterior con una conexión como `app_user` (`SET ROLE app_user` dentro de la transacción del test).
+- CI: el servicio de PostgreSQL ejecuta `db/init/01_roles.sh` antes de los tests, igual que en desarrollo.
 - Test de plan de ejecución: `connection.cursor().execute('EXPLAIN …')` y verificación del nombre del índice en el plan (marcado `@pytest.mark.lento`, corre en CI nocturno).
 
 **Definición de hecho**
 - [ ] Criterios de aceptación cumplidos y definición de hecho común.
 - [ ] Migraciones revisadas línea por línea en el PR: el SQL generado (`sqlmigrate`) coincide con el DDL de las secciones 3.1 y 3.3.
-- [ ] `scripts/db_privilegios.sql` documentado en la sección 2.4 (paso del despliegue).
+- [ ] `db/init/01_roles.sh`, `scripts/migrate.sh` y las variables nuevas de `.env.example` documentados en la sección 2.4.
 - [ ] El diagrama ER de la sección 3.1 sigue siendo fiel al esquema; si algo cambió, se actualizó.
 
 **Riesgos**
@@ -269,7 +316,7 @@ Los 3 tickets forman el camino crítico del MVP: el esquema que guarda los saldo
 
 6. **Registro de eventos:** `logger.info("movimiento_registrado", extra={"movimiento_id", "tipo", "usuario_id"})`, sin nombres de residentes (LFPDPPP).
 
-**Fuera de alcance:** formularios, vistas y plantillas de HU-01 (ticket siguiente del backlog), la API V2 y la idempotencia por `Idempotency-Key`. En el MVP el doble envío se resuelve en la pantalla (sección 4.1).
+**Fuera de alcance:** formularios, vistas y plantillas de HU-01 (TK-04), la API V2 y la idempotencia por `Idempotency-Key`. En el MVP el doble envío se resuelve en la pantalla (sección 4.1).
 
 **Criterios de aceptación** (con el mock de la sección 3.4)
 - [ ] `registrar_entrada` de 30 dosis de Eutirox a Carmen, origen `FAMILIAR`, entregado por "Rosa Torres": el saldo pasa de 33 a 63 y el movimiento guarda usuario, fecha y hora, origen y quien entregó.
@@ -363,7 +410,7 @@ Los 3 tickets forman el camino crítico del MVP: el esquema que guarda los saldo
 
 6. **Navegación:** la entrada "Existencias" en el menú de `base.html`, y `LOGIN_REDIRECT_URL` apuntando a esta pantalla.
 
-**Fuera de alcance:** el endpoint `GET /api/v1/existencias` (otro ticket, que reutiliza el selector), la exportación y los botones de registrar movimientos en cada renglón (llegan con las pantallas de HU-01).
+**Fuera de alcance:** el endpoint `GET /api/v1/existencias` (TK-05, que reutiliza el selector), la exportación y los botones de registrar movimientos en cada renglón (llegan con TK-04).
 
 **Criterios de aceptación** (con el mock de la sección 3.4)
 - [ ] Como `consulta.demo`, al buscar "losartan" aparecen 3 renglones en este orden: Hogar · Losartán 20, José Luis · Cozaar 32, José Luis · Losartán 10. Hyzaar no aparece.

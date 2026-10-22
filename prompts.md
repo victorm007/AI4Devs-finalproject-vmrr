@@ -337,8 +337,8 @@ Escribí la sección 6 del `readme.md` con los 3 tickets del camino crítico del
 - Pruebas, definición de hecho y riesgos.
 
 **Impacto en el proyecto:**
-> Creo los 3 tickets por capa como se le pidio, el orden recomendado, historias con las que se relaciona, cual ticket bloquea a cual, story points,.
-> 
+> Creo los 3 tickets por capa como se le pidio, el orden recomendado, historias con las que se relaciona, cual ticket bloquea a cual, story points. 
+> Un hallazgo importante es que los tickets son secuenciales por su naturaleza. 
 
 **Prompt 2:**
 
