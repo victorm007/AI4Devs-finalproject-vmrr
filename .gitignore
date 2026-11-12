@@ -1,0 +1,11 @@
+# Secretos locales (solo se versiona .env.example)
+.env
+.env.*
+!.env.example
+
+# IDE
+.idea/
+
+# Claude Code: registro local del hook de secretos y ajustes personales
+.claude/logs/
+.claude/settings.local.json

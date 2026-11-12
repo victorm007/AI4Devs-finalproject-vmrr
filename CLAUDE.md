@@ -85,6 +85,15 @@ El entregable del curso exige mostrar los prompts usados con IA, y por eso cada 
 - `prompts.md` lo edita el usuario, con su propia valoración del impacto: no lo modifiques, pero inclúyelo en los commits si tiene cambios.
 - `diagramas/` guarda los PNG que el usuario genera a partir del Mermaid del readme (ver `diagramas/diagrama.md`).
 
+<!-- Revisar si  es necesario hacer algun tipo de "convenciones de la DB" -->
+- La rama es por unidad de trabajo, no por petición. Antes de tocar código, mira en qué rama estás: si ya es una rama de trabajo —cualquiera que no sea main—, sigue en ella en vez de crear otra. Solo desde main se crea una nueva (git checkout -b feat/<slug>). Nunca commitear directo en main.
+- El commit sí es por petición: al cerrar cada una, usar la skill `/commit`.
+- Un cambio que toque rutas, controladores, validadores o transformers de una capability se cierra en el mismo commit con el documento OpenAPI y el README de esa capability al día. El documento se construye en cada petición y no hay fichero que generar; el README es `docs/capabilities/<nombre>/README.md`.
+- `gh pr create` (con una descripción completa de los cambios en el cuerpo del PR) y el pase del subagente `adversarial-reviewer` sobre ese PR van **una sola vez, al terminar la unidad de trabajo**, no al cerrar cada petición. El review adversarial es lo último, antes de dar la unidad por terminada.
+- Cuando abras el PR, no repitas ese resumen en el chat: la sesión se va a perder, el PR no. Responde solo con la URL del PR.
+- Datos que no salen del proyecto: el hook `PreToolUse` `.claude/hooks/datos-que-no-salen.sh` revisa cada `git commit` (y lo que añade un `git add` en el mismo comando) y lo bloquea si entra alguna de estas tres cosas: (1) una clave o un token con forma reconocible (AWS, Anthropic, GitHub, Google, Slack, clave privada, `APP_KEY` con valor); (2) un correo cuyo dominio no sea `example.com`, `example.org`, `example.net` ni `github.com`; (3) un fichero `.env`. Cuando bloquea, **no se desactiva, no se salta y no se reescribe el comando para esquivarlo**: se sustituye el dato por uno inventado (correo en `example.com`, clave de mentira) o se saca el `.env` del índice, y se vuelve a intentar. Cada bloqueo añade una línea a `docs/seguridad/registro-de-bloqueos.md`, con la regla y el archivo pero nunca el valor. Ese registro se commitea con el resto del cambio: es la evidencia, (4) Datos personales que no sean de ejemplo.
+
+
 ## Estrategia de Pruebas Estricta (Testing Rules)
 - **Entorno de Pruebas:** Todos los tests deben ser compatibles con PostgreSQL 17 real. Prohibido asumir SQLite o mocking de base de datos para la capa de persistencia.
 - **Permisos Reales en Tests:** Toda prueba de los servicios de inventario debe correr utilizando el fixture compartido `como_app_user` (que ejecuta `SET LOCAL ROLE app_user` en la transacción) para validar que la app no requiere permisos elevados.
