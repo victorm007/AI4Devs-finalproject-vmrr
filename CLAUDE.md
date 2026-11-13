@@ -6,17 +6,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Proyecto final de AI4Devs: inventario de medicamentos para un hogar gerontológico (una sede, ~20 residentes, 1 a 3 usuarios). El equipo y la documentación trabajan en español.
 
-**Todavía no hay código de la aplicación.** Solo existen la documentación, el contrato de la API, el dataset mock y el CI. `app/` contiene únicamente `fixtures/mock/`; no existen aún `manage.py`, `docker-compose.yml`, `db/init/` ni `scripts/`. Los comandos de Django y Docker de abajo son los **previstos** en el diseño, y el código de `docs/tickets/` nunca se ha ejecutado: compruébalos antes de darlos por buenos.
+**Todavía no hay código de la aplicación.** Solo existen la documentación, el contrato de la API, el dataset mock, el CI y la configuración de Claude Code (`.claude/`: hook de secretos, skill `/commit` y subagente `adversarial-reviewer`). `app/` contiene únicamente `fixtures/mock/`; no existen aún `manage.py`, `docker-compose.yml`, `Makefile`, `db/init/` ni `scripts/`. Los comandos de Django y Docker de abajo son los **previstos** en el diseño, y el código de `docs/tickets/` nunca se ha ejecutado: compruébalos antes de darlos por buenos.
 
 `readme.md` es la fuente de verdad del diseño. Sus secciones: 1 producto, 2 arquitectura, 3 modelo de datos, 4 API, 5 historias (HU-01 a HU-03), 6 tickets (TK-01 a TK-07, orden de ejecución, puntos de integración, criterios de revisión), 7 proceso de PR y criterios de *merge*.
 
 ## Stack Tecnológico Estricto
 
 * **Backend:** Python 3.12, Django 5.2 LTS.
-* **API:** Django REST Framework + drf-spectacular (OpenAPI 3.2.0, endpoints de solo lectura para el MVP).
+* **API:** Django REST Framework, con endpoints de solo lectura en el MVP. El contrato es `docs/api/openapi.yaml`, **OpenAPI 3.2 escrito a mano** (*design-first*) y fuente de verdad; drf-spectacular solo genera un esquema 3.0/3.1 para la documentación interactiva (Swagger UI), según la sección 4.7.
 * **Base de Datos:** PostgreSQL 17.
 * **Frontend:** Plantillas Django renderizadas en servidor (SSR), Bootstrap 5, HTMX (2.0.x). Cero frameworks SPA (CSR) -React/Vue/Angular-.
-* **Testing y Linting:** pytest, pytest-django, Playwright, ruff.
+* **Testing y Linting:** pytest, pytest-django, pytest-cov, jsonschema (contratos de la API), Playwright, ruff.
 
 ## Flujo de Trabajo: TDD y Mock-First (OBLIGATORIO)
 
@@ -28,7 +28,7 @@ Monolito Django 5.2 (Python 3.12) con PostgreSQL 17, renderizado en el servidor 
 
 * **Lógica de Negocio Aislada:** Las reglas de inventario (entradas, transferencias, bajas) viven EXCLUSIVAMENTE en la capa de servicios (`services.py`). Prohibido poner lógica de negocio en las vistas o sobrescribir el método `save()` de los modelos.
 * **Transacciones y Concurrencia:** Toda operación de escritura en inventario debe ejecutarse dentro de `transaction.atomic()`. Para evitar saldos negativos o *deadlocks*, bloquea con `select_for_update()` las filas de `Existencia` (en orden de `entidad_id`) antes de aplicar cambios. **Nunca** sobre `Movimiento`: es solo de inserción y `app_user` no tiene el permiso de `UPDATE` que `FOR UPDATE` exige.
-* **Bajas Lógicas:** Los catálogos (medicamentos, motivos de baja) y las entidades (residentes) usan bajas lógicas (`activo = False` o `estado = 'EGRESADO'/'FALLECIDO'`) para preservar la integridad del historial. 
+* **Bajas Lógicas:** Los catálogos (medicamentos, motivos de baja) y las entidades (residentes) usan bajas lógicas (`activo = False` o `estado = 'EGRESADO'/'FALLECIDO'`) para preservar la integridad del historial.
 
 Reglas de diseño que cruzan varias capas:
 
@@ -36,45 +36,51 @@ Reglas de diseño que cruzan varias capas:
 - **Los movimientos son inmutables.** Los errores se corrigen con el movimiento inverso (`corrige_a`), una sola vez. `existencia.saldo` es un dato derivado materializado: debe ser igual a la suma de los movimientos, y la vista `v_conciliacion_existencia` lista lo que no cuadra.
 - **Las entidades son un supertipo.** `entidad` (el Hogar o un residente) es la dueña de los saldos; `residente` es su subtipo. Las entradas y transferencias exigen destino activo; un residente egresado sí puede ceder o dar de baja sobrantes.
 - **La base de datos es la última barrera, no el mensaje al usuario.** Las reglas también viven en `CHECK`, `EXCLUDE` y *triggers*, pero el servicio o el formulario las valida antes, para que el usuario nunca vea un `500` por una regla de negocio.
-- **Las pantallas son la aplicación; la API no.** En el MVP la API REST son solo 3 `GET` (`/existencias`, `/medicamentos`, `/reportes/mensual`). `docs/api/openapi.yaml` (OpenAPI 3.2) marca cada operación con `x-alcance: MVP` o `V2`, y las otras 31 son diseño para después. El catálogo y los residentes se operan desde `/admin/` en el MVP (sección 5).
+- **Las pantallas son la aplicación; la API no.** En el MVP la API REST son solo 3 `GET` (`/existencias`, `/medicamentos`, `/reportes/mensual`). `docs/api/openapi.yaml` marca cada operación con `x-alcance: MVP` o `V2`, y las otras 31 son diseño para después. El catálogo y los residentes se operan desde `/admin/` en el MVP (sección 5).
 - **El conteo físico no ajusta existencias.** Guarda una foto del saldo en cada renglón, y la base calcula la diferencia. Cada diferencia se resuelve con un movimiento normal, para que quede la causa (mecánica en HU-03).
 
 Detalles que rompen cosas si se olvidan:
 - Django rechaza nombres de índice de más de 30 caracteres (`models.E034`); de ahí abreviaturas como `ix_movimiento_dest_med_fecha`. Tablas, restricciones e índices usan los nombres exactos de las secciones 3.1 y 3.3.
 - Los índices trigram solo se usan si el ORM genera exactamente `f_unaccent(lower(campo))`.
-- Las cantidades son `Decimal` (`numeric(10,2)`, en dosis), nunca `float`.
+- Las cantidades son `Decimal` (en dosis), nunca `float`.
 
 ## Estándares y Convenciones de Base de Datos
 - **Dos Usuarios de BD:** El sistema usa `app_owner` para DDL/migraciones y `app_user` para ejecución de la app (DML). Asume siempre que `app_user` NO tiene permisos de `TRUNCATE`, `UPDATE` o `DELETE` en tablas inmutables como `movimiento`, ni puede alterar tablas o apagar triggers.
   - Consecuencia: **nunca uses `select_for_update()` sobre `Movimiento`**, porque `FOR UPDATE` exige permiso de `UPDATE` y fallaría solo en producción. Sobre `Existencia` sí se usa, bloqueando siempre en orden de `entidad_id` para evitar *deadlocks*.
-  - Los tests que deben comportarse como la aplicación usan `SET LOCAL ROLE app_user` (*fixture* `como_app_user`).
+  - Los tests que deben comportarse como la aplicación corren como `app_user` (ver "Permisos reales en tests").
 - **Delegación a PostgreSQL:** La base de datos es la barrera final. Usa `CheckConstraint`, `UniqueConstraint`, `GeneratedField` e índices trigram a nivel esquema. Las validaciones en la app son para dar mensajes claros al usuario, no sustituyen las restricciones de la BD.
 - **Protección de Datos Históricos:** TODAS las claves foráneas (`ForeignKey`) deben usar `on_delete=models.PROTECT` en Django (que equivale a `ON DELETE RESTRICT` en PostgreSQL). Nunca permitas borrados en cascada en tablas transaccionales.
 - **Tipos de Datos Sensibles:**
-  - Para fechas con hora, usa siempre `timestamptz` (en Django requiere configuración adecuada o campos que lo respeten).
-  - Para cantidades y saldos, usa `numeric(10,2)` (`DecimalField(max_digits=10, decimal_places=2)`). NUNCA uses `Float` ni `Integer`.
-- **Nomenclatura de Restricciones (Constraints):** Define nombres explícitos en `Meta.constraints` y `Meta.indexes` usando estos prefijos:
-  - `uq_`: Unique Constraint (ej. `uq_existencia`).
-  - `ck_`: Check Constraint (ej. `ck_existencia_saldo`).
-  - `ix_`: Índices normales o compuestos (ej. `ix_medicamento_nombre_trgm`).
-  - `ex_`: Restricciones de exclusión.
-- **Búsquedas de Texto:** Todo índice y búsqueda por texto (ej. nombres) debe usar obligatoriamente la extensión `pg_trgm` y la función `unaccent`. En el ORM de Django, las búsquedas deben emular exactamente la expresión `f_unaccent(lower(campo))` para garantizar que el planificador use el índice.
+  - Para fechas con hora, usa siempre `timestamptz` (en Django, `DateTimeField` con `USE_TZ = True`). Para fechas de calendario, `date`.
+  - Para cantidades y saldos en dosis (`existencia.saldo`, `movimiento.cantidad`, `detalle_conteo.*`), usa `numeric(10,2)` (`DecimalField(max_digits=10, decimal_places=2)`). La dosis por toma de una pauta es `numeric(6,2)` (sección 3.2). NUNCA uses `Float` ni `Integer` para cantidades.
+- **Nomenclatura de objetos de la BD:** Define nombres explícitos (en `Meta.constraints`, `Meta.indexes` o en `RunSQL`) usando estos prefijos, como en las secciones 3.1 y 3.3:
+  - `uq_`: restricción o índice único (ej. `uq_existencia`, `uq_medicamento_nombre_pres_conc`).
+  - `ck_`: *check constraint* (ej. `ck_existencia_saldo`).
+  - `ex_`: restricción de exclusión (ej. `ex_pauta_sin_traslape`).
+  - `fk_`: clave foránea declarada a mano (ej. `fk_residente_entidad`).
+  - `ix_`: índices normales, compuestos o GIN (ej. `ix_medicamento_nombre_trgm`).
+  - `brin_`: índices BRIN (ej. `brin_movimiento_fecha`).
+  - `fn_` / `tg_`: funciones y *triggers* (ej. `fn_movimiento_inmutable`, `tg_movimiento_inmutable`).
+  - `v_`: vistas (ej. `v_conciliacion_existencia`).
+- **Búsquedas de Texto:** Toda búsqueda por texto (ej. nombres) se hace sin mayúsculas ni acentos, sobre la expresión `f_unaccent(lower(campo))` (extensiones `unaccent` y `pg_trgm`). Las búsquedas parciales ("contiene") usan índices GIN con `pg_trgm`; los índices para ordenar (ej. `ix_residente_nombre`) son B-tree sobre la misma expresión. En el ORM de Django, las búsquedas deben emular exactamente esa expresión para garantizar que el planificador use el índice.
 
 ## Vocabulario de Dominio Estricto (Ubiquitous Language)
-Claude, NUNCA inventes sinónimos. Usa exclusivamente estos términos en variables, modelos, URLs, respuestas JSON y comentarios:
-- **Residente:** Persona que vive en el hogar. NUNCA uses "Paciente" ni "Cliente" en el código.
+Claude, NUNCA inventes sinónimos. Usa exclusivamente estos términos en variables, modelos, URLs, respuestas JSON, comentarios, textos visibles y documentación (incluidos `readme.md` y `docs/api/openapi.yaml`):
+- **Residente:** Persona que vive en el hogar. NUNCA uses "Paciente" ni "Cliente".
 - **Entidad:** Supertipo que engloba tanto al "Hogar" como a los "Residentes".
 - **Medicamento:** El producto farmacéutico. NUNCA uses "Droga", "Fármaco" o "Producto".
-- **Existencia:** El saldo actual disponible de un medicamento. NUNCA uses "Stock" ni "Inventario" para referirte a la cantidad.
-- **Movimiento:** Registro de cambio en el inventario (Entrada, Transferencia, Baja, Corrección). NUNCA uses "Transacción" u "Operación".
-- **Pauta:** Prescripción de dosis y frecuencia. NUNCA uses "Receta" o "Prescripción".
+- **Existencia:** El saldo actual disponible de un medicamento. NUNCA uses "Stock" ni "Inventario" para referirte a la cantidad (el módulo `inventario` sí se llama así).
+- **Movimiento:** Registro inmutable de un cambio en las existencias. Sus tipos son **Entrada, Transferencia y Baja** (`Movimiento.Tipo`). Una **corrección** no es un tipo: es el movimiento inverso que referencia al original con `corrige_a` (por ejemplo, una baja con motivo `CORRECCION`). NUNCA uses "Transacción" ni "Operación" para nombrarlo; la transacción de base de datos (`transaction.atomic()`) sí se llama así.
+- **Pauta:** Indicación de dosis y frecuencia de un medicamento para un residente, con vigencia. NUNCA uses "Receta" ni "Prescripción".
 - **Baja:** La acción de retirar medicamentos (por caducidad, merma, consumo) o desactivar un registro. NUNCA uses "Eliminar" ni "Delete" para reglas de negocio.
 
 ## Frontend y Vistas
 * **HTML + HTMX:** Usa HTMX para interactividad sin recargar la página (`hx-get`, `hx-target`). Evita JavaScript en línea para cumplir con la CSP de Nginx.
 * **Responsive:** Tarjetas `list-group` en celular, tabla en escritorio. Sin desplazamiento horizontal en 390px.
-* **Autorización:** Todo acceso se valida en el backend mediante grupos de Django (`Solo lectura` vs `Lectura y escritura`) usando `PermissionRequiredMixin`.
-
+* **Autorización:** Todo acceso se valida en el backend, nunca solo ocultando botones:
+  * **Pantallas:** grupos de Django (`Solo lectura` vs `Lectura y escritura`) con `LoginRequiredMixin` y `PermissionRequiredMixin`.
+  * **API del MVP:** `IsAuthenticated` de DRF, porque sus 3 endpoints son de solo lectura (sección 4.2).
+  * **`/admin/`:** los permisos de modelo de Django asignados a cada grupo (sección 5).
 
 ## Documentación del proceso
 El entregable del curso exige mostrar los prompts usados con IA, y por eso cada fase tiene un transcript numerado en la raíz (`01-` a `07-`):
@@ -86,37 +92,22 @@ El entregable del curso exige mostrar los prompts usados con IA, y por eso cada 
 - `prompts.md` lo edita el usuario, con su propia valoración del impacto: no lo modifiques, pero inclúyelo en los commits si tiene cambios.
 - `diagramas/` guarda los PNG que el usuario genera a partir del Mermaid del readme (ver `diagramas/diagrama.md`).
 
-- La rama es por unidad de trabajo, no por petición. Antes de tocar código, mira en qué rama estás: si ya es una rama de trabajo —cualquiera que no sea main—, sigue en ella en vez de crear otra. Solo desde main se crea una nueva (git checkout -b feat/<slug>). Nunca commitear directo en main.
-- El commit sí es por petición: al cerrar cada una, usar la skill `/commit`.
-- Un cambio que toque rutas, controladores, validadores o transformers de una capability se cierra en el mismo commit con el documento OpenAPI y el README de esa capability al día. El documento se construye en cada petición y no hay fichero que generar; el README es `docs/capabilities/<nombre>/README.md`.
-- `gh pr create` (con una descripción completa de los cambios en el cuerpo del PR) y el pase del subagente `adversarial-reviewer` sobre ese PR van **una sola vez, al terminar la unidad de trabajo**, no al cerrar cada petición. El review adversarial es lo último, antes de dar la unidad por terminada.
-- Cuando abras el PR, no repitas ese resumen en el chat: la sesión se va a perder, el PR no. Responde solo con la URL del PR.
-- Datos que no salen del proyecto: el hook `PreToolUse` `.claude/hooks/bloquear_secretos.py` (registrado en `.claude/settings.json` para Bash y PowerShell) revisa cada `git commit` (lo que está en staging y, si el comando trae `-a` o un `git add`, también los cambios sin preparar y los archivos no rastreados) y cada `git push` (los commits que aún no están en el remoto). Bloquea si entra alguna de estas cuatro cosas:
-  1. Un secreto: clave o token con forma reconocible (clave privada, AWS, GitHub, Anthropic, OpenAI, Slack, Google, Stripe, JWT), una asignación `PASSWORD`/`SECRET`/`TOKEN`/`API_KEY` con valor real, una URL con usuario y contraseña o un hash de contraseña.
-  2. Un correo cuyo dominio no sea de ejemplo (`example.com`, `example.org`, `example.net`, `.example`, `.test`, `.invalid`, `localhost`) ni un `noreply` de GitHub o Anthropic.
-  3. Datos personales que no sean de ejemplo: CURP, RFC, teléfono, NSS o número de tarjeta válido.
-  4. Un archivo `.env` o `.env.*` (salvo `.env.example`, `.sample`, `.template`, `.dist`).
-
-  Cuenta como ejemplo y no bloquea: valores con marcadores como `demo`, `ejemplo`, `cambia-esto`, `${VAR}` o `<valor>`; datos personales y hashes dentro de `app/fixtures/mock/`; cualquier línea con el comentario `secreto-ok`, y los valores de `.claude/hooks/secretos-permitidos.txt`. Los tokens con forma reconocible solo se exceptúan con `secreto-ok` o esa lista.
-
-  Cuando bloquea, **no se desactiva, no se salta y no se reescribe el comando para esquivarlo**: se sustituye el dato por uno inventado (correo en `example.com`, clave de mentira), se saca el `.env` del índice o, si de verdad es un ejemplo, se marca con `secreto-ok` o se agrega a la lista de permitidos, y se vuelve a intentar. Cada bloqueo añade una línea a `.claude/logs/secretos-bloqueados.log` con la fecha, la operación, el archivo, la línea y la categoría, nunca el valor. Ese registro es local (está en `.gitignore`) y no se commitea. Si la revisión falla, el hook bloquea por precaución. Solo cubre los comandos que ejecuta Claude, no los que el usuario corre en su terminal.
-
 ## Tickets y pruebas
 
 Orden de ejecución: habilitadores de la semana 1 → TK-01 (BD) → TK-02 (backend) y TK-03 (frontend) → prueba de integración → backlog (TK-04 a TK-07). Las guías paso a paso están en `docs/tickets/`, y `integracion.md` tiene la prueba conjunta.
 
 Los tests usan el dataset real del mock (`app/fixtures/mock/`, sección 3.4), no *factories*, porque los criterios de aceptación están escritos con esos datos. Los *fixtures* compartidos (`datos_demo`, `demo`, `como_app_user`) y los helpers de `pruebas.py` los crea TK-01; los demás tickets los usan sin modificarlos.
 
-
 ## Estrategia de Pruebas Estricta (Testing Rules)
 - **Entorno de Pruebas:** Todos los tests deben ser compatibles con PostgreSQL 17 real. Prohibido asumir SQLite o mocking de base de datos para la capa de persistencia. Las pruebas se ejecutan en una DB temporal/pruebas separada.
-- **Permisos Reales en Tests:** Toda prueba de los servicios de inventario debe correr utilizando el fixture compartido `como_app_user` (que ejecuta `SET LOCAL ROLE app_user` en la transacción) para validar que la app no requiere permisos elevados.
+- **Permisos Reales en Tests:** Toda prueba de los servicios de inventario corre como `app_user`, para validar que la app no requiere permisos elevados:
+  - En los tests normales, con el fixture compartido `como_app_user` (`SET LOCAL ROLE app_user` dentro de la transacción del test).
+  - En los tests de concurrencia (`transaction=True`, con hilos), `SET LOCAL` no aplica porque no hay transacción envolvente: cada hilo hace `SET ROLE app_user` al abrir su conexión y la cierra al terminar (guía de TK-02).
 - **Concurrencia Obligatoria:** Las pruebas de `services.py` deben incluir validación explícita contra *deadlocks* y condiciones de carrera usando `TransactionTestCase` (o `transaction=True`) y `threading` (múltiples hilos apuntando a la misma base).
-- **Verificación de Índices:** Si escribes consultas complejas o selectores (`buscar_existencias`), debes escribir tests que evalúen el plan de ejecución (`EXPLAIN`) para garantizar que PostgreSQL usa los índices correctos (ej. `ix_medicamento_nombre_trgm`).
-- **Pruebas de Integración:** Todo flujo crítico debe incluir un test de integración que atraviese la ruta completa: Controlador/Vista -> Servicio -> Base de Datos -> Validación de vista de conciliación (`v_conciliacion_existencia`).
+- **Verificación de Índices:** Si escribes consultas complejas o selectores (`buscar_existencias`), debes escribir tests que evalúen el plan de ejecución (`EXPLAIN`) para garantizar que PostgreSQL usa los índices correctos (ej. `ix_medicamento_nombre_trgm`). Se marcan `lento` y corren en el CI nocturno.
+- **Pruebas de Integración:** Todo flujo crítico debe incluir un test de integración que atraviese la ruta completa: Vista → Servicio → Base de Datos → Validación de la vista de conciliación (`v_conciliacion_existencia`).
 - **Contratos API:** Los tests de la API REST deben validar el JSON de respuesta contra el esquema `docs/api/openapi.yaml` usando `jsonschema`.
-- **Umbrales:** Cobertura exigida en CI: ≥ 80% en `apps/` y ≥ 90% en la capa `services.py`
-
+- **Umbrales de cobertura:** el CI (*job* `tests`) exige **≥ 80 % en `apps/`**. Además, cada ticket fija su propio umbral (por ejemplo, **≥ 90 % en `services.py`** en TK-02), que verifica el autor y anota en la plantilla del PR (sección 7.3).
 
 ## Comandos
 **Usa el `Makefile` de la raíz** para las tareas recurrentes; `make help` lista los comandos. **Todavía no existe:** lo crea TK-01, junto con `docker-compose.yml` y `scripts/migrate.sh`, y su contenido está en la guía de TK-01 (paso 1.8). Si un `make` no cubre lo que necesitas, usa los comandos directos de abajo, que son exactamente lo que ejecuta cada *target*. El CI no usa `make`.
@@ -170,7 +161,40 @@ dpsql -v ON_ERROR_STOP=1 -f /tmp/mock/cargar_mock.sql
 
 CI (`.github/workflows/ci.yml`): los *checks* `lint`, `tests` y `e2e` se saltan mientras no exista `app/manage.py`. Sus nombres son los que exige la protección de `main`: no los renombres sin leer la nota de la sección 7.3. `tests` exige cobertura ≥ 80 % sobre `apps/`.
 
-
 ## Git
-Haz commit y push solo cuando se pida. Los mensajes van en español (`docs: ...`, `feat(inventario): ...`) y el trabajo va en ramas `feature/*`, nunca directo en `main`. No incluyas `.idea/`. Los PR usan `.github/pull_request_template.md`.
 
+- **Ramas:** la rama es por unidad de trabajo, no por petición. Antes de tocar código, mira en qué rama estás: si ya es una rama de trabajo —cualquiera que no sea `main`—, sigue en ella en vez de crear otra. Solo desde `main` se crea una nueva, con el prefijo `feature/` (`git checkout -b feature/<slug>`, por ejemplo `feature/TK-01-esquema-inventario`). Nunca commitear directo en `main`.
+- **Commits:** solo cuando el usuario lo pida, con la skill `/commit`. Los mensajes van en español (`docs: ...`, `feat(inventario): ...`). No incluyas `.idea/`.
+- **Push y PR: una sola vez, al terminar la unidad de trabajo**, no al cerrar cada petición. Entonces van, en este orden:
+  1. `git push` y `gh pr create`, con la plantilla `.github/pull_request_template.md` y una descripción completa de los cambios en el cuerpo del PR.
+  2. El pase del subagente `adversarial-reviewer` (`.claude/agents/`) sobre ese PR, como lo último antes de dar la unidad por terminada. Tiene solo lectura (sin Bash), así que al invocarlo pásale la lista de archivos cambiados y el diff. Mientras no exista `openspec/specs/`, que contraste el cambio contra los criterios de aceptación de las secciones 5 y 6 del readme y la guía del ticket.
+- Cuando abras el PR, no repitas ese resumen en el chat: la sesión se va a perder, el PR no. Responde solo con la URL del PR.
+
+<!--
+RECORDATORIO (pendiente): regla de capabilities. Se activa cuando adoptemos OpenSpec y definamos las capabilities;
+todavía no existen `openspec/` ni las capabilities. Borrador para entonces, ya traducido a Django:
+
+- Un cambio que toque rutas, controladores, validadores o transformers de una capability se cierra en el mismo commit
+  con el contrato OpenAPI y la spec de esa capability al día.
+- Mapeo a Django:
+  - Rutas        -> `urls.py` (URL dispatcher).
+  - Controladores -> vistas: `views.py` (vistas de pantallas) y, en la API, las vistas de DRF de `apps/api/views.py`.
+  - Validadores  -> `forms.py` (pantallas), `validate_<campo>()`/`validate()` de los serializers (API) y `validators.py`
+                    (validadores reutilizables). Las reglas de negocio se validan además en `services.py`, y la BD es la
+                    última barrera (CHECK, triggers).
+  - Transformers -> `serializers.py` de DRF (API). En las pantallas no hay transformer: la vista arma el contexto con
+                    `selectors.py` y la plantilla lo presenta.
+- OJO al activarla: aquí el contrato `docs/api/openapi.yaml` se escribe a mano (design-first, sección 4.7), así que SÍ
+  hay que actualizar ese fichero; no se genera solo. Definir también dónde vive la "spec" o el README de cada capability
+  (probablemente `openspec/specs/<capability>/`, en lugar de `docs/capabilities/<nombre>/README.md`).
+-->
+
+**Datos que no salen del proyecto:** el hook `PreToolUse` `.claude/hooks/bloquear_secretos.py` (registrado en `.claude/settings.json` para Bash y PowerShell) revisa cada `git commit` (lo que está en staging y, si el comando trae `-a` o un `git add`, también los cambios sin preparar y los archivos no rastreados) y cada `git push` (los commits que aún no están en el remoto). Bloquea si entra alguna de estas cuatro cosas:
+1. Un secreto: clave o token con forma reconocible (clave privada, AWS, GitHub, Anthropic, OpenAI, Slack, Google, Stripe, JWT), una asignación `PASSWORD`/`SECRET`/`TOKEN`/`API_KEY` con valor real, una URL con usuario y contraseña o un hash de contraseña.
+2. Un correo cuyo dominio no sea de ejemplo (`example.com`, `example.org`, `example.net`, `.example`, `.test`, `.invalid`, `localhost`) ni un `noreply` de GitHub o Anthropic.
+3. Datos personales que no sean de ejemplo: CURP, RFC, teléfono, NSS o número de tarjeta válido.
+4. Un archivo `.env` o `.env.*` (salvo `.env.example`, `.sample`, `.template`, `.dist`).
+
+Cuenta como ejemplo y no bloquea: valores con marcadores como `demo`, `ejemplo`, `cambia-esto`, `${VAR}` o `<valor>`; datos personales y hashes dentro de `app/fixtures/mock/`; cualquier línea con el comentario `secreto-ok`, y los valores de `.claude/hooks/secretos-permitidos.txt`. Los tokens con forma reconocible solo se exceptúan con `secreto-ok` o esa lista.
+
+Cuando bloquea, **no se desactiva, no se salta y no se reescribe el comando para esquivarlo**: se sustituye el dato por uno inventado (correo en `example.com`, clave de mentira), se saca el `.env` del índice o, si de verdad es un ejemplo, se marca con `secreto-ok` o se agrega a la lista de permitidos, y se vuelve a intentar. Cada bloqueo añade una línea a `.claude/logs/secretos-bloqueados.log` con la fecha, la operación, el archivo, la línea y la categoría, nunca el valor. Ese registro es local (está en `.gitignore`) y no se commitea. Si la revisión falla, el hook bloquea por precaución. Solo cubre los comandos que ejecuta Claude, no los que el usuario corre en su terminal.

@@ -280,7 +280,7 @@ Además, sobre una instalación desde cero (`docker compose down -v`, `migrate.s
 
 #### Criterios de revisión de código
 
-Quién revisa: el Tech Lead, o, si el autor es el único desarrollador, el propio autor al día siguiente con esta lista más una revisión asistida por IA, registrada en el PR. Se aprueba solo si no queda ningún comentario **bloqueante**.
+Quién revisa: el Tech Lead, o, si el autor es el único desarrollador, el propio autor al día siguiente con esta lista más la revisión del subagente `adversarial-reviewer`, registrada en el PR. Se aprueba solo si no queda ningún comentario **bloqueante**.
 
 | Ámbito | El revisor comprueba que… | Severidad si falla |
 |---|---|---|

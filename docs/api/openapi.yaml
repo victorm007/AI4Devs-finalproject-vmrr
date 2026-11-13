@@ -19,7 +19,7 @@ info:
     2. Catálogo de medicamentos (alta, baja lógica y cambio), con principio activo, presentación y búsqueda sin acentos.
     3. Residentes (alta, baja y cambio), con el Hogar como entidad fija.
     4. Movimientos: entrada, transferencia, baja con motivo y corrección.
-    5. Consulta de existencias por paciente, medicamento o principio activo.
+    5. Consulta de existencias por residente, medicamento o principio activo.
     6. Conteo físico: captura, diferencia contra lo registrado y cierre.
     7. Reporte mensual de movimientos y saldos.
 
@@ -1269,7 +1269,7 @@ paths:
       parameters:
         - name: entidad_id
           in: query
-          description: Paciente (id del residente) o el Hogar.
+          description: Residente (su id de entidad) o el Hogar.
           schema:
             $ref: '#/components/schemas/Id'
         - name: medicamento_id

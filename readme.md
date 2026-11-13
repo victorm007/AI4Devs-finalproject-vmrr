@@ -18,7 +18,7 @@ Victor Manuel Ramirez Ruvalcaba
 ### **0.2. Nombre del proyecto:**
 Gestion Medicamentos Hogar Gerontologico
 ### **0.3. Descripción breve del proyecto:**
-**Gestión de Medicamentos – Hogar Gerontológico** es una aplicación web responsive (computadora y celular) para controlar el inventario de medicamentos de un hogar de adultos mayores. Gestiona las existencias **por entidad** (cada residente tiene su propio inventario y el hogar es una entidad más), registra entradas indicando quién entregó el medicamento, transferencias entre entidades y bajas por motivo. Permite filtrar por paciente, nombre comercial o principio activo, y realizar conteos físicos comparados contra lo registrado. Se despliega inicialmente en un servidor local (con posibilidad de migrar a un servicio de hosting), con acceso por usuario en dos niveles (solo lectura / lectura y escritura) y protección de los datos personales y de salud de los residentes conforme a la LFPDPPP (México).
+**Gestión de Medicamentos – Hogar Gerontológico** es una aplicación web responsive (computadora y celular) para controlar el inventario de medicamentos de un hogar de adultos mayores. Gestiona las existencias **por entidad** (cada residente tiene su propio inventario y el hogar es una entidad más), registra entradas indicando quién entregó el medicamento, transferencias entre entidades y bajas por motivo. Permite filtrar por residente, nombre comercial o principio activo, y realizar conteos físicos comparados contra lo registrado. Se despliega inicialmente en un servidor local (con posibilidad de migrar a un servicio de hosting), con acceso por usuario en dos niveles (solo lectura / lectura y escritura) y protección de los datos personales y de salud de los residentes conforme a la LFPDPPP (México).
 
 ### **0.4. URL del proyecto:**
 
@@ -56,10 +56,10 @@ El producto ofrece a la **administración / dirección** del hogar un inventario
    - **Entradas:** registro de quién entregó el medicamento (familiar, el hogar, otro).
    - **Transferencias** entre entidades (hogar → residente, residente → hogar, residente → residente), por ejemplo para reasignar sobrantes tras un egreso o defunción.
    - **Bajas por motivo:** consumo / administración, caducidad, merma, rotura, devolución a la familia, defunción y egreso. La baja por caducidad se registra manualmente al detectar el medicamento vencido.
-4. **Pauta del residente:** registro de dosis y frecuencia de cada medicamento por paciente (informativo; no incluye registro de administración por turno).
-5. **Filtros combinados** por paciente, nombre de medicamento y principio activo.
+4. **Pauta del residente:** registro de dosis y frecuencia de cada medicamento por residente (informativo; no incluye registro de administración por turno).
+5. **Filtros combinados** por residente, nombre de medicamento y principio activo.
 6. **Inventario físico y reportes (en pantalla):**
-   - Conteo físico a demanda por paciente y por rango de fechas (inicio y fin), comparando existencia física contra lo registrado y resaltando diferencias.
+   - Conteo físico a demanda por residente y por rango de fechas (inicio y fin), comparando existencia física contra lo registrado y resaltando diferencias.
    - Reporte mensual de movimientos y existencias para la dirección.
 7. **Usuarios y niveles de acceso globales:** el Administrador da de alta a los usuarios y les asigna su nivel.
    - *Solo lectura:* consulta y reportes.
@@ -1098,7 +1098,7 @@ ALTER TABLE detalle_conteo
 | `estado` | varchar(10) | NOT NULL, DEFAULT `ACTIVO`, CHECK (`ACTIVO`, `EGRESADO`, `FALLECIDO`) | La baja es **lógica** |
 | `fecha_baja` | date | NULL; CHECK: nula si y solo si `ACTIVO`, y ≥ `fecha_ingreso` | Fecha de egreso o defunción |
 
-- **Nombre para mostrar:** se compone al vuelo (`primer_nombre segundo_nombre primer_apellido segundo_apellido`, omitiendo los nulos) y no se guarda. El índice `ix_residente_nombre` (3.3) acelera la búsqueda y el orden por paciente.
+- **Nombre para mostrar:** se compone al vuelo (`primer_nombre segundo_nombre primer_apellido segundo_apellido`, omitiendo los nulos) y no se guarda. El índice `ix_residente_nombre` (3.3) acelera la búsqueda y el orden por residente.
 - **Relaciones:** 1:N con `pauta`. Las existencias, movimientos y conteos del residente cuelgan de su `entidad`.
 
 #### D4 — Existencias
@@ -1629,7 +1629,7 @@ Para volver a empezar: `docker compose down -v`, `docker compose up -d`, `migrat
 
 | Endpoint | Funcionalidad | Por qué este |
 |---|---|---|
-| `GET /existencias` | 5. Existencias por paciente, medicamento o principio activo | Es la consulta más valiosa del sistema |
+| `GET /existencias` | 5. Existencias por residente, medicamento o principio activo | Es la consulta más valiosa del sistema |
 | `GET /medicamentos?q=` | 2. Búsqueda sin acentos por nombre o principio activo | Usa la búsqueda optimizada de la sección 3.3 |
 | `GET /reportes/mensual` | 7. Movimientos y saldos del mes | Es la salida que pide la dirección |
 
@@ -1725,7 +1725,7 @@ En el MVP, esas mismas reglas de negocio las valida `services.py` y las pantalla
 
 #### 4.5. Endpoints principales (MVP)
 
-**1. `GET /existencias`: consultar existencias por paciente, medicamento o principio activo**
+**1. `GET /existencias`: consultar existencias por residente, medicamento o principio activo**
 
 ```yaml
 /existencias:
@@ -1737,7 +1737,7 @@ En el MVP, esas mismas reglas de negocio las valida `services.py` y las pantalla
     x-alcance: MVP
     x-nivel-acceso: SOLO_LECTURA
     parameters:
-      - { name: entidad_id,          in: query, description: Paciente o el Hogar, schema: { type: integer, format: int64, minimum: 1 } }
+      - { name: entidad_id,          in: query, description: Residente o el Hogar, schema: { type: integer, format: int64, minimum: 1 } }
       - { name: medicamento_id,      in: query, schema: { type: integer, format: int64, minimum: 1 } }
       - { name: principio_activo_id, in: query, schema: { type: integer, format: int64, minimum: 1 } }
       - { name: q,                   in: query, schema: { type: string, minLength: 3, maxLength: 100 } }
@@ -2337,7 +2337,7 @@ Además, sobre una instalación desde cero (`docker compose down -v`, `migrate.s
 
 #### Criterios de revisión de código
 
-Quién revisa: el Tech Lead, o, si el autor es el único desarrollador, el propio autor al día siguiente con esta lista más una revisión asistida por IA, registrada en el PR. Se aprueba solo si no queda ningún comentario **bloqueante**.
+Quién revisa: el Tech Lead, o, si el autor es el único desarrollador, el propio autor al día siguiente con esta lista más la revisión del subagente `adversarial-reviewer`, registrada en el PR. Se aprueba solo si no queda ningún comentario **bloqueante**.
 
 | Ámbito | El revisor comprueba que… | Severidad si falla |
 |---|---|---|
@@ -2796,11 +2796,11 @@ La plantilla vive en [`.github/pull_request_template.md`](.github/pull_request_t
 
 ```mermaid
 flowchart LR
-    A["Rama feature/TK-NN<br/>commits pequeños"] --> B["PR en borrador<br/>plantilla llena"]
+    A["Rama feature/TK-NN<br/>commits pequeños"] --> B["PR al terminar la unidad<br/>plantilla llena"]
     B --> C{"CI en verde?"}
     C -- no --> A
     C -- sí --> D["Listo para revisión<br/>autor completa su checklist"]
-    D --> E["Revisión<br/>Tech Lead o autorrevisión + IA"]
+    D --> E["Revisión<br/>Tech Lead o autorrevisión<br/>+ adversarial-reviewer"]
     E --> F{"Comentarios<br/>bloqueantes?"}
     F -- sí --> G["Autor corrige<br/>y responde cada uno"] --> E
     F -- no --> H{"Criterios de merge<br/>(7.3)"}
@@ -2808,9 +2808,9 @@ flowchart LR
     I --> J["Ticket cerrado<br/>lecciones al readme/guías"]
 ```
 
-1. **Autor.** Abre el PR en borrador al primer *push*, para que CI corra desde el inicio. Llena la plantilla y lo pasa a "listo para revisión" solo cuando CI está en verde y su checklist está completa.
+1. **Autor.** Trabaja la unidad completa en su rama, con commits pequeños, y la verifica en local con `make lint` y `make test-ci` (lo mismo que corre el CI). **Al terminar la unidad** hace *push* y abre **un solo PR**, con la plantilla llena. CI corre en ese momento y en cada *push* posterior; si falla, el autor lo corrige en la misma rama antes de pedir revisión.
 2. **Revisor.** Usa los **criterios de revisión de código** de la sección 6. Marca cada comentario como **[bloqueante]**, **[sugerencia]** o **[nit]** y responde en máximo 1 día hábil.
-   - **Con un solo desarrollador:** el autor revisa al día siguiente con la lista y hace además una revisión asistida por IA. Las 2 quedan registradas como comentarios en el PR.
+   - **Con un solo desarrollador:** el autor revisa al día siguiente con la lista y pasa además el subagente `adversarial-reviewer` (`.claude/agents/`), que revisa el cambio con el objetivo de refutarlo. Las 2 revisiones quedan registradas como comentarios en el PR.
 3. **Autor.** Responde cada comentario: lo corrige (con el commit que lo resuelve) o explica por qué no. Solo el revisor marca un comentario bloqueante como resuelto.
 4. **Aprobación.** El revisor aprueba cuando no queda ningún bloqueante abierto. Las sugerencias que no se atiendan pasan al backlog como tarea.
 5. ***Merge*.** Con *squash*, cuando se cumplen los criterios de 7.3. Después se borra la rama, se cierra el ticket y las lecciones aprendidas que lo ameriten se pasan al readme o a la guía del ticket.

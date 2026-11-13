@@ -100,6 +100,44 @@ También actualicé la descripción de la integración continua en la sección 2
 
 ---
 
+## Prompt 3 — Usuario
+
+(Tras una revisión de `CLAUDE.md` contra el readme.) Corrige las inconsistencias como sugieres. La regla de `docs/capabilities` queda comentada con un recordatorio: trabajaremos con OpenSpec, pero aún no definimos las capabilities. Corrige el mapeo de conceptos a Django; sugiero este, pero si no es correcto haz tu sugerencia:
+- Rutas → `urls.py` (URL dispatcher).
+- Controladores → vistas (`views.py`).
+- Validadores → `validators.py` y formularios (`forms.py`).
+- Transformers → serializers de DRF (`serializers.py`).
+
+De los demás puntos:
+1. Commit cuando lo pida.
+3. PR solo al final.
+5. Crea el subagente `adversarial-reviewer` (revisor de solo lectura que intenta refutar el cambio contra los scenarios de `openspec/specs/`).
+8. Cambia "paciente" por "residente", incluyendo el readme y `openapi.yaml`, por consistencia.
+
+---
+
+## Respuesta 3 — Claude
+
+**Proceso de PR (sección 7.2 del readme):**
+- El PR se abre **una sola vez, al terminar la unidad de trabajo**, en lugar de en borrador al primer *push*. Antes, el autor verifica en local con `make lint` y `make test-ci`, que es lo mismo que corre el CI.
+- La revisión con un solo desarrollador es la autorrevisión del día siguiente más el subagente **`adversarial-reviewer`**. Lo creé en `.claude/agents/adversarial-reviewer.md` con la especificación indicada.
+- Actualicé el diagrama del proceso y la sección 6 ("Quién revisa").
+
+**"Paciente" → "residente"** en el readme (secciones 0.3, 1.2, 3.2 y 4), en `docs/api/openapi.yaml` (validado con Redocly: 0 errores), en `00-ficha-proyecto.md` y en los anexos. Los prompts y respuestas ya registrados en los transcripts conservan su texto original, porque son historia.
+
+**El mapeo propuesto es correcto**, con 3 precisiones que dejé en el recordatorio de `CLAUDE.md`:
+- **Controladores:** son las vistas de las pantallas (`views.py`) y, en la API, las vistas de DRF (`apps/api/views.py`).
+- **Validadores:** también incluyen la validación de los serializers (`validate_<campo>()`). Las reglas de negocio se validan además en `services.py`, y la base de datos es la última barrera.
+- **Transformers:** en las pantallas no hay *transformer*: la vista arma el contexto con `selectors.py`.
+
+Además, al activar la regla habrá que cambiar 2 cosas que venían de otro proyecto: aquí el contrato OpenAPI se escribe a mano, así que sí hay que actualizar `docs/api/openapi.yaml`; y la "spec" de cada capability probablemente vivirá en `openspec/specs/`.
+
+**`CLAUDE.md`:** commit solo cuando se pida, ramas `feature/`, push y PR solo al final, reglas de Git reunidas en su sección, cobertura (80 % en CI y 90 % como umbral de ticket), `como_app_user` y los tests con hilos, vocabulario (Pauta, Movimiento, Transacción), prefijos de nombres de la BD, búsquedas de texto, `numeric(6,2)` de la pauta y autorización de pantallas, API y `/admin/`.
+
+**Pendiente:** el subagente contrasta contra `openspec/specs/`, que todavía no existe. Mientras tanto, `CLAUDE.md` indica que contraste contra los criterios de aceptación del readme y la guía del ticket, y que al invocarlo se le pase el diff, porque no tiene Bash.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 7)
 
 ## 7. Pull Requests
@@ -134,11 +172,11 @@ La plantilla vive en [`.github/pull_request_template.md`](.github/pull_request_t
 
 ```mermaid
 flowchart LR
-    A["Rama feature/TK-NN<br/>commits pequeños"] --> B["PR en borrador<br/>plantilla llena"]
+    A["Rama feature/TK-NN<br/>commits pequeños"] --> B["PR al terminar la unidad<br/>plantilla llena"]
     B --> C{"CI en verde?"}
     C -- no --> A
     C -- sí --> D["Listo para revisión<br/>autor completa su checklist"]
-    D --> E["Revisión<br/>Tech Lead o autorrevisión + IA"]
+    D --> E["Revisión<br/>Tech Lead o autorrevisión<br/>+ adversarial-reviewer"]
     E --> F{"Comentarios<br/>bloqueantes?"}
     F -- sí --> G["Autor corrige<br/>y responde cada uno"] --> E
     F -- no --> H{"Criterios de merge<br/>(7.3)"}
@@ -146,9 +184,9 @@ flowchart LR
     I --> J["Ticket cerrado<br/>lecciones al readme/guías"]
 ```
 
-1. **Autor.** Abre el PR en borrador al primer *push*, para que CI corra desde el inicio. Llena la plantilla y lo pasa a "listo para revisión" solo cuando CI está en verde y su checklist está completa.
+1. **Autor.** Trabaja la unidad completa en su rama, con commits pequeños, y la verifica en local con `make lint` y `make test-ci` (lo mismo que corre el CI). **Al terminar la unidad** hace *push* y abre **un solo PR**, con la plantilla llena. CI corre en ese momento y en cada *push* posterior; si falla, el autor lo corrige en la misma rama antes de pedir revisión.
 2. **Revisor.** Usa los **criterios de revisión de código** de la sección 6. Marca cada comentario como **[bloqueante]**, **[sugerencia]** o **[nit]** y responde en máximo 1 día hábil.
-   - **Con un solo desarrollador:** el autor revisa al día siguiente con la lista y hace además una revisión asistida por IA. Las 2 quedan registradas como comentarios en el PR.
+   - **Con un solo desarrollador:** el autor revisa al día siguiente con la lista y pasa además el subagente `adversarial-reviewer` (`.claude/agents/`), que revisa el cambio con el objetivo de refutarlo. Las 2 revisiones quedan registradas como comentarios en el PR.
 3. **Autor.** Responde cada comentario: lo corrige (con el commit que lo resuelve) o explica por qué no. Solo el revisor marca un comentario bloqueante como resuelto.
 4. **Aprobación.** El revisor aprueba cuando no queda ningún bloqueante abierto. Las sugerencias que no se atiendan pasan al backlog como tarea.
 5. ***Merge*.** Con *squash*, cuando se cumplen los criterios de 7.3. Después se borra la rama, se cierra el ticket y las lecciones aprendidas que lo ameriten se pasan al readme o a la guía del ticket.

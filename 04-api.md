@@ -200,7 +200,7 @@ Agregué al final de este archivo la sección **Ejemplos de uso con curl para te
 
 | Endpoint | Funcionalidad | Por qué este |
 |---|---|---|
-| `GET /existencias` | 5. Existencias por paciente, medicamento o principio activo | Es la consulta más valiosa del sistema |
+| `GET /existencias` | 5. Existencias por residente, medicamento o principio activo | Es la consulta más valiosa del sistema |
 | `GET /medicamentos?q=` | 2. Búsqueda sin acentos por nombre o principio activo | Usa la búsqueda optimizada de la sección 3.3 |
 | `GET /reportes/mensual` | 7. Movimientos y saldos del mes | Es la salida que pide la dirección |
 
@@ -296,7 +296,7 @@ En el MVP, esas mismas reglas de negocio las valida `services.py` y las pantalla
 
 #### 4.5. Endpoints principales (MVP)
 
-**1. `GET /existencias`: consultar existencias por paciente, medicamento o principio activo**
+**1. `GET /existencias`: consultar existencias por residente, medicamento o principio activo**
 
 ```yaml
 /existencias:
@@ -308,7 +308,7 @@ En el MVP, esas mismas reglas de negocio las valida `services.py` y las pantalla
     x-alcance: MVP
     x-nivel-acceso: SOLO_LECTURA
     parameters:
-      - { name: entidad_id,          in: query, description: Paciente o el Hogar, schema: { type: integer, format: int64, minimum: 1 } }
+      - { name: entidad_id,          in: query, description: Residente o el Hogar, schema: { type: integer, format: int64, minimum: 1 } }
       - { name: medicamento_id,      in: query, schema: { type: integer, format: int64, minimum: 1 } }
       - { name: principio_activo_id, in: query, schema: { type: integer, format: int64, minimum: 1 } }
       - { name: q,                   in: query, schema: { type: string, minLength: 3, maxLength: 100 } }
@@ -568,7 +568,7 @@ $CURL -b "$JAR" "$API/existencias?principio_activo_id=2" \
 }
 ```
 
-**Caso 4. Existencias de un paciente (Carmen, 103)**
+**Caso 4. Existencias de un residente (Carmen, 103)**
 
 ```bash
 $CURL -b "$JAR" "$API/existencias?entidad_id=103" \

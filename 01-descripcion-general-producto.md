@@ -198,7 +198,7 @@ Ya escribí las secciones 0.3, 1.1 y 1.2 en `readme.md` con todas tus respuestas
 ### Texto final escrito en `readme.md`
 
 #### 0.3. Descripción breve del proyecto
-**Gestión de Medicamentos – Hogar Gerontológico** es una aplicación web responsive (computadora y celular) para controlar el inventario de medicamentos de un hogar de adultos mayores. Gestiona las existencias **por entidad** (cada residente tiene su propio inventario y el hogar es una entidad más), registra entradas indicando quién entregó el medicamento, transferencias entre entidades y bajas por motivo. Permite filtrar por paciente, nombre comercial o principio activo, y realizar conteos físicos comparados contra lo registrado. Se despliega inicialmente en un servidor local (con posibilidad de migrar a un servicio de hosting), con acceso por usuario en dos niveles (solo lectura / lectura y escritura) y protección de los datos personales y de salud de los residentes conforme a la LFPDPPP (México).
+**Gestión de Medicamentos – Hogar Gerontológico** es una aplicación web responsive (computadora y celular) para controlar el inventario de medicamentos de un hogar de adultos mayores. Gestiona las existencias **por entidad** (cada residente tiene su propio inventario y el hogar es una entidad más), registra entradas indicando quién entregó el medicamento, transferencias entre entidades y bajas por motivo. Permite filtrar por residente, nombre comercial o principio activo, y realizar conteos físicos comparados contra lo registrado. Se despliega inicialmente en un servidor local (con posibilidad de migrar a un servicio de hosting), con acceso por usuario en dos niveles (solo lectura / lectura y escritura) y protección de los datos personales y de salud de los residentes conforme a la LFPDPPP (México).
 
 #### 1.1. Objetivo
 En un hogar gerontológico el control manual de medicamentos genera incertidumbre: no se sabe con certeza cuánto medicamento hay de cada residente, quién lo entregó, qué ocurrió con el sobrante de un residente que egresó o falleció, ni si lo que hay físicamente coincide con lo registrado.
@@ -217,10 +217,10 @@ El producto ofrece a la **administración / dirección** del hogar un inventario
    - **Entradas:** registro de quién entregó el medicamento (familiar, el hogar, otro).
    - **Transferencias** entre entidades (hogar → residente, residente → hogar, residente → residente), por ejemplo para reasignar sobrantes tras un egreso o defunción.
    - **Bajas por motivo:** consumo / administración, caducidad, merma, rotura, devolución a la familia, defunción y egreso. La baja por caducidad se registra manualmente al detectar el medicamento vencido.
-4. **Pauta del residente:** registro de dosis y frecuencia de cada medicamento por paciente (informativo; no incluye registro de administración por turno).
-5. **Filtros combinados** por paciente, nombre de medicamento y principio activo.
+4. **Pauta del residente:** registro de dosis y frecuencia de cada medicamento por residente (informativo; no incluye registro de administración por turno).
+5. **Filtros combinados** por residente, nombre de medicamento y principio activo.
 6. **Inventario físico y reportes (en pantalla):**
-   - Conteo físico a demanda por paciente y por rango de fechas (inicio y fin), comparando existencia física contra lo registrado y resaltando diferencias.
+   - Conteo físico a demanda por residente y por rango de fechas (inicio y fin), comparando existencia física contra lo registrado y resaltando diferencias.
    - Reporte mensual de movimientos y existencias para la dirección.
 7. **Usuarios y niveles de acceso globales:** el Administrador da de alta a los usuarios y les asigna su nivel.
    - *Solo lectura:* consulta y reportes.

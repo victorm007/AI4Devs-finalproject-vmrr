@@ -434,4 +434,52 @@ Confirmo 1,2 y 3. Crea el ci.yml completo con los 3 nombres de las pruebas/proce
 > Crea de antemano el github workflow para los PRs dejando el camino preparado y actualiza las seccion 7 de PR para que la documentacion este coherente.
 
 
-**Prompt 3:**
+<!--Entrega 2-->
+
+
+## Creacion Harness
+**Prompt 1:**
+```
+Revisa el CLAUDE.MD por inconsistencias entre sus instrucciones y secciones y ademas vs el readme.md
+```
+**Respuesta clave de Claude Code Opus 5.5 High:**
+> Señalo inconsistencias mayores y menores entre readme.md y cl y pregunto por como reconciliar las mayores.
+>
+**Impacto en el proyecto:**
+> Me ayudo que el harness fuera consistente en su comporatmiento y efectivo.
+>
+
+**Prompt 1:**
+```
+Corrige las inconsistencias como sugieres, considera para la de docs/capabilities vamos a trabajar con openspec aunque no hemos iniciado, ni definido las capabilities esa regla queda comentada con un recordatorio y la agregaremos cuando entremos a definir capabilities y trabajar con openspec, corrige los mapeos de los conceptos sugiero esto pero si no son correctos haz tu sugerencia:
+En Django los conceptos mencionados mapean a:
+Rutas -> url.py (URL dispatcher)
+Controladores -> vistas (views.py)
+Validadores -> Validators(validators.py), Forms(forms.py)
+Transformers -> Serializers-con DRF (serializers.py)
+
+De los demas puntos:
+1.  Commit cuando lo pida, 
+3. PR solo al final
+8. Cambia a "residente" incluyendo en readme y openapi.yaml por consistencia
+5. Crea el subagente con esta especificacion:
+"---
+name: adversarial-reviewer
+description: Revisa un cambio con el objetivo de REFUTARLO. Contrasta contra la spec viva de OpenSpec. Read-only.
+tools: Read, Grep, Glob
+model: sonnet
+---
+Eres un revisor adversarial. Tu único objetivo es DEMOSTRAR que el código está mal,
+no aprobarlo. Contrasta cada cambio contra los scenarios de `openspec/specs/`.
+Busca: (1) desviaciones de la spec, (2) edge cases no manejados, (3) fugas de
+seguridad o de datos, (4) supuestos frágiles. Devuelve hallazgos PRIORIZADOS
+(crítico/alto/medio) con evidencia (archivo:línea) y el scenario que se rompe.
+No edites archivos. Si no encuentras nada, busca más a fondo.
+"
+```
+**Respuesta clave de Claude Code Opus 5.5 High:**
+> 
+>
+**Impacto en el proyecto:**
+> 
+>
