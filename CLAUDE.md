@@ -23,12 +23,8 @@ Proyecto final de AI4Devs: inventario de medicamentos para un hogar gerontológi
 * **TDD (Test-Driven Development):** Siempre que la tarea lo permita, DEBES seguir el ciclo Red-Green-Refactor. Antes de escribir código de producción en `services.py`, vistas o modelos, escribe los tests correspondientes basados en los criterios de aceptación del ticket. Asegúrate de que fallen primero.
 * **Mock-First / Fixture-Driven:** El proyecto cuenta con un dataset base riguroso (`app/fixtures/mock/demo.json` y `cargar_mock.sql`). NO inventes datos de prueba aleatorios usando librerías como Faker a menos que sea estrictamente necesario para un caso límite aislado. Basa el desarrollo de la UI y los tests de integración en el fixture compartido `datos_demo`.
 
-## Arquitectura
-
-Monolito Django 5.2 (Python 3.12) con PostgreSQL 17, renderizado en el servidor con plantillas, Bootstrap 5 y HTMX (sin SPA), detrás de Nginx y Gunicorn en Docker Compose. Apps previstas en `app/apps/`: `accounts`, `catalogo`, `entidades`, `pautas`, `inventario`, `conteos`, `reportes`, `api`.
-
-
 ### Reglas de Arquitectura (Monolito Modular MVT)
+Monolito Django 5.2 (Python 3.12) con PostgreSQL 17, renderizado en el servidor con plantillas, Bootstrap 5 y HTMX (sin SPA), detrás de Nginx y Gunicorn en Docker Compose. Apps previstas en `app/apps/`: `accounts`, `catalogo`, `entidades`, `pautas`, `inventario`, `conteos`, `reportes`, `api`.
 
 * **Lógica de Negocio Aislada:** Las reglas de inventario (entradas, transferencias, bajas) viven EXCLUSIVAMENTE en la capa de servicios (`services.py`). Prohibido poner lógica de negocio en las vistas o sobrescribir el método `save()` de los modelos.
 * **Transacciones y Concurrencia:** Toda operación de escritura en inventario debe ejecutarse dentro de `transaction.atomic()`. Para evitar saldos negativos o deadlocks, usa siempre `select_for_update()` bloqueando las filas en un orden fijo (ej. `entidad_id`) antes de aplicar cambios.
@@ -66,14 +62,23 @@ Detalles que rompen cosas si se olvidan:
   - `ex_`: Restricciones de exclusión.
 - **Búsquedas de Texto:** Todo índice y búsqueda por texto (ej. nombres) debe usar obligatoriamente la extensión `pg_trgm` y la función `unaccent`. En el ORM de Django, las búsquedas deben emular exactamente la expresión `f_unaccent(lower(campo))` para garantizar que el planificador use el índice.
 
-## Tickets y pruebas
+## Vocabulario de Dominio Estricto (Ubiquitous Language)
+Claude, NUNCA inventes sinónimos. Usa exclusivamente estos términos en variables, modelos, URLs, respuestas JSON y comentarios:
+- **Residente:** Persona que vive en el hogar. NUNCA uses "Paciente" ni "Cliente" en el código.
+- **Entidad:** Supertipo que engloba tanto al "Hogar" como a los "Residentes".
+- **Medicamento:** El producto farmacéutico. NUNCA uses "Droga", "Fármaco" o "Producto".
+- **Existencia:** El saldo actual disponible de un medicamento. NUNCA uses "Stock" ni "Inventario" para referirte a la cantidad.
+- **Movimiento:** Registro de cambio en el inventario (Entrada, Transferencia, Baja, Corrección). NUNCA uses "Transacción" u "Operación".
+- **Pauta:** Prescripción de dosis y frecuencia. NUNCA uses "Receta" o "Prescripción".
+- **Baja:** La acción de retirar medicamentos (por caducidad, merma, consumo) o desactivar un registro. NUNCA uses "Eliminar" ni "Delete" para reglas de negocio.
 
-Orden de ejecución: habilitadores de la semana 1 → TK-01 (BD) → TK-02 (backend) y TK-03 (frontend) → prueba de integración → backlog (TK-04 a TK-07). Las guías paso a paso están en `docs/tickets/`, y `integracion.md` tiene la prueba conjunta.
+## Frontend y Vistas
+* **HTML + HTMX:** Usa HTMX para interactividad sin recargar la página (`hx-get`, `hx-target`). Evita JavaScript en línea para cumplir con la CSP de Nginx.
+* **Responsive:** Tarjetas `list-group` en celular, tabla en escritorio. Sin desplazamiento horizontal en 390px.
+* **Autorización:** Todo acceso se valida en el backend mediante grupos de Django (`Solo lectura` vs `Lectura y escritura`) usando `PermissionRequiredMixin`.
 
-Los tests usan el dataset real del mock (`app/fixtures/mock/`, sección 3.4), no *factories*, porque los criterios de aceptación están escritos con esos datos. Los *fixtures* compartidos (`datos_demo`, `demo`, `como_app_user`) y los helpers de `pruebas.py` los crea TK-01; los demás tickets los usan sin modificarlos.
 
 ## Documentación del proceso
-
 El entregable del curso exige mostrar los prompts usados con IA, y por eso cada fase tiene un transcript numerado en la raíz (`01-` a `07-`):
 
 - Después de cada intercambio relevante, actualiza `readme.md`, agrega `## Prompt N — Usuario` y `## Respuesta N — Claude` al transcript de la fase, y sincroniza su `## Anexo` con la sección del readme.
@@ -98,6 +103,12 @@ El entregable del curso exige mostrar los prompts usados con IA, y por eso cada 
 
   Cuando bloquea, **no se desactiva, no se salta y no se reescribe el comando para esquivarlo**: se sustituye el dato por uno inventado (correo en `example.com`, clave de mentira), se saca el `.env` del índice o, si de verdad es un ejemplo, se marca con `secreto-ok` o se agrega a la lista de permitidos, y se vuelve a intentar. Cada bloqueo añade una línea a `.claude/logs/secretos-bloqueados.log` con la fecha, la operación, el archivo, la línea y la categoría, nunca el valor. Ese registro es local (está en `.gitignore`) y no se commitea. Si la revisión falla, el hook bloquea por precaución. Solo cubre los comandos que ejecuta Claude, no los que el usuario corre en su terminal.
 
+## Tickets y pruebas
+
+Orden de ejecución: habilitadores de la semana 1 → TK-01 (BD) → TK-02 (backend) y TK-03 (frontend) → prueba de integración → backlog (TK-04 a TK-07). Las guías paso a paso están en `docs/tickets/`, y `integracion.md` tiene la prueba conjunta.
+
+Los tests usan el dataset real del mock (`app/fixtures/mock/`, sección 3.4), no *factories*, porque los criterios de aceptación están escritos con esos datos. Los *fixtures* compartidos (`datos_demo`, `demo`, `como_app_user`) y los helpers de `pruebas.py` los crea TK-01; los demás tickets los usan sin modificarlos.
+
 
 ## Estrategia de Pruebas Estricta (Testing Rules)
 - **Entorno de Pruebas:** Todos los tests deben ser compatibles con PostgreSQL 17 real. Prohibido asumir SQLite o mocking de base de datos para la capa de persistencia. Las pruebas se ejecutan en una DB temporal/pruebas separada.
@@ -107,25 +118,6 @@ El entregable del curso exige mostrar los prompts usados con IA, y por eso cada 
 - **Pruebas de Integración:** Todo flujo crítico debe incluir un test de integración que atraviese la ruta completa: Controlador/Vista -> Servicio -> Base de Datos -> Validación de vista de conciliación (`v_conciliacion_existencia`).
 - **Contratos API:** Los tests de la API REST deben validar el JSON de respuesta contra el esquema `docs/api/openapi.yaml` usando `jsonschema`.
 - **Umbrales:** Cobertura exigida en CI: ≥ 80% en `apps/` y ≥ 90% en la capa `services.py`
-
-## Vocabulario de Dominio Estricto (Ubiquitous Language)
-Claude, NUNCA inventes sinónimos. Usa exclusivamente estos términos en variables, modelos, URLs, respuestas JSON y comentarios:
-- **Residente:** Persona que vive en el hogar. NUNCA uses "Paciente" ni "Cliente" en el código.
-- **Entidad:** Supertipo que engloba tanto al "Hogar" como a los "Residentes".
-- **Medicamento:** El producto farmacéutico. NUNCA uses "Droga", "Fármaco" o "Producto".
-- **Existencia:** El saldo actual disponible de un medicamento. NUNCA uses "Stock" ni "Inventario" para referirte a la cantidad.
-- **Movimiento:** Registro de cambio en el inventario (Entrada, Transferencia, Baja, Corrección). NUNCA uses "Transacción" u "Operación".
-- **Pauta:** Prescripción de dosis y frecuencia. NUNCA uses "Receta" o "Prescripción".
-- **Baja:** La acción de retirar medicamentos (por caducidad, merma, consumo) o desactivar un registro. NUNCA uses "Eliminar" ni "Delete" para reglas de negocio.
-
-## Frontend y Vistas
-* **HTML + HTMX:** Usa HTMX para interactividad sin recargar la página (`hx-get`, `hx-target`). Evita JavaScript en línea para cumplir con la CSP de Nginx.
-* **Responsive:** Tarjetas `list-group` en celular, tabla en escritorio. Sin desplazamiento horizontal en 390px.
-* **Autorización:** Todo acceso se valida en el backend mediante grupos de Django (`Solo lectura` vs `Lectura y escritura`) usando `PermissionRequiredMixin`.
-
-
-## Git
-Haz commit y push solo cuando se pida. Los mensajes van en español (`docs: ...`, `feat(inventario): ...`) y el trabajo va en ramas `feature/*`, nunca directo en `main`. No incluyas `.idea/`. Los PR usan `.github/pull_request_template.md`.
 
 
 ## Comandos
@@ -168,3 +160,8 @@ dpsql -v ON_ERROR_STOP=1 -f /tmp/mock/cargar_mock.sql
 ```
 
 CI (`.github/workflows/ci.yml`): los *checks* `lint`, `tests` y `e2e` se saltan mientras no exista `app/manage.py`. Sus nombres son los que exige la protección de `main`: no los renombres sin leer la nota de la sección 7.3. `tests` exige cobertura ≥ 80 % sobre `apps/`.
+
+
+## Git
+Haz commit y push solo cuando se pida. Los mensajes van en español (`docs: ...`, `feat(inventario): ...`) y el trabajo va en ramas `feature/*`, nunca directo en `main`. No incluyas `.idea/`. Los PR usan `.github/pull_request_template.md`.
+
