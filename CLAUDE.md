@@ -103,7 +103,7 @@ El entregable del curso exige mostrar los prompts usados con IA, y por eso cada 
 
 
 ## Estrategia de Pruebas Estricta (Testing Rules)
-- **Entorno de Pruebas:** Todos los tests deben ser compatibles con PostgreSQL 17 real. Prohibido asumir SQLite o mocking de base de datos para la capa de persistencia.
+- **Entorno de Pruebas:** Todos los tests deben ser compatibles con PostgreSQL 17 real. Prohibido asumir SQLite o mocking de base de datos para la capa de persistencia. Las pruebas se ejecutan en una DB temporal/pruebas separada.
 - **Permisos Reales en Tests:** Toda prueba de los servicios de inventario debe correr utilizando el fixture compartido `como_app_user` (que ejecuta `SET LOCAL ROLE app_user` en la transacción) para validar que la app no requiere permisos elevados.
 - **Concurrencia Obligatoria:** Las pruebas de `services.py` deben incluir validación explícita contra *deadlocks* y condiciones de carrera usando `TransactionTestCase` (o `transaction=True`) y `threading` (múltiples hilos apuntando a la misma base).
 - **Verificación de Índices:** Si escribes consultas complejas o selectores (`buscar_existencias`), debes escribir tests que evalúen el plan de ejecución (`EXPLAIN`) para garantizar que PostgreSQL usa los índices correctos (ej. `ix_medicamento_nombre_trgm`).
@@ -111,6 +111,28 @@ El entregable del curso exige mostrar los prompts usados con IA, y por eso cada 
 - **Contratos API:** Los tests de la API REST deben validar el JSON de respuesta contra el esquema `docs/api/openapi.yaml` usando `jsonschema`[cite: 1].
 - **Umbrales:** Cobertura exigida en CI: ≥ 80% en `apps/` y ≥ 90% en la capa `services.py`
 
-## Git
+## Vocabulario de Dominio Estricto (Ubiquitous Language)
+Claude, NUNCA inventes sinónimos. Usa exclusivamente estos términos en variables, modelos, URLs, respuestas JSON y comentarios:
+- **Residente:** Persona que vive en el hogar. NUNCA uses "Paciente" ni "Cliente" en el código.
+- **Entidad:** Supertipo que engloba tanto al "Hogar" como a los "Residentes".
+- **Medicamento:** El producto farmacéutico. NUNCA uses "Droga", "Fármaco" o "Producto".
+- **Existencia:** El saldo actual disponible de un medicamento. NUNCA uses "Stock" ni "Inventario" para referirte a la cantidad.
+- **Movimiento:** Registro de cambio en el inventario (Entrada, Transferencia, Baja, Corrección). NUNCA uses "Transacción" u "Operación".
+- **Pauta:** Prescripción de dosis y frecuencia. NUNCA uses "Receta" o "Prescripción".
+- **Baja:** La acción de retirar medicamentos (por caducidad, merma, consumo) o desactivar un registro. NUNCA uses "Eliminar" ni "Delete" para reglas de negocio.
 
+## Estándares y Convenciones de Base de Datos
+- **Protección de Datos Históricos:** TODAS las claves foráneas (`ForeignKey`) deben usar `on_delete=models.PROTECT` en Django (que equivale a `ON DELETE RESTRICT` en PostgreSQL). Nunca permitas borrados en cascada en tablas transaccionales.
+- **Tipos de Datos Sensibles:**
+  - Para fechas con hora, usa siempre `timestamptz` (en Django requiere configuración adecuada o campos que lo respeten).
+  - Para cantidades y saldos, usa `numeric(10,2)` (`DecimalField(max_digits=10, decimal_places=2)`). NUNCA uses `Float` ni `Integer`.
+- **Nomenclatura de Restricciones (Constraints):** Define nombres explícitos en `Meta.constraints` y `Meta.indexes` usando estos prefijos:
+  - `uq_`: Unique Constraint (ej. `uq_existencia`).
+  - `ck_`: Check Constraint (ej. `ck_existencia_saldo`).
+  - `ix_`: Índices normales o compuestos (ej. `ix_medicamento_nombre_trgm`).
+  - `ex_`: Restricciones de exclusión.
+- **Búsquedas de Texto:** Todo índice y búsqueda por texto (ej. nombres) debe usar obligatoriamente la extensión `pg_trgm` y la función `unaccent`. En el ORM de Django, las búsquedas deben emular exactamente la expresión `f_unaccent(lower(campo))` para garantizar que el planificador use el índice[cite: 1].
+
+
+## Git
 Haz commit y push solo cuando se pida. Los mensajes van en español (`docs: ...`, `feat(inventario): ...`) y el trabajo va en ramas `feature/*`, nunca directo en `main`. No incluyas `.idea/`. Los PR usan `.github/pull_request_template.md`.
