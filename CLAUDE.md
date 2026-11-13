@@ -27,29 +27,27 @@ Proyecto final de AI4Devs: inventario de medicamentos para un hogar gerontológi
 Monolito Django 5.2 (Python 3.12) con PostgreSQL 17, renderizado en el servidor con plantillas, Bootstrap 5 y HTMX (sin SPA), detrás de Nginx y Gunicorn en Docker Compose. Apps previstas en `app/apps/`: `accounts`, `catalogo`, `entidades`, `pautas`, `inventario`, `conteos`, `reportes`, `api`.
 
 * **Lógica de Negocio Aislada:** Las reglas de inventario (entradas, transferencias, bajas) viven EXCLUSIVAMENTE en la capa de servicios (`services.py`). Prohibido poner lógica de negocio en las vistas o sobrescribir el método `save()` de los modelos.
-* **Transacciones y Concurrencia:** Toda operación de escritura en inventario debe ejecutarse dentro de `transaction.atomic()`. Para evitar saldos negativos o deadlocks, usa siempre `select_for_update()` bloqueando las filas en un orden fijo (ej. `entidad_id`) antes de aplicar cambios.
-* **Bajas Lógicas:** Los catálogos (medicamentos, motivos de baja) y las entidades (residentes) usan bajas lógicas (`activo = False` o `estado = 'EGRESADO'/'FALLECIDO'`) para preservar la integridad del historial.* 
+* **Transacciones y Concurrencia:** Toda operación de escritura en inventario debe ejecutarse dentro de `transaction.atomic()`. Para evitar saldos negativos o *deadlocks*, bloquea con `select_for_update()` las filas de `Existencia` (en orden de `entidad_id`) antes de aplicar cambios. **Nunca** sobre `Movimiento`: es solo de inserción y `app_user` no tiene el permiso de `UPDATE` que `FOR UPDATE` exige.
+* **Bajas Lógicas:** Los catálogos (medicamentos, motivos de baja) y las entidades (residentes) usan bajas lógicas (`activo = False` o `estado = 'EGRESADO'/'FALLECIDO'`) para preservar la integridad del historial. 
 
 Reglas de diseño que cruzan varias capas:
 
 - **Una sola vía de escritura.** Solo `apps/inventario/services.py` escribe en `movimiento` y `existencia`, dentro de una transacción. Las lecturas reutilizables van en `selectors.py`; las vistas no contienen lógica.
 - **Los movimientos son inmutables.** Los errores se corrigen con el movimiento inverso (`corrige_a`), una sola vez. `existencia.saldo` es un dato derivado materializado: debe ser igual a la suma de los movimientos, y la vista `v_conciliacion_existencia` lista lo que no cuadra.
 - **Las entidades son un supertipo.** `entidad` (el Hogar o un residente) es la dueña de los saldos; `residente` es su subtipo. Las entradas y transferencias exigen destino activo; un residente egresado sí puede ceder o dar de baja sobrantes.
-  - Consecuencia: **nunca uses `select_for_update()` sobre `Movimiento`**, porque `FOR UPDATE` exige permiso de `UPDATE` y fallaría solo en producción. Sobre `Existencia` sí se usa, bloqueando siempre en orden de `entidad_id` para evitar *deadlocks*.
-  - Los tests que deben comportarse como la aplicación usan `SET LOCAL ROLE app_user` (*fixture* `como_app_user`).
 - **La base de datos es la última barrera, no el mensaje al usuario.** Las reglas también viven en `CHECK`, `EXCLUDE` y *triggers*, pero el servicio o el formulario las valida antes, para que el usuario nunca vea un `500` por una regla de negocio.
 - **Las pantallas son la aplicación; la API no.** En el MVP la API REST son solo 3 `GET` (`/existencias`, `/medicamentos`, `/reportes/mensual`). `docs/api/openapi.yaml` (OpenAPI 3.2) marca cada operación con `x-alcance: MVP` o `V2`, y las otras 31 son diseño para después. El catálogo y los residentes se operan desde `/admin/` en el MVP (sección 5).
 - **El conteo físico no ajusta existencias.** Guarda una foto del saldo en cada renglón, y la base calcula la diferencia. Cada diferencia se resuelve con un movimiento normal, para que quede la causa (mecánica en HU-03).
 
 Detalles que rompen cosas si se olvidan:
-
 - Django rechaza nombres de índice de más de 30 caracteres (`models.E034`); de ahí abreviaturas como `ix_movimiento_dest_med_fecha`. Tablas, restricciones e índices usan los nombres exactos de las secciones 3.1 y 3.3.
 - Los índices trigram solo se usan si el ORM genera exactamente `f_unaccent(lower(campo))`.
 - Las cantidades son `Decimal` (`numeric(10,2)`, en dosis), nunca `float`.
-- 
 
 ## Estándares y Convenciones de Base de Datos
 - **Dos Usuarios de BD:** El sistema usa `app_owner` para DDL/migraciones y `app_user` para ejecución de la app (DML). Asume siempre que `app_user` NO tiene permisos de `TRUNCATE`, `UPDATE` o `DELETE` en tablas inmutables como `movimiento`, ni puede alterar tablas o apagar triggers.
+  - Consecuencia: **nunca uses `select_for_update()` sobre `Movimiento`**, porque `FOR UPDATE` exige permiso de `UPDATE` y fallaría solo en producción. Sobre `Existencia` sí se usa, bloqueando siempre en orden de `entidad_id` para evitar *deadlocks*.
+  - Los tests que deben comportarse como la aplicación usan `SET LOCAL ROLE app_user` (*fixture* `como_app_user`).
 - **Delegación a PostgreSQL:** La base de datos es la barrera final. Usa `CheckConstraint`, `UniqueConstraint`, `GeneratedField` e índices trigram a nivel esquema. Las validaciones en la app son para dar mensajes claros al usuario, no sustituyen las restricciones de la BD.
 - **Protección de Datos Históricos:** TODAS las claves foráneas (`ForeignKey`) deben usar `on_delete=models.PROTECT` en Django (que equivale a `ON DELETE RESTRICT` en PostgreSQL). Nunca permitas borrados en cascada en tablas transaccionales.
 - **Tipos de Datos Sensibles:**
@@ -121,11 +119,22 @@ Los tests usan el dataset real del mock (`app/fixtures/mock/`, sección 3.4), no
 
 
 ## Comandos
-* **Uso de Makefile:** Siempre prioriza el uso de los comandos definidos en el `Makefile` de la raíz del proyecto para tareas recurrentes. Si el `Makefile` no cubre la necesidad, usa los comandos subyacentes indicados abajo.
-* **Migraciones:** `make migrate` (o `./scripts/migrate.sh` ejecutando bajo `app_owner`).
-* **Linting & Formateo:** `make lint` (o `ruff check` y `ruff format`).
-* **Tests Unitarios:** `make test` (o `pytest -q`).
-* **Tests E2E:** `make e2e` (o `pytest -m e2e e2e/`).
+**Usa el `Makefile` de la raíz** para las tareas recurrentes; `make help` lista los comandos. **Todavía no existe:** lo crea TK-01, junto con `docker-compose.yml` y `scripts/migrate.sh`, y su contenido está en la guía de TK-01 (paso 1.8). Si un `make` no cubre lo que necesitas, usa los comandos directos de abajo, que son exactamente lo que ejecuta cada *target*. El CI no usa `make`.
+
+| Tarea | `make` | Comando directo |
+|---|---|---|
+| Levantar / detener | `make up` / `make down` | `docker compose up -d --build` / `docker compose down` |
+| Borrar la base local y recrearla | `make reset` | `docker compose down -v`, `up` y `./scripts/migrate.sh` |
+| Migraciones (siempre como `app_owner`) | `make migrate` | `./scripts/migrate.sh` |
+| Cargar el mock | `make mock` | ver el bloque de abajo |
+| Toda la suite / un solo test | `make test` / `make test T=ruta::test` | `dtest -q` / `dtest ruta::test` |
+| Lo que corre el CI en cada PR | `make test-ci` | `dtest -m "not e2e and not lento" --cov=apps --cov-fail-under=80` |
+| Playwright | `make e2e` | ver el bloque de abajo |
+| Lint / formato | `make lint` / `make format` | `ruff check .` y `ruff format --check .` en `web` |
+| Migraciones pendientes | `make check-migrations` | `dj makemigrations --check --dry-run` |
+| Contrato OpenAPI | `make openapi` | `npx @redocly/cli lint docs/api/openapi.yaml` |
+
+Reglas del `Makefile`: las recetas van indentadas con tabulador; lee `.env` con `-include`, así que los valores no deben llevar `$`, `#` ni comillas; en Windows hay que instalar `make` (Git Bash no lo trae).
 
 Disponible hoy:
 

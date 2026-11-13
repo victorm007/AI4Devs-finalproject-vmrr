@@ -87,13 +87,16 @@ Registro de administración por turno (MAR), alertas de stock mínimo o caducida
 
 > **Estado:** el código está en desarrollo. Estos son los pasos previstos, que reúnen lo definido en las secciones 2.4, 3.4 y 6. Se validan y ajustan con el primer PR de código.
 
-**Requisitos:** Git, Docker con Docker Compose v2 y [`mkcert`](https://github.com/FiloSottile/mkcert) para el HTTPS local. En Windows, usa Git Bash y los `.sh` deben tener fin de línea LF (TK-01 agrega un `.gitattributes` que lo fuerza).
+**Requisitos:** Git, Docker con Docker Compose v2, `make` y [`mkcert`](https://github.com/FiloSottile/mkcert) para el HTTPS local.
+- **En Windows:** usa Git Bash, que no trae `make`. Instálalo, por ejemplo con `winget install ezwinports.make` o `choco install make`, o trabaja desde WSL. Los `.sh` deben tener fin de línea LF (TK-01 agrega un `.gitattributes` que lo fuerza).
+- **El `Makefile`** de la raíz (lo crea TK-01) tiene atajos legibles para todo lo de abajo; `make help` los lista. Cada paso muestra también el comando que ejecuta, por si no tienes `make`.
 
 ```bash
 # 1. Código y configuración
 git clone <url-del-repositorio> && cd AI4Devs-finalproject-vmrr
 cp .env.example .env
 #    Edita .env: POSTGRES_PASSWORD, DB_OWNER_PASSWORD, DB_APP_PASSWORD y la clave secreta de Django.
+#    Sin $, # ni comillas en los valores: make lee .env y los interpreta distinto que el shell.
 #    DB_OWNER_CREATEDB=true solo en desarrollo (permite que pytest cree la base de tests).
 
 # 2. Certificado HTTPS local (los nombres deben coincidir con nginx/default.conf)
@@ -101,18 +104,17 @@ mkcert -install
 mkcert -cert-file nginx/certs/local.pem -key-file nginx/certs/local-key.pem localhost 127.0.0.1
 
 # 3. Contenedores: al crear el volumen, db crea los usuarios app_owner y app_user
-docker compose up -d --build
+make up              # docker compose up -d --build
 
 # 4. Esquema y datos semilla (Hogar, grupos, motivos de baja, presentaciones), como app_owner
-./scripts/migrate.sh
+make migrate         # ./scripts/migrate.sh
 
 # 5. Administrador y archivos estáticos
-docker compose exec web python manage.py createsuperuser
-docker compose exec web python manage.py collectstatic --noinput
+make superuser       # docker compose exec web python manage.py createsuperuser
+make static          # docker compose exec web python manage.py collectstatic --noinput
 
 # 6. (Opcional, solo desarrollo y demo) Dataset mock de la sección 3.4
-docker compose cp app/fixtures/mock/. db:/tmp/mock/
-docker compose exec db sh -c 'psql -U app_owner -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -f /tmp/mock/cargar_mock.sql'
+make mock            # docker compose cp app/fixtures/mock/. db:/tmp/mock/  y  psql -U app_owner -f cargar_mock.sql
 ```
 
 Abre <https://localhost>: después del login aparece la consulta de existencias. Con el mock cargado, entra como `consulta.demo` / `DemoLectura2026!` (solo lectura) u `operador.demo` / `DemoEscritura2026!` (lectura y escritura). El panel de administración está en <https://localhost/admin/>.
@@ -120,11 +122,17 @@ Abre <https://localhost>: después del login aparece la consulta de existencias.
 **Pruebas:**
 
 ```bash
+make test            # toda la suite (un solo test: make test T=ruta::nombre_del_test)
+make test-ci         # lo mismo que corre el CI en cada PR, con cobertura
+make e2e             # pruebas de extremo a extremo con Playwright
+make lint            # ruff
+
+# Sin make, equivale a:
 set -a && . ./.env && set +a
 docker compose exec -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PASSWORD" web pytest -q
 ```
 
-**Volver a empezar** (borra la base local): `docker compose down -v`, y repite desde el paso 3.
+**Volver a empezar** (borra la base local): `make reset` (equivale a `docker compose down -v`, `up` y `migrate.sh`), y repite desde el paso 5.
 
 Las guías de `docs/tickets/` tienen los comandos de verificación de cada parte, y la sección 2.4 describe el despliegue en el servidor del hogar y en el VPS.
 
@@ -501,6 +509,7 @@ AI4Devs-finalproject-vmrr/
 │   ├── api/openapi.yaml       # contrato de la API (sección 4)
 │   └── tickets/               # guías paso a paso de los tickets (sección 6)
 ├── docker-compose.yml         # servicios: nginx, web, db
+├── Makefile                   # atajos de desarrollo local (make help); el CI no lo usa
 ├── .env.example               # variables de entorno de ejemplo (el .env real no se versiona)
 ├── .github/
 │   ├── workflows/ci.yml       # integración continua: lint + tests
@@ -2460,11 +2469,14 @@ No agrega dependencias nuevas.
 
 9. **Fixtures de prueba compartidos** (punto de integración 7): `datos_demo` (carga el mock con `cargar_mock.sql` adaptado), `demo` (accesos a entidades, medicamentos, motivos y usuario), `como_app_user` (el test corre con los permisos de la aplicación) y los helpers `ejecutar_sql` y `saldo`. TK-02 y TK-03 los usan sin modificarlos.
 
+10. **`Makefile` de la raíz:** atajos de desarrollo local (`make up`, `make migrate`, `make test`, `make mock`…) sobre los mismos comandos de la guía, con `make help` como punto de entrada. Se crea en este ticket porque envuelve `docker-compose.yml` y `scripts/migrate.sh`, que nacen aquí. El CI no lo usa.
+
 **Fuera de alcance:** la lógica de negocio (TK-02), las pantallas y la API, y las tablas de catálogo, entidades y pautas (semana 1).
 
 **Criterios de aceptación**
 - [ ] `python manage.py migrate` crea el esquema en una base vacía, y `migrate inventario zero` y `migrate conteos zero` lo revierten sin errores.
 - [ ] `makemigrations --check` no detecta cambios pendientes.
+- [ ] `make help` lista los 17 comandos, y `make migrate`, `make test` y `make mock` hacen lo mismo que sus comandos directos.
 - [ ] `\d movimiento` en `psql` muestra todas las restricciones e índices de las secciones 3.1 y 3.3 con sus nombres exactos.
 - [ ] Sin índices duplicados: ninguna FK de la tabla de la sección 3.3 tiene un índice propio además del compuesto.
 - [ ] El mock de la sección 3.4 se carga con `cargar_mock.sql` sin errores, y `SELECT count(*) FROM v_conciliacion_existencia` devuelve 0.

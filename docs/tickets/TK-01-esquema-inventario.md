@@ -82,6 +82,7 @@ AI4Devs-finalproject-vmrr/
 ├── docker-compose.yml                     # MODIFICAR: monta db/init y usa app_user en web
 ├── db/init/01_roles.sh                    # NUEVO: crea app_owner y app_user
 ├── scripts/migrate.sh                     # NUEVO: migrate como app_owner
+├── Makefile                               # NUEVO: atajos de desarrollo local (make help)
 └── app/
     ├── conftest.py                        # MODIFICAR: fixtures datos_demo, demo y como_app_user
     ├── pruebas.py                         # NUEVO: helpers ejecutar_sql y saldo para los tests
@@ -227,6 +228,69 @@ docker compose down -v            # -v borra el volumen pgdata
 docker compose up -d
 ./scripts/migrate.sh              # migraciones de la semana 1, ahora como app_owner
 dpsql -c '\du'                    # deben aparecer app_owner y app_user
+```
+
+**1.8 Crea el `Makefile` de la raíz.** Son atajos legibles para el desarrollo local (`make test`, `make migrate`…). Cada *target* ejecuta los mismos comandos que esta guía, así que los comandos directos siguen siendo válidos. El CI no lo usa: allí no hay `docker compose exec`.
+
+```make
+# Atajos de desarrollo local (readme, sección 1.4). El CI usa los comandos directos.
+SHELL := /bin/bash
+.DEFAULT_GOAL := help
+-include .env
+export
+
+DC    := docker compose
+OWNER := -e DB_USER=app_owner -e DB_PASSWORD=$(DB_OWNER_PASSWORD)
+T ?=
+
+.PHONY: help up down reset migrate superuser static mock test test-ci e2e lint format check-migrations shell psql openapi
+
+help: ## Lista los comandos disponibles
+	@grep -hE '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-17s %s\n", $$1, $$2}'
+
+up: ## Levanta los contenedores
+	$(DC) up -d --build
+down: ## Detiene los contenedores
+	$(DC) down
+reset: ## Borra la base LOCAL y la recrea con las migraciones (solo desarrollo)
+	$(DC) down -v && $(DC) up -d --build && ./scripts/migrate.sh
+migrate: ## Aplica las migraciones como app_owner
+	./scripts/migrate.sh
+superuser: ## Crea el usuario Administrador
+	$(DC) exec web python manage.py createsuperuser
+static: ## Ejecuta collectstatic
+	$(DC) exec web python manage.py collectstatic --noinput
+mock: ## Carga el dataset mock (solo en una base recién migrada)
+	$(DC) cp app/fixtures/mock/. db:/tmp/mock/
+	$(DC) exec db sh -c 'psql -U app_owner -d "$$POSTGRES_DB" -v ON_ERROR_STOP=1 -f /tmp/mock/cargar_mock.sql'
+test: ## Corre los tests (uno solo: make test T=ruta::nombre_del_test)
+	$(DC) exec $(OWNER) web pytest -q $(T)
+test-ci: ## Corre lo mismo que el CI en cada PR, con cobertura
+	$(DC) exec $(OWNER) web pytest -m "not e2e and not lento" --cov=apps --cov-fail-under=80
+e2e: ## Corre las pruebas de extremo a extremo con Playwright
+	$(DC) exec $(OWNER) -e DJANGO_ALLOW_ASYNC_UNSAFE=true web pytest -m e2e e2e/ -q
+lint: ## Corre ruff (sin modificar archivos)
+	$(DC) exec web ruff check . && $(DC) exec web ruff format --check .
+format: ## Formatea y corrige con ruff
+	$(DC) exec web ruff format . && $(DC) exec web ruff check --fix .
+check-migrations: ## Comprueba que no falten migraciones
+	$(DC) exec web python manage.py makemigrations --check --dry-run
+shell: ## Abre el shell de Django (como app_user)
+	$(DC) exec web python manage.py shell
+psql: ## Abre psql como app_owner
+	$(DC) exec db psql -U app_owner -d "$(POSTGRES_DB)"
+openapi: ## Valida el contrato OpenAPI
+	npx @redocly/cli lint docs/api/openapi.yaml
+```
+
+Tres reglas para que funcione:
+- **Las recetas se indentan con tabulador**, no con espacios. Si no, `make` falla con `missing separator`. Configura tu editor para no convertir tabuladores en este archivo.
+- **`.env` se lee con `-include .env`.** Funciona con valores simples (`CLAVE=valor`). Las contraseñas de desarrollo no deben llevar `$`, `#` ni comillas, porque `make` los interpreta distinto que el shell.
+- **En Windows, Git Bash no trae `make`.** Instálalo, por ejemplo con `winget install ezwinports.make` o `choco install make`, o trabaja desde WSL.
+
+```bash
+make help        # lista los 17 comandos con su descripción
+make openapi     # 0 errores y 2 advertencias intencionales
 ```
 
 ### Paso 2. Migración de privilegios en `accounts` (≈ 30 min)

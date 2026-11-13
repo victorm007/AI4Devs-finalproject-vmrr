@@ -145,6 +145,35 @@ Quedan confirmadas, y el `readme.md` ya las refleja tal cual, así que no hizo f
 
 ---
 
+## Prompt 5 — Usuario
+
+Para el problema del Makefile, quiero contemplarlo porque es más legible para las personas. ¿Cómo se podría contemplar? No toques nada, solo propón los cambios.
+
+(Después de ver la propuesta:) Sí, por favor, aplícalo. Me parece bien.
+
+---
+
+## Respuesta 5 — Claude
+
+Propuse un `Makefile` en la raíz como **atajo** sobre los comandos ya documentados, no como reemplazo, y lo apliqué así:
+
+- **Se crea en TK-01** (paso 1.8 de su guía), junto con `docker-compose.yml` y `scripts/migrate.sh`, porque envuelve esos archivos. Hoy solo funcionarían `make help` y `make openapi`.
+- **17 *targets*:** `help`, `up`, `down`, `reset`, `migrate`, `superuser`, `static`, `mock`, `test` (con `T=ruta::test` para uno solo), `test-ci`, `e2e`, `lint`, `format`, `check-migrations`, `shell`, `psql` y `openapi`. `make help` los lista leyendo los comentarios `##`.
+- **Solo para desarrollo local:** el CI sigue con los comandos directos, porque en GitHub Actions no hay `docker compose exec`.
+- **Los comandos directos se conservan** en la documentación como "lo que ejecuta cada *target*".
+
+**Documentación actualizada:**
+- Sección 1.4: `make` en los requisitos (en Windows hay que instalarlo; Git Bash no lo trae), los pasos de instalación y de pruebas con `make` y el comando equivalente al lado, y `make reset` para volver a empezar.
+- Sección 2.3: el `Makefile` en la estructura de archivos.
+- TK-01: punto 10 en la descripción técnica y un criterio de aceptación (`make help` lista los 17 comandos, y `make migrate`, `make test` y `make mock` hacen lo mismo que sus comandos directos).
+- `CLAUDE.md`: tabla `make` ↔ comando directo y las reglas del `Makefile`.
+
+**Lo probé** con el `make` instalado en el equipo (GNU Make 3.81): `make help` lista los 17 comandos y `make -n test T=...` arma el comando esperado. La prueba encontró un error que corregí: la expresión regular de `help` no aceptaba dígitos, así que `e2e` no aparecía en la lista.
+
+**Reglas que quedan documentadas:** las recetas se indentan con tabulador; el `Makefile` lee `.env` con `-include`, así que las contraseñas de desarrollo no deben llevar `$`, `#` ni comillas.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 6)
 
 ## 6. Tickets de Trabajo
@@ -383,11 +412,14 @@ No agrega dependencias nuevas.
 
 9. **Fixtures de prueba compartidos** (punto de integración 7): `datos_demo` (carga el mock con `cargar_mock.sql` adaptado), `demo` (accesos a entidades, medicamentos, motivos y usuario), `como_app_user` (el test corre con los permisos de la aplicación) y los helpers `ejecutar_sql` y `saldo`. TK-02 y TK-03 los usan sin modificarlos.
 
+10. **`Makefile` de la raíz:** atajos de desarrollo local (`make up`, `make migrate`, `make test`, `make mock`…) sobre los mismos comandos de la guía, con `make help` como punto de entrada. Se crea en este ticket porque envuelve `docker-compose.yml` y `scripts/migrate.sh`, que nacen aquí. El CI no lo usa.
+
 **Fuera de alcance:** la lógica de negocio (TK-02), las pantallas y la API, y las tablas de catálogo, entidades y pautas (semana 1).
 
 **Criterios de aceptación**
 - [ ] `python manage.py migrate` crea el esquema en una base vacía, y `migrate inventario zero` y `migrate conteos zero` lo revierten sin errores.
 - [ ] `makemigrations --check` no detecta cambios pendientes.
+- [ ] `make help` lista los 17 comandos, y `make migrate`, `make test` y `make mock` hacen lo mismo que sus comandos directos.
 - [ ] `\d movimiento` en `psql` muestra todas las restricciones e índices de las secciones 3.1 y 3.3 con sus nombres exactos.
 - [ ] Sin índices duplicados: ninguna FK de la tabla de la sección 3.3 tiene un índice propio además del compuesto.
 - [ ] El mock de la sección 3.4 se carga con `cargar_mock.sql` sin errores, y `SELECT count(*) FROM v_conciliacion_existencia` devuelve 0.
