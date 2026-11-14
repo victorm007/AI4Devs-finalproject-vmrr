@@ -278,6 +278,20 @@ Quedan confirmadas las dos redes Docker (`frontend` y `backend`), el volumen `st
 
 ---
 
+## Prompt 10 — Usuario
+
+Para las pruebas en este proyecto, ¿son por defecto sobre una DB efímera? ¿Necesitamos especificarlo en el `readme.md`? Sí, agrégalo.
+
+---
+
+## Respuesta 10 — Claude
+
+Sí: según el diseño, solo la base de tests es efímera; el servidor de PostgreSQL no. `pytest-django` crea `test_<POSTGRES_DB>`, le aplica las migraciones y la borra al terminar, sin tocar la base de desarrollo. Cada test se revierte con su transacción, y los de `transaction=True` vacían las tablas al final y recuperan los datos semilla con `serialized_rollback=True`. En CI, el servidor también es un contenedor nuevo en cada *job*.
+
+El `readme.md` lo mencionaba solo de forma indirecta (`CREATEDB` en el apartado 1.4 y en TK-01, `serialized_rollback` en TK-02). Agregué un párrafo **Aislamiento** en el apartado 2.6, después de **Herramientas**, para que el diseño respalde la regla de "base temporal y separada" del `CLAUDE.md`.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 2)
 
 ### 2.1. Diagrama de arquitectura
@@ -820,6 +834,8 @@ C4Container
 ### 2.6. Tests
 
 **Herramientas:** `pytest` + `pytest-django`, con el dataset mock de la sección 3.4 como *fixture* (`datos_demo`), ejecutados en CI contra PostgreSQL real. Playwright (Python) para el flujo de extremo a extremo.
+
+**Aislamiento:** `pytest-django` crea una base aparte (`test_<POSTGRES_DB>`) en el mismo PostgreSQL, le aplica las migraciones y la borra al terminar; la base de desarrollo no se toca (por eso `app_owner` tiene `CREATEDB` en desarrollo y CI). Cada test corre dentro de una transacción que se revierte, así que empieza con el mock recién cargado. Los de concurrencia y Playwright (`transaction=True`) confirman sus datos y al final se vacían las tablas; `serialized_rollback=True` restaura los datos semilla de las migraciones. En CI, además, el servidor de PostgreSQL es un contenedor nuevo en cada *job*.
 
 | Tipo | Caso | Resultado esperado |
 |---|---|---|

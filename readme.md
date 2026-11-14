@@ -693,6 +693,8 @@ C4Container
 
 **Herramientas:** `pytest` + `pytest-django`, con el dataset mock de la sección 3.4 como *fixture* (`datos_demo`), ejecutados en CI contra PostgreSQL real. Playwright (Python) para el flujo de extremo a extremo.
 
+**Aislamiento:** `pytest-django` crea una base aparte (`test_<POSTGRES_DB>`) en el mismo PostgreSQL, le aplica las migraciones y la borra al terminar; la base de desarrollo no se toca (por eso `app_owner` tiene `CREATEDB` en desarrollo y CI). Cada test corre dentro de una transacción que se revierte, así que empieza con el mock recién cargado. Los de concurrencia y Playwright (`transaction=True`) confirman sus datos y al final se vacían las tablas; `serialized_rollback=True` restaura los datos semilla de las migraciones. En CI, además, el servidor de PostgreSQL es un contenedor nuevo en cada *job*.
+
 | Tipo | Caso | Resultado esperado |
 |---|---|---|
 | **Unitario (servicios)** | Registrar una entrada de 30 dosis para un residente | La existencia del residente aumenta en 30 y se crea un movimiento con usuario, fecha y quién entregó. |
