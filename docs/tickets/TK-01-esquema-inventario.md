@@ -4,7 +4,7 @@
 >
 > Esta guía explica **cómo** hacerlo. El **qué** y el **porqué** están en el ticket y en la sección 3 del readme. Si algo de esta guía contradice al readme, manda el readme: avisa en el PR.
 >
-> **Integración** (readme, sección 6, "Puntos de integración"): este ticket **provee** los puntos 1, 3, 4, 5, 7 y 8 y **consume** los puntos 11 (`Entidad.activa`, de la semana 1). No cambies un punto que provees sin avisar en el PR. La prueba conjunta de los 3 tickets está en [`integracion.md`](integracion.md).
+> **Integración** (readme, sección 6, "Puntos de integración"): este ticket **provee** los puntos 1, 3, 4, 5, 7 y 8 y **consume** el punto 11 (`Entidad.activa`, de HB-06). No cambies un punto que provees sin avisar en el PR. La prueba conjunta de los 3 tickets está en [`integracion.md`](integracion.md).
 
 **Resultado al terminar:** las tablas `motivo_baja`, `existencia`, `movimiento`, `conteo_fisico` y `detalle_conteo` existen con todas sus restricciones, *triggers* e índices. La aplicación se conecta como `app_user`, que no puede modificar ni borrar movimientos. El mock de la sección 3.4 carga sin errores y cuadra.
 
@@ -22,34 +22,28 @@
 | Dataset mock | readme, sección 3.4 | Datos con los que se prueba todo |
 | TK-01 | readme, sección 6 | Criterios de aceptación |
 
-### 0.2 Requisitos previos (semana 1)
+### 0.2 Requisitos previos (tickets de habilitación HB-01 a HB-08)
 
 Comprueba cada uno. Si alguno falla, **no empieces**: avisa al Tech Lead.
 
 ```bash
 # Desde la raíz del repositorio
 docker compose up -d
-docker compose ps                     # db debe estar "healthy" y web "running"
+docker compose ps                     # db "healthy", web y nginx "running"
 
-docker compose exec web python manage.py showmigrations accounts catalogo entidades
-# Todas las migraciones con [X]
+docker compose exec web python manage.py showmigrations accounts catalogo entidades pautas
+# Todas las migraciones con [X], incluidas accounts 0002_privilegios y 0003_grupos
 
 docker compose exec web python manage.py shell -c "
+from django.db import connection
 from apps.entidades.models import Entidad
-from apps.catalogo.models import Medicamento
-print(Entidad.objects.filter(tipo='HOGAR').count())   # 1
-print(Medicamento._meta.db_table)                      # medicamento
+c = connection.cursor(); c.execute('SELECT current_user'); print(c.fetchone())   # ('app_user',)
+print(Entidad.objects.get(tipo='HOGAR').activa)                                 # True
 "
+docker compose exec db sh -c 'psql -U app_owner -d "$POSTGRES_DB" -c "\du"'   # app_owner y app_user
 ```
 
-También deben existir (sección 3.1): las extensiones `pg_trgm`, `unaccent` y `btree_gist`, la función `f_unaccent`, los grupos `Solo lectura` y `Lectura y escritura`, y la propiedad `Entidad.activa`. Si `Entidad.activa` no existe, agrégala en `apps/entidades/models.py`:
-
-```python
-@property
-def activa(self) -> bool:
-    """El Hogar siempre está activo; un residente, solo si su estado es ACTIVO."""
-    return self.tipo == self.Tipo.HOGAR or self.residente.estado == Residente.Estado.ACTIVO
-```
+También deben existir: las extensiones `pg_trgm`, `unaccent` y `btree_gist` y la función `f_unaccent` (HB-05), la tabla `pauta` (HB-07), los grupos `Solo lectura` y `Lectura y escritura` (HB-08), `scripts/migrate.sh`, `app/conftest.py` y `app/pruebas.py` con `ejecutar_sql` (HB-03).
 
 ### 0.3 Crea la rama
 
@@ -77,19 +71,13 @@ dpsql() { docker compose exec db psql -U app_owner -d "$POSTGRES_DB" "$@"; }    
 
 ```
 AI4Devs-finalproject-vmrr/
-├── .gitattributes                         # NUEVO: los .sh siempre con fin de línea LF
-├── .env.example                           # MODIFICAR: contraseñas de app_owner y app_user
-├── docker-compose.yml                     # MODIFICAR: monta db/init y usa app_user en web
-├── db/init/01_roles.sh                    # NUEVO: crea app_owner y app_user
-├── scripts/migrate.sh                     # NUEVO: migrate como app_owner
 ├── Makefile                               # NUEVO: atajos de desarrollo local (make help)
 └── app/
-    ├── conftest.py                        # MODIFICAR: fixtures datos_demo, demo y como_app_user
-    ├── pruebas.py                         # NUEVO: helpers ejecutar_sql y saldo para los tests
-    ├── pyproject.toml (o pytest.ini)      # MODIFICAR: marcador "lento"
-    ├── config/settings/base.py            # MODIFICAR: DATABASES desde variables de entorno
+    ├── conftest.py                        # MODIFICAR (de HB-03): fixtures datos_demo, demo y como_app_user
+    ├── pruebas.py                         # MODIFICAR (de HB-03): agrega el helper saldo
+    ├── config/settings/base.py            # MODIFICAR: "apps.inventario" y "apps.conteos"
     └── apps/
-        ├── accounts/migrations/0002_privilegios.py     # NUEVO
+        ├── catalogo/admin.py                           # MODIFICAR (de HB-09): baja con existencias
         ├── inventario/
         │   ├── models.py                               # NUEVO: MotivoBaja, Existencia, Movimiento
         │   ├── migrations/0001_initial.py              # GENERADO con makemigrations
@@ -102,10 +90,10 @@ AI4Devs-finalproject-vmrr/
             ├── migrations/0001_initial.py              # GENERADO
             ├── migrations/0002_triggers.py             # NUEVO
             └── tests/test_esquema.py                   # NUEVO
-        └── accounts/tests/test_privilegios.py          # NUEVO
+        └── accounts/tests/test_privilegios.py          # MODIFICAR (de HB-03): tests de movimiento
 ```
 
-> Si la última migración de `accounts` no es `0001_initial`, la tuya será `000N_privilegios`: ajusta los números en esta guía.
+> Los 2 usuarios de base de datos, `migrate.sh`, `DATABASES` y la migración `accounts/0002_privilegios` ya existen: los crearon HB-01 y HB-03.
 
 ---
 
@@ -113,124 +101,18 @@ AI4Devs-finalproject-vmrr/
 
 Haz un commit al terminar cada paso (mensajes en español, en imperativo: `agrega modelos de inventario`).
 
-### Paso 1. Usuarios de base de datos `app_owner` y `app_user` (≈ 1.5 h)
+### Paso 1. Comprueba la base de habilitación y crea el `Makefile` (≈ 45 min)
 
-**1.1 Variables nuevas en `.env.example`** (y copia los valores a tu `.env`):
-
-```dotenv
-# Superusuario de PostgreSQL: solo lo usa la inicialización del contenedor db
-POSTGRES_DB=hogar
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=cambia-esto
-# Dueño de las tablas: solo para migraciones, la carga del mock y los tests
-DB_OWNER_PASSWORD=cambia-esto-owner
-# true en desarrollo y CI (pytest crea la base de tests); false en producción
-DB_OWNER_CREATEDB=true
-# Usuario de la aplicación en tiempo de ejecución
-DB_APP_PASSWORD=cambia-esto-app
-```
-
-**1.2 Crea `db/init/01_roles.sh`:**
-
-```sh
-#!/bin/sh
-# Crea los usuarios de la aplicación (readme, sección 6, TK-01).
-# PostgreSQL ejecuta este script solo al crear el volumen pgdata por primera vez.
-set -eu
-
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
-     -v owner_pw="$DB_OWNER_PASSWORD" -v app_pw="$DB_APP_PASSWORD" \
-     -v createdb="${DB_OWNER_CREATEDB:-false}" <<'SQL'
--- Idempotente: solo crea los usuarios si no existen
-SELECT format('CREATE ROLE app_owner LOGIN PASSWORD %L', :'owner_pw')
- WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_owner') \gexec
-SELECT format('CREATE ROLE app_user LOGIN PASSWORD %L', :'app_pw')
- WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_user') \gexec
-SELECT 'ALTER ROLE app_owner CREATEDB' WHERE :'createdb' = 'true' \gexec
-
--- Los tests pueden actuar como app_user (SET ROLE); app_user no gana nada del dueño
-GRANT app_user TO app_owner;
-
--- app_owner es dueño de la base y del esquema; app_user solo se conecta y lo usa
-SELECT format('ALTER DATABASE %I OWNER TO app_owner', current_database()) \gexec
-SELECT format('REVOKE ALL ON DATABASE %I FROM PUBLIC', current_database()) \gexec
-SELECT format('GRANT CONNECT ON DATABASE %I TO app_user', current_database()) \gexec
-ALTER SCHEMA public OWNER TO app_owner;
-REVOKE CREATE ON SCHEMA public FROM PUBLIC;
-GRANT USAGE ON SCHEMA public TO app_user;
-SQL
-```
-
-**1.3 En Windows, evita los 2 errores más comunes con scripts `.sh`:**
+Los 2 usuarios de base de datos (`db/init/01_roles.sh`), la conexión como `app_user`, `scripts/migrate.sh` y los privilegios por defecto de `app_user` (`accounts/0002_privilegios`) **ya existen**: los crearon HB-01 y HB-03. Antes de crear tablas, confirma que tu base local está al día:
 
 ```bash
-printf '*.sh text eol=lf\n' >> .gitattributes        # sin CRLF: sh falla con "\r: not found"
-git add .gitattributes db/init/01_roles.sh
-git update-index --chmod=+x db/init/01_roles.sh       # permiso de ejecución dentro de Git
+./scripts/migrate.sh                                  # aplica lo que falte de HB-03 a HB-08
+dpsql -c '\du'                                        # app_owner (Create DB) y app_user
+dj shell -c "from django.db import connection; c = connection.cursor(); c.execute('SELECT current_user'); print(c.fetchone())"
+# ('app_user',)
 ```
 
-**1.4 `docker-compose.yml`:** monta el script y cambia el usuario de `web`:
-
-```yaml
-services:
-  db:
-    image: postgres:17-alpine
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      DB_OWNER_PASSWORD: ${DB_OWNER_PASSWORD}
-      DB_APP_PASSWORD: ${DB_APP_PASSWORD}
-      DB_OWNER_CREATEDB: ${DB_OWNER_CREATEDB:-false}
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./db/init:/docker-entrypoint-initdb.d:ro
-  web:
-    environment:
-      DB_HOST: db
-      DB_NAME: ${POSTGRES_DB}
-      DB_USER: app_user                      # la aplicación NUNCA usa app_owner
-      DB_PASSWORD: ${DB_APP_PASSWORD}
-```
-
-**1.5 `app/config/settings/base.py`:**
-
-```python
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "HOST": os.environ.get("DB_HOST", "db"),
-        "PORT": os.environ.get("DB_PORT", "5432"),
-        "NAME": os.environ["DB_NAME"],
-        "USER": os.environ["DB_USER"],
-        "PASSWORD": os.environ["DB_PASSWORD"],
-        "CONN_MAX_AGE": 60,
-    }
-}
-```
-
-**1.6 Crea `scripts/migrate.sh`** (y dale permiso de ejecución como en 1.3):
-
-```sh
-#!/bin/sh
-# Ejecuta las migraciones como app_owner, el dueño de las tablas.
-# La aplicación (contenedor web) se conecta como app_user.
-set -eu
-set -a; . ./.env; set +a
-docker compose run --rm -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PASSWORD" \
-    web python manage.py migrate "$@"
-```
-
-**1.7 Recrea la base local.** ⚠️ Borra los datos de tu base **de desarrollo**; nunca lo hagas en producción:
-
-```bash
-docker compose down -v            # -v borra el volumen pgdata
-docker compose up -d
-./scripts/migrate.sh              # migraciones de la semana 1, ahora como app_owner
-dpsql -c '\du'                    # deben aparecer app_owner y app_user
-```
-
-**1.8 Crea el `Makefile` de la raíz.** Son atajos legibles para el desarrollo local (`make test`, `make migrate`…). Cada *target* ejecuta los mismos comandos que esta guía, así que los comandos directos siguen siendo válidos. El CI no lo usa: allí no hay `docker compose exec`.
+**Crea el `Makefile` de la raíz.** Son atajos legibles para el desarrollo local (`make test`, `make migrate`…). Cada *target* ejecuta los mismos comandos que esta guía, así que los comandos directos siguen siendo válidos. El CI no lo usa: allí no hay `docker compose exec`.
 
 ```make
 # Atajos de desarrollo local (readme, sección 1.4). El CI usa los comandos directos.
@@ -293,43 +175,9 @@ make help        # lista los 17 comandos con su descripción
 make openapi     # 0 errores y 2 advertencias intencionales
 ```
 
-### Paso 2. Migración de privilegios en `accounts` (≈ 30 min)
+### Paso 2. Privilegios de `app_user` (ya hechos en HB-03)
 
-Crea `app/apps/accounts/migrations/0002_privilegios.py`:
-
-```python
-"""Privilegios mínimos de app_user (readme, sección 6, TK-01).
-
-Va en una migración, y no en db/init, porque los permisos por defecto son de cada
-base de datos: así también se aplican en la base de tests que crea pytest.
-"""
-
-from django.db import migrations
-
-OTORGAR = """
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_user;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
--- Las tablas que creen las migraciones siguientes nacen con estos permisos
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_user;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-    GRANT USAGE, SELECT ON SEQUENCES TO app_user;
-"""
-
-RETIRAR = """
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-    REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES FROM app_user;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-    REVOKE USAGE, SELECT ON SEQUENCES FROM app_user;
-REVOKE SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public FROM app_user;
-REVOKE USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public FROM app_user;
-"""
-
-
-class Migration(migrations.Migration):
-    dependencies = [("accounts", "0001_initial")]
-    operations = [migrations.RunSQL(OTORGAR, RETIRAR)]
-```
+La migración `accounts/0002_privilegios.py` existe desde HB-03: da a `app_user` los 4 permisos sobre todas las tablas que cree `app_owner`, también las de este ticket. Lo único propio de TK-01 es retirar `UPDATE`, `DELETE` y `TRUNCATE` sobre `movimiento` (paso 6), y para eso las tablas nuevas deben depender de `0002_privilegios` (paso 4).
 
 ### Paso 3. Modelos de `inventario` (≈ 1.5 h)
 
@@ -497,7 +345,7 @@ class Movimiento(models.Model):
 dj makemigrations inventario          # crea 0001_initial.py
 ```
 
-Abre `0001_initial.py` y agrega a mano esta dependencia, para que las tablas nazcan **después** de los permisos por defecto del paso 2:
+Abre `0001_initial.py` y agrega a mano esta dependencia, para que las tablas nazcan **después** de los permisos por defecto de `app_user` (HB-03):
 
 ```python
 dependencies = [
@@ -556,7 +404,7 @@ class Migration(migrations.Migration):
 
 ### Paso 5b. Permisos de los grupos sobre los modelos nuevos (≈ 30 min)
 
-Los grupos `Solo lectura` y `Lectura y escritura` se crearon en la semana 1, antes de que existieran estos modelos, así que todavía no tienen sus permisos. Sin este paso, la pantalla de TK-03 responde `403` a todos.
+Los grupos `Solo lectura` y `Lectura y escritura` se crearon en HB-08 (`accounts/0003_grupos`), antes de que existieran estos modelos, así que todavía no tienen sus permisos. Sin este paso, la pantalla de TK-03 responde `403` a todos.
 
 ```bash
 dj makemigrations inventario --empty --name permisos_grupos
@@ -595,11 +443,11 @@ def retirar_permisos(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("inventario", "0002_motivos_baja"), ("auth", "0012_alter_user_first_name_max_length")]
+    dependencies = [("inventario", "0002_motivos_baja"), ("accounts", "0003_grupos")]
     operations = [migrations.RunPython(asignar_permisos, retirar_permisos)]
 ```
 
-> Repite el mismo patrón en `conteos` cuando se haga TK-06 (`view_conteofisico`, `add_conteofisico`...). Si la migración de la semana 1 que crea los grupos está en otra app, agrégala a `dependencies`.
+> Repite el mismo patrón en `conteos` cuando se haga TK-06 (`view_conteofisico`, `add_conteofisico`...), también con la dependencia de `accounts/0003_grupos`.
 
 ### Paso 6. Migración SQL de `inventario`: *triggers*, vista, `fillfactor` y `REVOKE` (≈ 1 h)
 
@@ -639,6 +487,20 @@ CREATE TRIGGER tg_movimiento_validar_destino BEFORE INSERT ON movimiento
     FOR EACH ROW EXECUTE FUNCTION fn_movimiento_validar_destino();
 """
 
+# Es del catálogo (HB-05), pero consulta existencia: nace con esta tabla (sección 3.3)
+MEDICAMENTO_BAJA = """
+CREATE FUNCTION fn_medicamento_baja_sin_existencias() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF OLD.activo AND NOT NEW.activo AND EXISTS (
+        SELECT 1 FROM existencia WHERE medicamento_id = NEW.id AND saldo > 0) THEN
+        RAISE EXCEPTION 'No se puede dar de baja el medicamento %: tiene existencias', NEW.id;
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER tg_medicamento_baja BEFORE UPDATE OF activo ON medicamento
+    FOR EACH ROW EXECUTE FUNCTION fn_medicamento_baja_sin_existencias();
+"""
+
 CONCILIACION = """
 CREATE VIEW v_conciliacion_existencia AS
 WITH suma AS (
@@ -674,6 +536,11 @@ class Migration(migrations.Migration):
             "DROP FUNCTION fn_movimiento_validar_destino();",
         ),
         migrations.RunSQL(
+            MEDICAMENTO_BAJA,
+            "DROP TRIGGER tg_medicamento_baja ON medicamento;"
+            "DROP FUNCTION fn_medicamento_baja_sin_existencias();",
+        ),
+        migrations.RunSQL(
             "ALTER TABLE existencia SET (fillfactor = 90);",
             "ALTER TABLE existencia RESET (fillfactor);",
         ),
@@ -685,6 +552,35 @@ class Migration(migrations.Migration):
         ),
     ]
 ```
+
+### Paso 6b. Baja de un medicamento con existencias en el panel (≈ 20 min)
+
+El *trigger* `tg_medicamento_baja` es la última barrera. Antes, el formulario de `MedicamentoAdmin` (HB-09) debe dar un mensaje, como pide la sección 5 ("Controles"). En `app/apps/catalogo/admin.py`:
+
+```python
+from django import forms
+
+from apps.inventario.models import Existencia
+
+
+class MedicamentoAdminForm(forms.ModelForm):
+    class Meta:
+        model = Medicamento
+        fields = "__all__"
+
+    def clean_activo(self):
+        activo = self.cleaned_data["activo"]
+        dando_de_baja = self.instance.pk and self.instance.activo and not activo
+        if dando_de_baja and Existencia.objects.filter(
+            medicamento=self.instance, saldo__gt=0
+        ).exists():
+            raise forms.ValidationError(
+                "No se puede dar de baja: hay existencias de este medicamento."
+            )
+        return activo
+```
+
+y en `MedicamentoAdmin`: `form = MedicamentoAdminForm`. Su test va en `apps/catalogo/tests/test_admin.py` (sección 3.4 de esta guía).
 
 ### Paso 7. Modelos y migraciones de `conteos` (≈ 1 h)
 
@@ -912,7 +808,7 @@ def como_app_user(demo):
     return demo
 ```
 
-Crea `app/pruebas.py` con el helper para ejecutar SQL directo. Va en un módulo propio porque importar desde `conftest.py` es mala práctica en pytest:
+`app/pruebas.py` ya existe desde HB-03 con `ejecutar_sql`. Agrégale `saldo`; el archivo completo queda así (va en un módulo propio porque importar desde `conftest.py` es mala práctica en pytest):
 
 ```python
 """Utilidades compartidas por los tests."""
@@ -942,7 +838,7 @@ def saldo(entidad, medicamento):
     return Existencia.objects.get(entidad=entidad, medicamento=medicamento).saldo
 ```
 
-En `pyproject.toml` (o `pytest.ini`) registra el marcador de los tests lentos y agrega `app/` a la ruta de importación, para que los tests puedan hacer `from pruebas import ejecutar_sql`:
+`pyproject.toml` ya registra el marcador `lento` y agrega `app/` a la ruta de importación desde HB-03. Compruébalo:
 
 ```toml
 [tool.pytest.ini_options]
@@ -1068,15 +964,9 @@ def test_los_movimientos_de_un_periodo_usan_indice(datos_demo):
 
 ### 3.2 `apps/accounts/tests/test_privilegios.py`: la aplicación no puede reescribir el historial
 
+El archivo existe desde HB-03, con los tests de dueño de las tablas, de los 4 permisos (que ya excluye `movimiento`) y de que `app_user` no crea tablas. Agrega estos 3, que son propios de `movimiento`:
+
 ```python
-"""app_user tiene privilegios mínimos (readme, sección 2.5 y TK-01)."""
-
-import pytest
-from django.db import DatabaseError
-
-from pruebas import ejecutar_sql
-
-
 def test_app_user_solo_lee_e_inserta_movimientos(db):
     filas = ejecutar_sql(
         "SELECT p, has_table_privilege('app_user', 'movimiento', p) "
@@ -1085,24 +975,6 @@ def test_app_user_solo_lee_e_inserta_movimientos(db):
     assert dict(filas) == {
         "SELECT": True, "INSERT": True, "UPDATE": False, "DELETE": False, "TRUNCATE": False,
     }
-
-
-def test_app_owner_es_dueno_de_todas_las_tablas(db):
-    ajenas = ejecutar_sql(
-        "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tableowner <> 'app_owner'"
-    )
-    assert ajenas == []
-
-
-def test_app_user_tiene_los_4_permisos_en_las_demas_tablas(db):
-    sin_permiso = ejecutar_sql("""
-        SELECT tablename FROM pg_tables
-        WHERE schemaname = 'public' AND tablename <> 'movimiento'
-          AND NOT (has_table_privilege('app_user', format('public.%%I', tablename), 'SELECT')
-               AND has_table_privilege('app_user', format('public.%%I', tablename), 'INSERT')
-               AND has_table_privilege('app_user', format('public.%%I', tablename), 'UPDATE')
-               AND has_table_privilege('app_user', format('public.%%I', tablename), 'DELETE'))""")
-    assert sin_permiso == []
 
 
 @pytest.mark.parametrize(("sql", "mensaje"), [
@@ -1126,8 +998,6 @@ def test_app_user_si_puede_registrar_un_movimiento(datos_demo):
     )
 ```
 
-> `%%I` lleva doble `%` porque el SQL pasa por los parámetros de Django: `%%` llega a PostgreSQL como `%`.
-
 ### 3.3 `apps/conteos/tests/test_esquema.py`
 
 Con la misma estructura que 3.1, cubre:
@@ -1140,6 +1010,35 @@ Con la misma estructura que 3.1, cubre:
 | `INSERT` de un segundo renglón de Omeprazol (medicamento 5) en el conteo 2 | `uq_detalle_conteo` |
 | `SELECT diferencia FROM detalle_conteo WHERE conteo_id = 2 AND medicamento_id = 5` | `-1.00` |
 | Capturar Losartán (medicamento 2, pendiente en el conteo 2) con 18 físicas y 20 registradas | `diferencia = -2` (caso de la sección 2.6) |
+
+### 3.4 `apps/catalogo/tests/test_admin.py`: baja de un medicamento con existencias (agrega)
+
+El archivo existe desde HB-09. Agrega estos 2 tests y los imports `from django.db import DatabaseError` y `from pruebas import ejecutar_sql`:
+
+```python
+def test_no_se_da_de_baja_un_medicamento_con_existencias(admin_client, demo):
+    eutirox = demo.med["Eutirox"]                       # Carmen tiene 33 dosis
+    url = f"/admin/catalogo/medicamento/{eutirox.pk}/change/"
+    datos = {
+        "nombre_comercial": eutirox.nombre_comercial, "tipo": eutirox.tipo,
+        "presentacion": eutirox.presentacion_id, "concentracion": eutirox.concentracion,
+        # "activo" no se envía: la casilla desmarcada
+        "medicamentoprincipioactivo_set-TOTAL_FORMS": "0",
+        "medicamentoprincipioactivo_set-INITIAL_FORMS": "0",
+        "medicamentoprincipioactivo_set-MIN_NUM_FORMS": "1",
+        "medicamentoprincipioactivo_set-MAX_NUM_FORMS": "1000",
+    }
+    respuesta = admin_client.post(url, datos)
+    assert respuesta.status_code == 200                 # mensaje en el formulario, no un 500
+    assert "hay existencias de este medicamento" in respuesta.content.decode()
+    eutirox.refresh_from_db()
+    assert eutirox.activo
+
+
+def test_el_trigger_rechaza_la_baja_aunque_se_salte_el_formulario(datos_demo):
+    with pytest.raises(DatabaseError, match="tiene existencias"):
+        ejecutar_sql("UPDATE medicamento SET activo = false WHERE nombre_comercial = 'Eutirox'")
+```
 
 ---
 
@@ -1226,11 +1125,11 @@ docker compose down -v && docker compose up -d && ./scripts/migrate.sh   # deja 
 
 | Síntoma | Causa probable | Solución |
 |---|---|---|
-| `sh: 01_roles.sh: not found` o `\r: not found` al levantar `db` | El script tiene fines de línea CRLF (Windows) | Paso 1.3 y `docker compose down -v` |
+| `sh: 01_roles.sh: not found` o `\r: not found` al levantar `db` | El script tiene fines de línea CRLF (Windows) | Guía de HB-01, paso 2.2, y `docker compose down -v` |
 | El script de roles no se ejecutó | El volumen `pgdata` ya existía | `docker compose down -v` (desarrollo) o ejecútalo a mano: `docker compose exec db sh /docker-entrypoint-initdb.d/01_roles.sh` |
 | `permission denied to create database` al correr `pytest` | `app_owner` sin `CREATEDB` | `DB_OWNER_CREATEDB=true` en `.env` y recrea el volumen |
 | `permission denied for table ...` en la aplicación | Una tabla se creó antes de la migración de privilegios | Revisa la dependencia agregada en el paso 4 y vuelve a ejecutar `./scripts/migrate.sh` |
 | `models.E034: The index name ... cannot be longer than 30 characters` | Nombre de índice largo | Usa los nombres de la sección 3.3 |
 | `TypeError: ... unexpected keyword argument 'condition'` | Django menor a 5.1 | Verifica `requirements.txt`: Django 5.2 LTS |
-| `function f_unaccent does not exist` al cargar el mock | Falta la migración de la semana 1 que crea la función | Requisitos previos, paso 0.2 |
+| `function f_unaccent does not exist` al cargar el mock | Falta la migración de HB-05 que crea la función | Requisitos previos, paso 0.2 |
 | El mock falla con "La base ya tiene datos de negocio" | Ya lo cargaste antes | `docker compose down -v`, `up -d`, `./scripts/migrate.sh` y vuelve a cargarlo |

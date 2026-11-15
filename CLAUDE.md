@@ -94,9 +94,9 @@ El entregable del curso exige mostrar los prompts usados con IA, y por eso cada 
 
 ## Tickets y pruebas
 
-Orden de ejecución: habilitadores de la semana 1 → TK-01 (BD) → TK-02 (backend) y TK-03 (frontend) → prueba de integración → backlog (TK-04 a TK-07). Las guías paso a paso están en `docs/tickets/`, y `integracion.md` tiene la prueba conjunta.
+Orden de ejecución: tickets de habilitación HB-01 a HB-09 (semanas 1 y 2: contenedores, conexión con los 2 usuarios de BD, catálogo, residentes, pautas, login y `/admin/`) → TK-01 (BD) → TK-02 (backend) y TK-03 (frontend) → prueba de integración → backlog (TK-04 a TK-07). Las guías paso a paso están en `docs/tickets/` (`HB-*.md` y `TK-*.md`), y `integracion.md` tiene la prueba conjunta.
 
-Los tests usan el dataset real del mock (`app/fixtures/mock/`, sección 3.4), no *factories*, porque los criterios de aceptación están escritos con esos datos. Los *fixtures* compartidos (`datos_demo`, `demo`, `como_app_user`) y los helpers de `pruebas.py` los crea TK-01; los demás tickets los usan sin modificarlos.
+Los tests usan el dataset real del mock (`app/fixtures/mock/`, sección 3.4), no *factories*, porque los criterios de aceptación están escritos con esos datos. `conftest.py` y `pruebas.py` (con `ejecutar_sql`) nacen en HB-03; los *fixtures* compartidos (`datos_demo`, `demo`, `como_app_user`) y el helper `saldo` los agrega TK-01, y los demás tickets los usan sin modificarlos. Antes de TK-01 no existe el mock completo: los tests de HB-05 a HB-09 crean sus propios datos mínimos.
 
 ## Estrategia de Pruebas Estricta (Testing Rules)
 - **Entorno de Pruebas:** Todos los tests deben ser compatibles con PostgreSQL 17 real. Prohibido asumir SQLite o mocking de base de datos para la capa de persistencia. Las pruebas se ejecutan en una DB temporal/pruebas separada.
@@ -110,7 +110,7 @@ Los tests usan el dataset real del mock (`app/fixtures/mock/`, sección 3.4), no
 - **Umbrales de cobertura:** el CI (*job* `tests`) exige **≥ 80 % en `apps/`**. Además, cada ticket fija su propio umbral (por ejemplo, **≥ 90 % en `services.py`** en TK-02), que verifica el autor y anota en la plantilla del PR (sección 7.3).
 
 ## Comandos
-**Usa el `Makefile` de la raíz** para las tareas recurrentes; `make help` lista los comandos. **Todavía no existe:** lo crea TK-01, junto con `docker-compose.yml` y `scripts/migrate.sh`, y su contenido está en la guía de TK-01 (paso 1.8). Si un `make` no cubre lo que necesitas, usa los comandos directos de abajo, que son exactamente lo que ejecuta cada *target*. El CI no usa `make`.
+**Usa el `Makefile` de la raíz** para las tareas recurrentes; `make help` lista los comandos. **Todavía no existe:** lo crea TK-01 (guía, paso 1), sobre `docker-compose.yml` (HB-01 a HB-04) y `scripts/migrate.sh` (HB-03). Si un `make` no cubre lo que necesitas, usa los comandos directos de abajo, que son exactamente lo que ejecuta cada *target*. El CI no usa `make`.
 
 | Tarea | `make` | Comando directo |
 |---|---|---|
@@ -159,7 +159,7 @@ docker compose cp app/fixtures/mock/. db:/tmp/mock/
 dpsql -v ON_ERROR_STOP=1 -f /tmp/mock/cargar_mock.sql
 ```
 
-CI (`.github/workflows/ci.yml`): los *checks* `lint`, `tests` y `e2e` se saltan mientras no exista `app/manage.py`. Sus nombres son los que exige la protección de `main`: no los renombres sin leer la nota de la sección 7.3. `tests` exige cobertura ≥ 80 % sobre `apps/`.
+CI (`.github/workflows/ci.yml`): cada *job* se activa cuando existe lo que necesita: `lint` e `imagen` con `app/manage.py` (HB-02), `tests` con `app/conftest.py` (HB-03) y `e2e` con `app/e2e/` (TK-03); antes se saltan, y un *job* saltado cuenta como aprobado. Sus nombres son los que exige la protección de `main`: no los renombres sin leer la nota de la sección 7.3. `tests` exige cobertura ≥ 80 % sobre `apps/`.
 
 ## Git
 

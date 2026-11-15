@@ -408,14 +408,19 @@ ALTER TABLE usuario_groups ADD CONSTRAINT uq_usuario_un_grupo UNIQUE (usuario_id
 CREATE UNIQUE INDEX uq_medicamento_nombre_pres_conc
     ON medicamento (f_unaccent(lower(nombre_comercial)), presentacion_id, f_unaccent(lower(concentracion)));
 CREATE UNIQUE INDEX uq_principio_activo_nombre ON principio_activo (f_unaccent(lower(nombre)));
+ALTER TABLE medicamento ADD CONSTRAINT ck_medicamento_tipo CHECK (tipo IN ('GENERICO', 'ORIGINAL'));
+ALTER TABLE medicamento_principio_activo
+    ADD CONSTRAINT uq_mpa_medicamento_principio UNIQUE (medicamento_id, principio_activo_id);
 
 -- D3: un solo Hogar y subtipo coherente con el supertipo
 CREATE UNIQUE INDEX uq_entidad_un_hogar ON entidad (tipo) WHERE tipo = 'HOGAR';
 ALTER TABLE entidad
     ADD CONSTRAINT uq_entidad_id_tipo UNIQUE (id, tipo),
+    ADD CONSTRAINT ck_entidad_tipo    CHECK (tipo IN ('HOGAR', 'RESIDENTE')),
     ADD CONSTRAINT ck_entidad_nombre  CHECK ((tipo = 'HOGAR') = (nombre IS NOT NULL));
 ALTER TABLE residente
     ADD CONSTRAINT ck_residente_tipo  CHECK (tipo = 'RESIDENTE'),
+    ADD CONSTRAINT ck_residente_estado CHECK (estado IN ('ACTIVO', 'EGRESADO', 'FALLECIDO')),
     ADD CONSTRAINT fk_residente_entidad FOREIGN KEY (entidad_id, tipo)
         REFERENCES entidad (id, tipo) ON DELETE RESTRICT,
     ADD CONSTRAINT ck_residente_baja  CHECK ((estado = 'ACTIVO') = (fecha_baja IS NULL)),

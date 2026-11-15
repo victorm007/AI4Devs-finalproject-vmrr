@@ -88,7 +88,7 @@ Registro de administración por turno (MAR), alertas de stock mínimo o caducida
 > **Estado:** el código está en desarrollo. Estos son los pasos previstos, que reúnen lo definido en las secciones 2.4, 3.4 y 6. Se validan y ajustan con el primer PR de código.
 
 **Requisitos:** Git, Docker con Docker Compose v2, `make` y [`mkcert`](https://github.com/FiloSottile/mkcert) para el HTTPS local.
-- **En Windows:** usa Git Bash, que no trae `make`. Instálalo, por ejemplo con `winget install ezwinports.make` o `choco install make`, o trabaja desde WSL. Los `.sh` deben tener fin de línea LF (TK-01 agrega un `.gitattributes` que lo fuerza).
+- **En Windows:** usa Git Bash, que no trae `make`. Instálalo, por ejemplo con `winget install ezwinports.make` o `choco install make`, o trabaja desde WSL. Los `.sh` deben tener fin de línea LF (HB-01 agrega un `.gitattributes` que lo fuerza).
 - **El `Makefile`** de la raíz (lo crea TK-01) tiene atajos legibles para todo lo de abajo; `make help` los lista. Cada paso muestra también el comando que ejecuta, por si no tienes `make`.
 
 ```bash
@@ -526,12 +526,16 @@ AI4Devs-finalproject-vmrr/
 └── app/                       # proyecto Django
     ├── Dockerfile
     ├── requirements.txt
+    ├── requirements-dev.txt   # pytest y ruff: solo desarrollo y CI, nunca en la imagen de producción
+    ├── pyproject.toml         # configuración de ruff y pytest
     ├── manage.py
     ├── config/                # configuración global
     │   ├── settings/          # base.py, local.py, prod.py
     │   ├── urls.py
     │   └── wsgi.py
     ├── apps/                  # un módulo de negocio por app
+    │   ├── expresiones.py     # sin_acentos(): la expresión f_unaccent(lower(...)) de los índices
+    │   ├── panel.py           # reglas comunes del panel /admin/ (sin borrado, búsqueda sin acentos)
     │   ├── accounts/
     │   ├── catalogo/
     │   ├── entidades/
@@ -662,7 +666,7 @@ C4Container
    - `DB_OWNER_PASSWORD`: `app_owner`, para las migraciones.
    - `DB_APP_PASSWORD`: `app_user`, para la aplicación.
 
-   Al crear el volumen `pgdata`, el contenedor `db` ejecuta `db/init/01_roles.sh`, que crea `app_owner` y `app_user` (sección 6, TK-01). Después se generan los certificados (`mkcert` en local, `certbot` en el VPS), se crea el superusuario con `createsuperuser`. Los grupos de permisos, el Hogar y los catálogos semilla no se cargan aparte: los crean las migraciones de datos (sección 3.1).
+   Al crear el volumen `pgdata`, el contenedor `db` ejecuta `db/init/01_roles.sh`, que crea `app_owner` y `app_user` (sección 6, HB-01). Después se generan los certificados (`mkcert` en local, `certbot` en el VPS), se crea el superusuario con `createsuperuser`. Los grupos de permisos, el Hogar y los catálogos semilla no se cargan aparte: los crean las migraciones de datos (sección 3.1).
 4. **Respaldos:** un cron diario ejecuta `scripts/backup_db.sh`, que genera un `pg_dump` comprimido y cifrado, con retención de 14 días y copia a un disco externo. Una vez al mes se prueba la restauración con `scripts/restore_db.sh`.
 5. **Migración a hosting:** se aprovisiona el VPS con Ubuntu y Docker, se clona el repositorio, se restaura el último respaldo y se apunta el dominio. No hay cambios de código, solo variables de entorno.
 
@@ -923,14 +927,19 @@ ALTER TABLE usuario_groups ADD CONSTRAINT uq_usuario_un_grupo UNIQUE (usuario_id
 CREATE UNIQUE INDEX uq_medicamento_nombre_pres_conc
     ON medicamento (f_unaccent(lower(nombre_comercial)), presentacion_id, f_unaccent(lower(concentracion)));
 CREATE UNIQUE INDEX uq_principio_activo_nombre ON principio_activo (f_unaccent(lower(nombre)));
+ALTER TABLE medicamento ADD CONSTRAINT ck_medicamento_tipo CHECK (tipo IN ('GENERICO', 'ORIGINAL'));
+ALTER TABLE medicamento_principio_activo
+    ADD CONSTRAINT uq_mpa_medicamento_principio UNIQUE (medicamento_id, principio_activo_id);
 
 -- D3: un solo Hogar y subtipo coherente con el supertipo
 CREATE UNIQUE INDEX uq_entidad_un_hogar ON entidad (tipo) WHERE tipo = 'HOGAR';
 ALTER TABLE entidad
     ADD CONSTRAINT uq_entidad_id_tipo UNIQUE (id, tipo),
+    ADD CONSTRAINT ck_entidad_tipo    CHECK (tipo IN ('HOGAR', 'RESIDENTE')),
     ADD CONSTRAINT ck_entidad_nombre  CHECK ((tipo = 'HOGAR') = (nombre IS NOT NULL));
 ALTER TABLE residente
     ADD CONSTRAINT ck_residente_tipo  CHECK (tipo = 'RESIDENTE'),
+    ADD CONSTRAINT ck_residente_estado CHECK (estado IN ('ACTIVO', 'EGRESADO', 'FALLECIDO')),
     ADD CONSTRAINT fk_residente_entidad FOREIGN KEY (entidad_id, tipo)
         REFERENCES entidad (id, tipo) ON DELETE RESTRICT,
     ADD CONSTRAINT ck_residente_baja  CHECK ((estado = 'ACTIVO') = (fecha_baja IS NULL)),
@@ -1952,8 +1961,10 @@ Las reglas de escritura (saldo insuficiente, duplicados, conteo cerrado, correcc
 
 El Hogar es una entidad fija que crean las migraciones, así que no se da de alta.
 
+Se implementan en los tickets de habilitación HB-08 (login, grupos y usuarios) y HB-09 (catálogo y residentes), sobre los modelos de HB-05 a HB-07 (sección 6).
+
 **Ventajas para un desarrollo rápido:**
-- **Poco código:** cada modelo se configura en unas 20–30 líneas de `admin.py` (columnas, búsqueda, filtros y campos editables). Toda la configuración de la semana 1 cabe en horas, no en días.
+- **Poco código:** cada modelo se configura en unas 20–30 líneas de `admin.py` (columnas, búsqueda, filtros y campos editables). Toda la configuración del panel (HB-09) cabe en horas, no en días.
 - **Validaciones incluidas:** los formularios del panel aplican las validaciones del modelo y las restricciones declaradas en `Meta.constraints` (por ejemplo, rechazan un segundo "Losartán 50 mg tableta") y muestran el error junto al campo.
 - **Permisos ya resueltos:** el panel respeta los permisos de Django por grupo (`view`, `add`, `change`), validados en el servidor.
 - **Búsqueda, filtros y paginación** incluidos sin código.
@@ -1972,14 +1983,17 @@ El Hogar es una entidad fija que crean las migraciones, así que no se da de alt
 
 **Plan de 6 semanas** (1 desarrollador, sprints de 1 semana):
 
-| Semana | Entrega |
-|---|---|
-| 1 | Proyecto Django + Docker, login, grupos, catálogo y entidades (sección 3: D1 a D3) y habilitadores en `/admin/` |
-| 2 | **TK-01**: esquema de existencias, movimientos y conteos, usuarios de base de datos y permisos (sección 6) |
-| 2–3 | **HU-01** (servicios, pantallas y tests de concurrencia) |
-| 3–4 | **HU-02** (pantalla con filtros HTMX y `GET /existencias`) |
-| 4–5 | **HU-03** (captura, diferencias y cierre) |
-| 6 | Reporte mensual, pruebas de extremo a extremo, respaldos y despliegue en el servidor del hogar |
+| Semana | Entrega | Puntos |
+|---|---|---|
+| 1 | **HB-01 a HB-04**: contenedores `db`, `web` y `nginx`, conexión con los 2 usuarios de base de datos y modelo de usuario (sección 6) | 10 |
+| 2 | **HB-05 a HB-09**: catálogo, residentes y pautas (sección 3: D2, D3 y D6), login, grupos y habilitadores en `/admin/` | 13 |
+| 3 | **TK-01**: esquema de existencias, movimientos y conteos (sección 6) | 5 |
+| 3–4 | **HU-01** (servicios, pantallas y tests de concurrencia) | 8 |
+| 4–5 | **HU-02** (pantalla con filtros HTMX y `GET /existencias`) | 5 |
+| 5–6 | **HU-03** (captura, diferencias y cierre) | 8 |
+| 6 | Pruebas de extremo a extremo, respaldos, despliegue en el servidor del hogar y, si alcanza, el reporte mensual | — |
+
+**Riesgo del plan:** con la habilitación detallada en tickets, el MVP suma 49 puntos (sección 6), unos 8 por semana, y las semanas 1 y 2 quedan por encima de ese ritmo. El margen está en la semana 6: si algo se retrasa, el reporte mensual (*Should*) pasa a la siguiente iteración, y las 3 historias no se recortan.
 
 **ROI desde el primer día:** el hogar carga sus existencias actuales como entradas (HU-01) y desde ese momento puede consultarlas (HU-02). El primer conteo (HU-03) ya compara el anaquel contra un registro confiable, en lugar de contra una libreta.
 
@@ -2243,13 +2257,15 @@ Los 3 tickets forman el camino crítico del MVP: el esquema que guarda los saldo
 
 Cada ticket tiene además una **guía paso a paso** en [`docs/tickets/`](docs/tickets/), pensada para que un desarrollador junior lo implemente sin bloqueos: tareas en orden, archivos a crear, código de referencia, tests con ejemplos, criterios de calidad, comandos de verificación con su resultado esperado y una tabla de problemas frecuentes.
 
+Antes de los 3, 9 **tickets de habilitación** (HB-01 a HB-09, semanas 1 y 2) dejan listos los contenedores, la conexión con los 2 usuarios de base de datos, los modelos de catálogo, residentes y pautas, el login y los habilitadores del panel `/admin/` (sección 5). Tienen el mismo formato y su propia guía, y su detalle está al final de esta sección.
+
 | Ticket | Tipo | Historia | Puntos | Depende de | Bloquea a |
 |---|---|---|---|---|---|
-| TK-01 | Base de datos | Base de HU-01, HU-02 y HU-03 | 5 | Habilitadores de la semana 1 (`catalogo`, `entidades`, `accounts`) | TK-02, TK-03, TK-06 |
+| TK-01 | Base de datos | Base de HU-01, HU-02 y HU-03 | 5 | HB-03 y HB-05 a HB-08 (usuarios de BD, catálogo, residentes, pautas y grupos) | TK-02, TK-03, TK-06 |
 | TK-02 | Backend | HU-01 | 5 | TK-01 | TK-04, TK-06 |
 | TK-03 | Frontend | HU-02 | 3 | TK-01 (y TK-02 para tener saldos reales) | TK-05 |
 
-**Estimación:** escala Fibonacci (1, 2, 3, 5, 8), relativa a la complejidad, al riesgo y al esfuerzo. TK-01 es trabajo de base que las estimaciones de las historias no incluían, así que el MVP suma **26 puntos**: 21 de las historias y 5 de la base.
+**Estimación:** escala Fibonacci (1, 2, 3, 5, 8), relativa a la complejidad, al riesgo y al esfuerzo. TK-01 y los tickets de habilitación son trabajo de base que las estimaciones de las historias no incluían, así que el MVP suma **49 puntos**: 21 de las historias, 5 de TK-01 y 23 de habilitación.
 
 **Backlog del MVP** (tickets restantes, se detallan al planear su sprint):
 
@@ -2266,13 +2282,28 @@ Cada ticket tiene además una **guía paso a paso** en [`docs/tickets/`](docs/ti
 | HU-02 | 5 | TK-03 (3) + TK-05 (2) |
 | HU-03 | 8 | TK-06 (3) + TK-07 (5) |
 | Base | 5 | TK-01 (5) |
-| **Total** | **26** | 13 documentados abajo + 13 en el backlog |
+| Habilitación | 23 | HB-01 a HB-09 (tabla siguiente) |
+| **Total** | **49** | 13 en los 3 tickets documentados abajo + 13 en el backlog + 23 de habilitación |
 
-Quedan fuera de esta cuenta los habilitadores de la semana 1 (en `/admin/`) y los endpoints `GET /medicamentos` y `GET /reportes/mensual`, que se estimarán con la historia de reportes.
+Quedan fuera de esta cuenta los endpoints `GET /medicamentos` y `GET /reportes/mensual`, que se estimarán con la historia de reportes.
 
-**Definición de hecho común** (aplica a los 3 tickets, además de la propia de cada uno):
+**Tickets de habilitación** (semanas 1 y 2; detalle al final de esta sección):
+
+| Ticket | Tipo | Alcance | Puntos | Depende de | Bloquea a | Guía |
+|---|---|---|---|---|---|---|
+| HB-01 | Infraestructura | Servicio `db` (PostgreSQL 17), volumen `pgdata` y los 2 usuarios de BD | 2 | — | HB-02 | [HB-01](docs/tickets/HB-01-postgresql.md) |
+| HB-02 | Infraestructura | Proyecto Django, `Dockerfile` y servicio `web` | 3 | HB-01 | HB-03 | [HB-02](docs/tickets/HB-02-imagen-web.md) |
+| HB-03 | Infraestructura + BD | Conexión con variables `DB_*`, `web` como `app_user`, `migrate.sh`, modelo `Usuario` y privilegios | 3 | HB-02 | HB-04, HB-05 | [HB-03](docs/tickets/HB-03-conexion-bd.md) |
+| HB-04 | Infraestructura | Servicio `nginx` con HTTPS local y cabeceras de seguridad | 2 | HB-03 | HB-08, TK-03 | [HB-04](docs/tickets/HB-04-nginx.md) |
+| HB-05 | Base de datos | Catálogo (D2), extensiones, `f_unaccent` e índices trigram | 3 | HB-03 | HB-06 | [HB-05](docs/tickets/HB-05-catalogo.md) |
+| HB-06 | Base de datos | Entidades: Hogar y residentes (D3) | 3 | HB-05 | HB-07, HB-08 | [HB-06](docs/tickets/HB-06-entidades.md) |
+| HB-07 | Base de datos | Esquema de pautas (D6), sin pantallas | 2 | HB-06 | TK-01 | [HB-07](docs/tickets/HB-07-pautas.md) |
+| HB-08 | Backend + frontend | Login, `base.html`, los 2 grupos, usuarios en `/admin/` y `django-axes` | 3 | HB-04, HB-06 | HB-09, TK-01, TK-03 | [HB-08](docs/tickets/HB-08-login-grupos.md) |
+| HB-09 | Panel `/admin/` | Catálogo y residentes en el panel, sin borrado y con búsqueda sin acentos | 2 | HB-08 | — | [HB-09](docs/tickets/HB-09-admin-catalogo-residentes.md) |
+
+**Definición de hecho común** (aplica a todos los tickets, TK y HB, además de la propia de cada uno):
 - El código pasa `ruff check` y `ruff format --check`, y no hay `print` ni código comentado.
-- CI en verde: lint, `python manage.py makemigrations --check` y `pytest` contra PostgreSQL 17.
+- CI en verde: lint, `python manage.py makemigrations --check` y `pytest` contra PostgreSQL 17 (cada *job* se activa cuando existe lo que necesita, sección 7.3).
 - Cobertura ≥ 80 % en `apps/` (la exige el CI), más el umbral propio del ticket (sección 2.6).
 - *Pull request* revisado y aprobado, con la descripción, cómo probarlo y el enlace al ticket. Se integra a `main` con *squash merge*.
 - No hay secretos en el código ni datos personales en los logs (LFPDPPP).
@@ -2282,7 +2313,16 @@ Quedan fuera de esta cuenta los habilitadores de la semana 1 (en `/admin/`) y lo
 
 ```mermaid
 flowchart LR
-    S1["Semana 1<br/>habilitadores"] --> T1["TK-01 · BD<br/>esquema, permisos y fixtures"]
+    subgraph HAB["Semanas 1 y 2 · habilitación"]
+        H1["HB-01 · db"] --> H2["HB-02 · web"] --> H3["HB-03 · conexión<br/>y usuarios de BD"]
+        H3 --> H4["HB-04 · nginx"]
+        H3 --> H5["HB-05 · catálogo"] --> H6["HB-06 · residentes"] --> H7["HB-07 · pautas"]
+        H4 --> H8["HB-08 · login y grupos"]
+        H6 --> H8
+        H8 --> H9["HB-09 · /admin/"]
+    end
+    H7 --> T1["TK-01 · BD<br/>esquema, permisos y fixtures"]
+    H8 --> T1
     T1 --> T2["TK-02 · Backend<br/>services.py"]
     T1 --> T3["TK-03 · Frontend<br/>pantalla de existencias"]
     T2 --> INT{{"Prueba de integración<br/>los 3 en main"}}
@@ -2290,7 +2330,8 @@ flowchart LR
     INT --> BL["Backlog<br/>TK-04 a TK-07"]
 ```
 
-1. **TK-01 primero y sin paralelo.** Crea las tablas, los permisos de los grupos y los *fixtures* de prueba que usan los otros 2. Se integra a `main` antes de empezar TK-02 o TK-03.
+0. **Habilitación primero, en el orden del diagrama.** Cada ticket HB se integra a `main` antes de empezar los que dependen de él. Después de HB-03, HB-04 (nginx) y la cadena HB-05 → HB-07 pueden avanzar en paralelo. HB-09 no bloquea a TK-01: puede integrarse mientras TK-01 avanza.
+1. **TK-01 después de HB-07 y HB-08, y sin paralelo entre los TK.** Crea las tablas, los permisos de los grupos y los *fixtures* de prueba que usan los otros 2. Se integra a `main` antes de empezar TK-02 o TK-03.
 2. **TK-02 y TK-03 pueden avanzar en paralelo.** TK-03 se desarrolla con los saldos del mock y no necesita el servicio. Con un solo desarrollador, va primero TK-02, porque está en el camino crítico de TK-04 y TK-06.
 3. **Orden de integración: TK-01 → TK-02 → TK-03.** El último en integrar hace `git rebase main`, ejecuta la **prueba de integración** (más abajo) en su rama y la deja en el repositorio. Desde ahí corre en CI en cada PR.
 
@@ -2298,11 +2339,11 @@ flowchart LR
 
 | Archivo | TK-01 | TK-02 | TK-03 | Regla |
 |---|---|---|---|---|
-| `app/conftest.py`, `app/pruebas.py` | Los crea | Solo los usa | Solo los usa | Solo TK-01 los modifica. Un *fixture* nuevo se pide en el PR de TK-01 o en uno propio |
+| `app/conftest.py`, `app/pruebas.py` | Agrega los *fixtures* y `saldo` | Solo los usa | Solo los usa | Los crea HB-03 (`conftest.py` vacío y `ejecutar_sql`). Después, solo TK-01 los modifica. Un *fixture* nuevo se pide en el PR de TK-01 o en uno propio |
 | `apps/inventario/migrations/` | `0001` a `0004` | — | — | TK-02 y TK-03 no crean migraciones. Si alguno la necesita, se renumera después del *rebase* |
-| `config/settings/base.py` | `DATABASES` | — | `django_htmx`, `LOGIN_REDIRECT_URL` | Cambios en bloques distintos |
-| `requirements.txt` / `requirements-dev.txt` | — | `pytest-cov` | `django-htmx` / `pytest-playwright` | Una dependencia por línea, en orden alfabético |
-| `docker-compose.yml`, `.env.example` | Usuarios de BD | — | — | Solo TK-01 |
+| `config/settings/base.py` | — | — | `django_htmx`, `LOGIN_REDIRECT_URL` | Lo crea HB-02 y lo completan HB-03 a HB-08 (`DATABASES` es de HB-03). Cambios en bloques distintos |
+| `requirements.txt` / `requirements-dev.txt` | — | — | `django-htmx` / `pytest-playwright` | Los crea HB-02 (`pytest`, `pytest-django`, `pytest-cov` y `ruff`). Una dependencia por línea, en orden alfabético |
+| `docker-compose.yml`, `.env.example` | — | — | — | Los crean HB-01 a HB-04 (y HB-06 agrega `HOGAR_NOMBRE`). Los tickets TK no los modifican |
 
 #### Puntos de integración
 
@@ -2313,14 +2354,14 @@ Son los contratos entre las capas. Si un ticket cambia uno, avisa en su PR a los
 | 1 | Modelos `Existencia`, `Movimiento`, `MotivoBaja` | TK-01 | TK-02, TK-03 | Nombres de campos de la sección 3.2; `Movimiento.Tipo` y `Movimiento.OrigenEntrada`; relaciones `existencias` y `correcciones` | Los tests de TK-02 y TK-03 importan los modelos |
 | 2 | Escritura de saldos | TK-02 | TK-03 | Solo `services.py` escribe `existencia.saldo` (≥ 0, 2 decimales) y `actualizado_en` en cada movimiento; TK-03 solo lee | `git grep` de TK-02 y prueba de integración |
 | 3 | Restricciones de la base ↔ excepciones de dominio | TK-01 | TK-02 | El servicio valida antes de escribir; la base es la última barrera. `uq_movimiento_corrige` se traduce a `MovimientoYaCorregido` | Tests de esquema (TK-01) y de servicios (TK-02) |
-| 4 | Privilegios de `app_user` | TK-01 | TK-02, TK-03 | La aplicación solo hace `SELECT`/`INSERT` en `movimiento`, sin `FOR UPDATE` sobre esa tabla | Los tests de TK-02 y la prueba de integración corren como `app_user` |
-| 5 | Permisos de los grupos | TK-01 (migración `0003`) | TK-03 (y TK-04) | Los 2 grupos tienen `view_existencia`; *Lectura y escritura* además `add_movimiento` | Tests de vista de TK-03 con `consulta.demo` |
-| 6 | Búsqueda sin acentos | Semana 1 (`f_unaccent`, índices trigram) | TK-03 | El ORM usa exactamente `f_unaccent(lower(campo))` | Plan de ejecución (TK-03, verificación 4) |
-| 7 | *Fixtures* de prueba | TK-01 | TK-02, TK-03 | `datos_demo`, `demo`, `como_app_user`, `ejecutar_sql`, `saldo` | Los 3 tickets los usan sin modificarlos |
+| 4 | Privilegios de `app_user` | HB-03 (todas las tablas) y TK-01 (`movimiento`) | TK-02, TK-03 | La aplicación solo hace `SELECT`/`INSERT` en `movimiento`, sin `FOR UPDATE` sobre esa tabla | Los tests de TK-02 y la prueba de integración corren como `app_user` |
+| 5 | Permisos de los grupos | TK-01 (migración `0003`, sobre los grupos de HB-08) | TK-03 (y TK-04) | Los 2 grupos tienen `view_existencia`; *Lectura y escritura* además `add_movimiento` | Tests de vista de TK-03 con `consulta.demo` |
+| 6 | Búsqueda sin acentos | HB-05 (`f_unaccent`, índices trigram) | TK-03 | El ORM usa exactamente `f_unaccent(lower(campo))` | Plan de ejecución (TK-03, verificación 4) |
+| 7 | *Fixtures* de prueba | TK-01 (`ejecutar_sql` desde HB-03) | TK-02, TK-03 | `datos_demo`, `demo`, `como_app_user`, `ejecutar_sql`, `saldo` | Los 3 tickets los usan sin modificarlos |
 | 8 | Vista de conciliación | TK-01 | TK-02, prueba de integración | `v_conciliacion_existencia` vacía = todo cuadra | *Fixture* `autouse` de TK-02 |
 | 9 | Selector `buscar_existencias` | TK-03 | TK-05 (API) | Argumentos por nombre, igual que los campos de `FiltroExistenciasForm`; devuelve un `QuerySet[Existencia]` ordenado | Tests de selector de TK-03 |
 | 10 | Excepciones con `code` y `campo` | TK-02 | TK-04 (formularios), TK-05/V2 (API) | `code` igual a la sección 4.4; `DatoInvalido.campo` indica qué campo del formulario marcar | Tests de servicios de TK-02 |
-| 11 | `Entidad.activa` y `Entidad.__str__` | Semana 1 | TK-02, TK-03 | `activa`: el Hogar siempre, un residente solo si su estado es `ACTIVO`. `__str__`: nombre del Hogar o nombre completo del residente | Requisitos previos de cada guía |
+| 11 | `Entidad.activa` y `Entidad.__str__` | HB-06 | TK-01, TK-02, TK-03 | `activa`: el Hogar siempre, un residente solo si su estado es `ACTIVO`. `__str__`: nombre del Hogar o nombre completo del residente | Requisitos previos de cada guía |
 | 12 | Servicio de conteos y sus excepciones | TK-06 | TK-07 | `iniciar_conteo`, `capturar_renglon` y `cerrar_conteo` con argumentos por nombre; `ConteoCerrado` y `ConteoSinRenglones` con `code` de la sección 4.4; el conteo nunca ajusta existencias | Tests de servicio de TK-06 (PR 3, sección 7) |
 
 #### Prueba de integración final
@@ -2349,9 +2390,10 @@ Quién revisa: el Tech Lead, o, si el autor es el único desarrollador, el propi
 | Integración | No cambia un punto de integración sin avisar; la prueba de integración pasa | Bloqueante |
 | Seguridad | Sin secretos, sin datos personales en logs, permisos validados en el servidor, sin el filtro `safe` ni SQL armado con texto del usuario | Bloqueante |
 | Datos | Cantidades en `Decimal`; escrituras de inventario solo por `services.py`, dentro de una transacción | Bloqueante |
-| **BD** (TK-01) | Nombres idénticos a las secciones 3.1 y 3.3; toda migración reversible; `sqlmigrate` revisado; sin índices duplicados; privilegios de `app_user` intactos | Bloqueante |
+| **Infra** (HB-01 a HB-04) | Sin secretos en el repositorio, en la imagen ni en Compose; solo `nginx` publica puertos; `web` corre sin `root` y solo recibe sus variables; imágenes y dependencias con versión fija | Bloqueante |
+| **BD** (TK-01, HB-03, HB-05 a HB-07) | Nombres idénticos a las secciones 3.1 y 3.3; toda migración reversible; `sqlmigrate` revisado; sin índices duplicados; privilegios de `app_user` intactos | Bloqueante |
 | **Backend** (TK-02, TK-06) | Bloqueo en orden fijo; sin `FOR UPDATE` sobre `movimiento`; cada excepción con su `code`; el servicio valida antes de que actúe un *trigger* (el usuario nunca ve un `500` por una regla de negocio); *docstrings* con ejemplo | Bloqueante |
-| **Frontend** (TK-03) | Sin JavaScript en línea (CSP); `<label>` en cada campo; *responsive* a 390 px; la vista sin lógica de búsqueda; sin N+1 | Bloqueante |
+| **Frontend** (TK-03, HB-08, HB-09) | Sin JavaScript en línea (CSP); `<label>` en cada campo; *responsive* a 390 px; la vista sin lógica de búsqueda; sin N+1 | Bloqueante |
 | Legibilidad | Nombres y comentarios en español, como el resto del código; funciones cortas; sin código muerto | Sugerencia |
 | Documentación | El readme refleja cualquier cambio de diseño | Bloqueante si cambia un contrato |
 
@@ -2370,7 +2412,7 @@ Los comentarios se marcan como **[bloqueante]**, **[sugerencia]** o **[nit]** (d
 | Prioridad | Must, camino crítico |
 | Estimación | **5 puntos** |
 | Rama | `feature/TK-01-esquema-inventario` |
-| Depende de | Modelos `Medicamento`, `Entidad`, `Residente` y `Usuario` (semana 1), y extensiones `pg_trgm`, `unaccent`, `btree_gist` y función `f_unaccent` (sección 3.1) |
+| Depende de | HB-03 (`Usuario`, los 2 usuarios de BD y los privilegios de `app_user`), HB-05 a HB-07 (`Medicamento`, `Entidad`, `Residente`, `Pauta`, extensiones y `f_unaccent`) y HB-08 (los 2 grupos) |
 
 **Guía paso a paso:** [`docs/tickets/TK-01-esquema-inventario.md`](docs/tickets/TK-01-esquema-inventario.md). Incluye tareas, archivos, código, tests con ejemplos, criterios de calidad y comandos de verificación.
 
@@ -2383,11 +2425,10 @@ Los comentarios se marcan como **[bloqueante]**, **[sugerencia]** o **[nit]** (d
 | Tecnología | Versión | Uso en este ticket |
 |---|---|---|
 | PostgreSQL | 17 (`postgres:17-alpine`) | Tablas, `CHECK`, `UNIQUE`, columna generada, índices parciales, `INCLUDE` y BRIN, *triggers* en PL/pgSQL, vista de conciliación |
-| Extensiones `pg_trgm`, `unaccent`, `btree_gist` | Las de PostgreSQL 17 | Ya instaladas en la semana 1; este ticket las usa en índices y restricciones |
+| Extensiones `pg_trgm`, `unaccent`, `btree_gist` | Las de PostgreSQL 17 | Ya instaladas en HB-05; este ticket las usa en índices y restricciones |
 | Django ORM y migraciones | Django 5.2 LTS | `CheckConstraint(condition=...)`, `UniqueConstraint`, `GeneratedField`, `db_default`, `Index(include=..., condition=...)`, `RunSQL` y `RunPython` |
 | `django.contrib.postgres` | Incluido en Django | `BrinIndex` |
 | psycopg | 3.x (`psycopg[binary]`) | Controlador de PostgreSQL de Django |
-| Docker Compose + `docker-entrypoint-initdb.d` | El del proyecto | Crear `app_owner` y `app_user` al inicializar el volumen |
 | pytest + pytest-django | Las del proyecto (sección 2.6) | Tests de esquema y de privilegios |
 
 No agrega dependencias nuevas.
@@ -2417,6 +2458,7 @@ No agrega dependencias nuevas.
    - `fn_movimiento_inmutable` + `tg_movimiento_inmutable`.
    - `fn_movimiento_validar_destino` + `tg_movimiento_validar_destino`.
    - `fn_conteo_cerrado` + `tg_conteo_cerrado`, y `fn_detalle_conteo_cerrado` + `tg_detalle_conteo_cerrado`.
+   - `fn_medicamento_baja_sin_existencias` + `tg_medicamento_baja` (sección 3.3). Es del catálogo, pero consulta `existencia`, así que nace con esa tabla.
    - `ALTER TABLE existencia SET (fillfactor = 90)`.
    - Vista de conciliación: devuelve las existencias cuyo saldo no coincide con la suma de sus movimientos. Vacía = todo cuadra.
 
@@ -2447,33 +2489,24 @@ No agrega dependencias nuevas.
    | `app_owner` | `migrate`, la carga del mock y los tests | Crear y modificar tablas; es dueño de la base y del esquema `public` | — |
    | `app_user` | La aplicación (`web`) en tiempo de ejecución | `SELECT`, `INSERT`, `UPDATE` y `DELETE` en las tablas | `UPDATE`, `DELETE` ni `TRUNCATE` en `movimiento`; crear o alterar tablas; desactivar *triggers* |
 
-   - **`db/init/01_roles.sh`**: script de inicio del contenedor de PostgreSQL, montado en `/docker-entrypoint-initdb.d/`. Crea los 2 usuarios con las contraseñas de `.env` (`DB_OWNER_PASSWORD`, `DB_APP_PASSWORD`), deja a `app_owner` como dueño de la base y le da a `app_user` solo `CONNECT` y `USAGE` en el esquema. Con `GRANT app_user TO app_owner`, los tests pueden actuar como `app_user` (`SET ROLE`); esto no le da a `app_user` ningún permiso del dueño. Es idempotente (`IF NOT EXISTS`). PostgreSQL lo ejecuta solo al crear el volumen `pgdata`; en una base existente se ejecuta a mano.
-   - **Migración `accounts/migrations/0002_privilegios.py`** (`RunSQL`, la primera del proyecto que toca permisos), ejecutada por `app_owner`:
+   Los 2 usuarios y los privilegios generales **ya existen** cuando empieza este ticket:
+   - **HB-01**, `db/init/01_roles.sh`: script de inicio del contenedor de PostgreSQL, montado en `/docker-entrypoint-initdb.d/`. Crea los 2 usuarios con las contraseñas de `.env` (`DB_OWNER_PASSWORD`, `DB_APP_PASSWORD`), deja a `app_owner` como dueño de la base y le da a `app_user` solo `CONNECT` y `USAGE` en el esquema. Con `GRANT app_user TO app_owner`, los tests pueden actuar como `app_user` (`SET ROLE`); esto no le da a `app_user` ningún permiso del dueño. Es idempotente. En desarrollo y CI, `app_owner` tiene además `CREATEDB` para que `pytest` cree la base de tests; en producción no lo tiene.
+   - **HB-03**, migración `accounts/migrations/0002_privilegios.py` (`RunSQL`, ejecutada por `app_owner`): da a `app_user` `SELECT`, `INSERT`, `UPDATE` y `DELETE` sobre todas las tablas, también las que creen las migraciones siguientes (`ALTER DEFAULT PRIVILEGES`). Va en una migración, y no en el script de inicio, porque los permisos por defecto son de cada base: así también aplican en la base de tests que crea `pytest`.
+   - **HB-03**, `scripts/migrate.sh`: ejecuta `migrate` con las credenciales de `app_owner`. El contenedor `web` arranca con `DB_USER=app_user`.
 
-     ```sql
-     GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_user;
-     GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
-     -- Las tablas que creen las migraciones siguientes nacen con estos permisos
-     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_user;
-     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO app_user;
-     ```
-
-     Va en una migración, y no en el script de inicio, porque los permisos por defecto son de cada base: así también aplican en la base de tests que crea `pytest`.
-   - **En la migración de `movimiento`**, después de crear la tabla: `REVOKE UPDATE, DELETE, TRUNCATE ON movimiento FROM app_user;` (con su `reverse_sql`, que vuelve a dar esos permisos).
-   - **`scripts/migrate.sh`**: ejecuta `migrate` con las credenciales de `app_owner` (`docker compose run --rm -e DB_USER=app_owner -e DB_PASSWORD=... web python manage.py migrate`). El contenedor `web` arranca con `DB_USER=app_user`.
-   - En desarrollo y CI, `app_owner` tiene además `CREATEDB` para que `pytest` cree la base de tests; en producción no lo tiene.
+   Este ticket agrega lo propio de `movimiento`: **en su migración**, después de crear la tabla, `REVOKE UPDATE, DELETE, TRUNCATE ON movimiento FROM app_user;` (con su `reverse_sql`, que vuelve a dar esos permisos). Las tablas nuevas dependen de `accounts.0002_privilegios` para nacer con los permisos de `app_user`.
 
 6. **Migración de datos** (`inventario/migrations/0002_motivos_baja.py`) de los 8 motivos de baja (`CONSUMO` … `CORRECCION`), idempotente con `update_or_create` por `clave` y con su función inversa.
 
-7. **Permisos de los grupos** (`inventario/migrations/0003_permisos_grupos.py`): los grupos se crearon en la semana 1, antes que estos modelos. La migración les asigna `view_existencia`, `view_movimiento` y `view_motivobaja`, y a *Lectura y escritura* además `add_movimiento`. Nadie recibe `change_movimiento` ni `delete_movimiento`.
+7. **Permisos de los grupos** (`inventario/migrations/0003_permisos_grupos.py`): los grupos se crearon en HB-08, antes que estos modelos. La migración les asigna `view_existencia`, `view_movimiento` y `view_motivobaja`, y a *Lectura y escritura* además `add_movimiento`. Nadie recibe `change_movimiento` ni `delete_movimiento`.
 
-8. **Admin:** ninguno de estos modelos se registra en `/admin/` (sección 5, "Controles"). Se agrega un test que lo verifica.
+8. **Admin:** ninguno de estos modelos se registra en `/admin/` (sección 5, "Controles"). Se agrega un test que lo verifica. Además, el formulario de `MedicamentoAdmin` (HB-09) rechaza desmarcar `activo` si el medicamento tiene existencias, con el mensaje de la sección 5. Esa validación necesita la tabla `existencia`, por eso va aquí.
 
-9. **Fixtures de prueba compartidos** (punto de integración 7): `datos_demo` (carga el mock con `cargar_mock.sql` adaptado), `demo` (accesos a entidades, medicamentos, motivos y usuario), `como_app_user` (el test corre con los permisos de la aplicación) y los helpers `ejecutar_sql` y `saldo`. TK-02 y TK-03 los usan sin modificarlos.
+9. **Fixtures de prueba compartidos** (punto de integración 7): `datos_demo` (carga el mock con `cargar_mock.sql` adaptado), `demo` (accesos a entidades, medicamentos, motivos y usuario), `como_app_user` (el test corre con los permisos de la aplicación) y el helper `saldo`, junto a `ejecutar_sql` (de HB-03). TK-02 y TK-03 los usan sin modificarlos.
 
-10. **`Makefile` de la raíz:** atajos de desarrollo local (`make up`, `make migrate`, `make test`, `make mock`…) sobre los mismos comandos de la guía, con `make help` como punto de entrada. Se crea en este ticket porque envuelve `docker-compose.yml` y `scripts/migrate.sh`, que nacen aquí. El CI no lo usa.
+10. **`Makefile` de la raíz:** atajos de desarrollo local (`make up`, `make migrate`, `make test`, `make mock`…) sobre los mismos comandos de la guía, con `make help` como punto de entrada. Se crea en este ticket porque es el primero en que todos sus comandos funcionan (`make mock` necesita las tablas de inventario y `make test` los *fixtures*). El CI no lo usa.
 
-**Fuera de alcance:** la lógica de negocio (TK-02), las pantallas y la API, y las tablas de catálogo, entidades y pautas (semana 1).
+**Fuera de alcance:** la lógica de negocio (TK-02), las pantallas y la API, los usuarios de base de datos (HB-01 y HB-03) y las tablas de catálogo, entidades y pautas (HB-05 a HB-07).
 
 **Criterios de aceptación**
 - [ ] `python manage.py migrate` crea el esquema en una base vacía, y `migrate inventario zero` y `migrate conteos zero` lo revierten sin errores.
@@ -2496,6 +2529,7 @@ No agrega dependencias nuevas.
   | `UPDATE existencia SET saldo = -1` | Viola `ck_existencia_saldo` |
   | Entrada a un residente egresado | Error de `tg_movimiento_validar_destino` |
   | Insertar un renglón en el conteo 1 (cerrado) | Error de `tg_detalle_conteo_cerrado` |
+  | Desmarcar `activo` de un medicamento con existencias | Error de `tg_medicamento_baja`; en el panel, el mensaje del formulario |
   | `UPDATE detalle_conteo SET diferencia = 0` | Error: columna generada |
   | Como `app_user`: `UPDATE`, `DELETE` o `TRUNCATE` sobre `movimiento` | `permission denied for table movimiento` |
   | Como `app_user`: `ALTER TABLE movimiento DISABLE TRIGGER ALL` | `must be owner of table movimiento` |
@@ -2509,14 +2543,14 @@ No agrega dependencias nuevas.
 - `apps/inventario/tests/test_esquema.py` y `apps/conteos/tests/test_esquema.py`: un test por fila de la tabla anterior, con `pytest.raises(IntegrityError)` o `InternalError` y verificación del nombre de la restricción en el mensaje.
 - Test de migraciones: aplicar y revertir hasta `zero` en CI.
 - Test que comprueba que `admin.site` no tiene registrados `Movimiento`, `Existencia`, `ConteoFisico` ni `DetalleConteo`.
-- `apps/accounts/tests/test_privilegios.py`: consulta `has_table_privilege('app_user', 'movimiento', 'UPDATE' | 'DELETE' | 'TRUNCATE')` (falso) y `'INSERT'` (verdadero), recorre todas las tablas para verificar que el dueño sea `app_owner`, y ejecuta las 2 últimas filas de la tabla anterior con una conexión como `app_user` (`SET ROLE app_user` dentro de la transacción del test).
+- `apps/accounts/tests/test_privilegios.py` (lo crea HB-03 con los tests de dueño y permisos generales): este ticket agrega los de `movimiento`. Consulta `has_table_privilege('app_user', 'movimiento', 'UPDATE' | 'DELETE' | 'TRUNCATE')` (falso) y `'INSERT'` (verdadero), y ejecuta las 2 filas de `app_user` de la tabla anterior con una conexión como `app_user` (`SET ROLE app_user` dentro de la transacción del test).
 - CI: el servicio de PostgreSQL ejecuta `db/init/01_roles.sh` antes de los tests, igual que en desarrollo.
 - Test de plan de ejecución: `connection.cursor().execute('EXPLAIN …')` y verificación del nombre del índice en el plan (marcado `@pytest.mark.lento`, corre en CI nocturno).
 
 **Definición de hecho**
 - [ ] Criterios de aceptación cumplidos y definición de hecho común.
 - [ ] Migraciones revisadas línea por línea en el PR: el SQL generado (`sqlmigrate`) coincide con el DDL de las secciones 3.1 y 3.3.
-- [ ] `db/init/01_roles.sh`, `scripts/migrate.sh` y las variables nuevas de `.env.example` documentados en la sección 2.4.
+- [ ] El `Makefile` y sus comandos documentados en la sección 1.4.
 - [ ] El diagrama ER de la sección 3.1 sigue siendo fiel al esquema; si algo cambió, se actualizó.
 
 **Riesgos**
@@ -2674,7 +2708,7 @@ No agrega dependencias nuevas.
 | Tecnología | Versión | Uso en este ticket |
 |---|---|---|
 | Django | 5.2 LTS | `ListView`, `LoginRequiredMixin`, `PermissionRequiredMixin`, formularios, filtro de plantilla propio y la etiqueta `{% querystring %}` (Django 5.1+) |
-| Bootstrap | 5.3 (de `base.html`, semana 1) | Rejilla *responsive*, tabla en escritorio y `list-group` en el celular, `d-md-none` / `d-md-table` |
+| Bootstrap | 5.3 (de `base.html`, HB-08) | Rejilla *responsive*, tabla en escritorio y `list-group` en el celular, `d-md-none` / `d-md-table` |
 | HTMX | 2.0.x, servido desde `static/` | `hx-get`, `hx-trigger` con espera, `hx-target`, `hx-push-url`, `hx-swap-oob`, `hx-indicator` |
 | django-htmx | Última estable, fijada en `requirements.txt` | `request.htmx` y `HttpResponseClientRedirect` (**dependencia nueva**) |
 | pytest-django | La del proyecto | Tests de selector y de vista (`client`, `CaptureQueriesContext`) |
@@ -2762,6 +2796,263 @@ No agrega dependencias nuevas.
 - Que la búsqueda no use el índice si la expresión del ORM no coincide exactamente con la del índice: se cubre con el test de plan de ejecución de TK-01 aplicado al selector.
 - Tablas con nombres largos en el celular: se resuelve con las tarjetas y con `text-break`.
 
+---
+
+#### Tickets de habilitación (HB-01 a HB-09)
+
+Dejan lista la base sobre la que se construyen TK-01 a TK-07: contenedores, conexión segura a la base de datos, modelos de catálogo, residentes y pautas, y los habilitadores del panel `/admin/` (sección 5). Cada ticket tiene una guía paso a paso en [`docs/tickets/`](docs/tickets/) con tareas, archivos, código de referencia, tests con ejemplos, criterios de calidad, comandos de verificación y problemas frecuentes. Aplica además la definición de hecho común.
+
+**Decisiones de diseño de la habilitación:**
+- **Los 2 usuarios de base de datos existen desde el primer día** (HB-01 y HB-03), y no desde TK-01. Así la aplicación nunca corre como dueño de las tablas, y el CI, que ya los espera, funciona desde el primer ticket con código.
+- **La conexión usa variables separadas** (`DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`) y no una sola `DATABASE_URL`. Los tests y `migrate.sh` cambian solo el usuario y la contraseña para conectarse como `app_owner`, y las contraseñas con caracteres especiales no necesitan codificarse para una URL. Son las mismas variables del CI.
+- **Nginx entra en la semana 1** (HB-04), para probar el login y el panel por HTTPS desde el principio, con la CSP real.
+- **Las pautas solo tienen esquema** (HB-07): son *Could*, pero el dataset mock inserta pautas y TK-01 lo carga.
+- **El CI activa cada *job* cuando existe lo que necesita** (sección 7.3, regla 5): `lint` e `imagen` con `app/manage.py` (HB-02), `tests` con `app/conftest.py` (HB-03) y `e2e` con `app/e2e/` (TK-03).
+
+---
+
+**HB-01 · [Infra] Servicio de PostgreSQL y usuarios de base de datos**
+
+| Campo | Valor |
+|---|---|
+| Tipo | Infraestructura |
+| Prioridad | Must, habilitador (semana 1) |
+| Estimación | **2 puntos** |
+| Rama | `feature/HB-01-postgresql` |
+| Depende de | — |
+| Guía | [`docs/tickets/HB-01-postgresql.md`](docs/tickets/HB-01-postgresql.md) |
+
+**Descripción técnica.** Crea `docker-compose.yml` con **solo** el servicio `db` (sección 2.4.1): imagen `postgres:17-alpine`, volumen `pgdata`, red `backend`, *healthcheck* con `pg_isready` y ningún puerto publicado. Monta `db/init/` en `/docker-entrypoint-initdb.d/` (solo lectura), donde `01_roles.sh` crea `app_owner` (dueño de la base y del esquema `public`, con `CREATEDB` solo si `DB_OWNER_CREATEDB=true`) y `app_user` (solo `CONNECT` y `USAGE`), de forma idempotente. Agrega `.env.example` con `POSTGRES_*`, `DB_OWNER_PASSWORD`, `DB_OWNER_CREATEDB` y `DB_APP_PASSWORD`, y un `.gitattributes` que fuerza LF en los `.sh`. Compose falla con un mensaje claro si falta una contraseña (`${VAR:?}`).
+
+**Criterios de aceptación**
+- [ ] `docker compose up -d db` deja `db` en `healthy` en menos de 30 s.
+- [ ] Con un volumen nuevo, `\du` muestra `app_owner` (`Create DB` en desarrollo) y `app_user` sin atributos.
+- [ ] `app_owner` es dueño de la base `hogar` y del esquema `public`.
+- [ ] `app_user` se autentica por TCP con la contraseña de `.env` y no puede crear tablas (`permission denied for schema public`).
+- [ ] Ejecutar `01_roles.sh` por segunda vez no da error.
+- [ ] `docker compose port db 5432` no muestra ningún puerto publicado, y los datos sobreviven a `docker compose restart db`.
+
+**Definición de hecho**
+- [ ] `.env` fuera del repositorio; `.env.example` solo con valores de ejemplo.
+- [ ] `01_roles.sh` con fin de línea LF y permiso de ejecución en Git.
+- [ ] Salida de `\du` y del `CREATE TABLE` rechazado en el PR.
+
+---
+
+**HB-02 · [Infra] Proyecto Django, imagen y servicio `web`**
+
+| Campo | Valor |
+|---|---|
+| Tipo | Infraestructura |
+| Prioridad | Must, habilitador (semana 1) |
+| Estimación | **3 puntos** |
+| Rama | `feature/HB-02-imagen-web` |
+| Depende de | HB-01 |
+| Guía | [`docs/tickets/HB-02-imagen-web.md`](docs/tickets/HB-02-imagen-web.md) |
+
+**Descripción técnica.** Crea el proyecto Django 5.2 en `app/`, con la configuración separada en `config/settings/{base,local,prod}.py` (sección 2.3). `SECRET_KEY` (obligatoria), `DEBUG` y `ALLOWED_HOSTS` vienen del entorno, con `es-mx`, `America/Mexico_City` y `USE_TZ = True`. `DATABASES` todavía no se define: Django arranca con el backend `dummy` hasta HB-03. Agrega `requirements.txt` (Django, Gunicorn) y `requirements-dev.txt` (pytest, pytest-django, pytest-cov, ruff) con versiones fijas, y `pyproject.toml` con la configuración de ruff. El `Dockerfile` (`python:3.12-slim`) instala primero las dependencias, solo instala las de desarrollo con `INSTALAR_DEV=true`, corre como el usuario sin privilegios `django` y arranca Gunicorn en el puerto 8000. En Compose, `web` monta `./app` y el volumen `static`, está en las redes `frontend` y `backend`, espera a `db` sana, recibe solo sus variables (sin contraseñas de PostgreSQL) y no publica puertos.
+
+**Criterios de aceptación**
+- [ ] `docker compose up -d` deja `db` sana y `web` corriendo; `manage.py check` no reporta problemas.
+- [ ] Una petición a `http://localhost:8000/` desde el contenedor responde `404` de Django (Gunicorn atiende).
+- [ ] `whoami` en `web` responde `django`, y `web` no publica puertos.
+- [ ] `web` alcanza `db:5432` por la red `backend` y no recibe `POSTGRES_PASSWORD` ni `DB_OWNER_PASSWORD`.
+- [ ] Sin `SECRET_KEY` en `.env`, Compose se niega a arrancar con un mensaje claro.
+- [ ] La imagen construida con `INSTALAR_DEV=false` (la del CI) no contiene pytest.
+- [ ] En el PR, el CI corre `lint` y `build de la imagen` en verde, y `tests` y `e2e` aparecen saltados.
+
+**Definición de hecho**
+- [ ] Versiones fijadas anotadas en el PR.
+- [ ] `ruff check` y `ruff format --check` sin errores.
+
+---
+
+**HB-03 · [Infra/BD] Integración de Django con PostgreSQL**
+
+| Campo | Valor |
+|---|---|
+| Tipo | Infraestructura y base de datos |
+| Prioridad | Must, habilitador (semana 1) |
+| Estimación | **3 puntos** |
+| Rama | `feature/HB-03-conexion-bd` |
+| Depende de | HB-02 |
+| Guía | [`docs/tickets/HB-03-conexion-bd.md`](docs/tickets/HB-03-conexion-bd.md) |
+
+**Descripción técnica.** Configura `DATABASES` desde `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` y `DB_PASSWORD`. En Compose, `web` se conecta como `app_user`. Crea `scripts/migrate.sh`, que ejecuta `migrate` como `app_owner`. Agrega `psycopg[binary]` y `Django[argon2]`. Crea la app `accounts` con el modelo `Usuario(AbstractUser)` (tabla `usuario`, sección 3.2, D1) y `AUTH_USER_MODEL = "accounts.Usuario"` **antes del primer `migrate`**. Configura Argon2 como *hasher* principal (PBKDF2 se conserva para el mock) y los validadores de contraseña (mínimo 10 caracteres). Crea la migración `accounts/0002_privilegios.py`: `app_user` recibe `SELECT`, `INSERT`, `UPDATE` y `DELETE` sobre todas las tablas, también las futuras (`ALTER DEFAULT PRIVILEGES`). Configura pytest en `pyproject.toml` (con el marcador `lento`) y crea `conftest.py`, que activa el *job* `tests` del CI, y `pruebas.py`, con el helper `ejecutar_sql`.
+
+**Criterios de aceptación**
+- [ ] En una base nueva, `./scripts/migrate.sh` aplica `accounts.0001_initial` y `0002_privilegios` sin errores.
+- [ ] Desde `web`, `SELECT current_user` devuelve `app_user`; `dj migrate` falla por falta de permisos (las migraciones solo corren con `migrate.sh`).
+- [ ] Todas las tablas son de `app_owner`; `app_user` tiene los 4 permisos sobre ellas y no puede crear tablas.
+- [ ] Una tabla creada por `app_owner` después de `0002` nace con los permisos de `app_user`.
+- [ ] Las contraseñas nuevas se guardan con Argon2, y un *hash* PBKDF2 del mock se valida.
+- [ ] `migrate accounts 0001` revierte los privilegios y `migrate` los vuelve a aplicar.
+- [ ] El *job* `tests` del CI corre y pasa, con cobertura ≥ 80 % en `apps/`.
+
+**Definición de hecho**
+- [ ] Ninguna contraseña en el código: solo `os.environ`.
+- [ ] Salida de `showmigrations accounts` y de `current_user` en el PR.
+
+---
+
+**HB-04 · [Infra] Nginx con HTTPS local**
+
+| Campo | Valor |
+|---|---|
+| Tipo | Infraestructura |
+| Prioridad | Must, habilitador (semana 1) |
+| Estimación | **2 puntos** |
+| Rama | `feature/HB-04-nginx` |
+| Depende de | HB-03 |
+| Guía | [`docs/tickets/HB-04-nginx.md`](docs/tickets/HB-04-nginx.md) |
+
+**Descripción técnica.** Agrega el servicio `nginx` (`nginx:stable-alpine`, red `frontend`, puertos 80 y 443, el único contenedor que publica puertos) con `nginx/default.conf`. Redirige 80 → 443, termina TLS 1.2+ con el certificado de `mkcert` (`nginx/certs/`, fuera del repositorio), sirve `/static/` desde el volumen `static` y reenvía el resto a `web:8000` con `X-Forwarded-For` y `X-Forwarded-Proto`. Aplica las cabeceras de la sección 2.5: HSTS, `X-Frame-Options: DENY`, `X-Content-Type-Options`, `Referrer-Policy` y una `Content-Security-Policy` de solo recursos propios, y oculta las que repite Django. En Django: `SECURE_PROXY_SSL_HEADER`, `CSRF_TRUSTED_ORIGINS` desde el entorno y *cookies* `Secure`. En `prod.py` se silencian los avisos de HSTS y redirección, porque los hace nginx.
+
+**Criterios de aceptación**
+- [ ] `http://localhost/` responde `301` a `https://localhost/`.
+- [ ] `https://localhost/admin/login/` responde `200` con las 5 cabeceras de seguridad, y el certificado es de confianza en el equipo de desarrollo.
+- [ ] `/static/admin/css/base.css` lo sirve nginx (sin pasar por Django).
+- [ ] Solo `nginx` publica puertos, y `nginx` no alcanza a `db`.
+- [ ] El Administrador de HB-03 entra al panel por HTTPS sin error de CSRF ni violaciones de CSP en la consola.
+- [ ] Django reconoce HTTPS por la cabecera de nginx y rechaza formularios de otro origen (`403`).
+
+**Definición de hecho**
+- [ ] `nginx -t` sin errores; certificados fuera del repositorio.
+- [ ] Cabeceras y tabla de puertos en el PR.
+
+---
+
+**HB-05 · [BD] Catálogo de medicamentos (D2)**
+
+| Campo | Valor |
+|---|---|
+| Tipo | Base de datos |
+| Prioridad | Must, habilitador (semana 2) |
+| Estimación | **3 puntos** |
+| Rama | `feature/HB-05-catalogo` |
+| Depende de | HB-03 |
+| Guía | [`docs/tickets/HB-05-catalogo.md`](docs/tickets/HB-05-catalogo.md) |
+
+**Descripción técnica.** Crea la app `catalogo`. Su primera migración instala `btree_gist`, `pg_trgm` y `unaccent`, y crea la función `f_unaccent` (sección 3.1); depende de `accounts.0002_privilegios`. Modelos `Presentacion`, `PrincipioActivo`, `Medicamento` y la tabla puente `MedicamentoPrincipioActivo`, con los nombres de la sección 3.2. Restricciones en `Meta.constraints`, que el panel valida antes de llegar a la base: `uq_medicamento_nombre_pres_conc` y `uq_principio_activo_nombre` (únicos por expresión `f_unaccent(lower(...))`, con mensaje), `ck_medicamento_tipo`, `ck_medicamento_textos`, `ck_principio_activo_nombre`, `ck_presentacion_nombre` y `uq_mpa_medicamento_principio`. Índices `ix_medicamento_nombre_trgm` (GIN parcial, `WHERE activo`), `ix_principio_activo_trgm` e `ix_mpa_principio_medicamento`, sin índices duplicados sobre las FK de la tabla puente. Migración de datos con las 8 presentaciones. Crea `apps/expresiones.py` con `sin_acentos()` (la expresión exacta de los índices) y `no_vacio()`.
+
+**Criterios de aceptación**
+- [ ] `\dx` muestra las 3 extensiones, y `f_unaccent(lower('Losartán'))` devuelve `losartan`.
+- [ ] `\d medicamento` muestra todas las restricciones e índices con sus nombres exactos.
+- [ ] "LOSARTAN 50 MG tableta" se rechaza si existe "Losartán 50 mg tableta"; con `full_clean()` el error es un mensaje, no una excepción de la base.
+- [ ] Textos solo con espacios y tipos fuera de `GENERICO`/`ORIGINAL` se rechazan en la base.
+- [ ] El plan de ejecución de la búsqueda por nombre desde el ORM usa `ix_medicamento_nombre_trgm` (test `lento`).
+- [ ] Existen las 8 presentaciones semilla, y `migrate catalogo zero` revierte todo.
+
+**Definición de hecho**
+- [ ] `sqlmigrate` revisado contra las secciones 3.1 y 3.3.
+- [ ] Salida de `\d medicamento` y del test `lento` en el PR.
+
+---
+
+**HB-06 · [BD] Entidades: el Hogar y los residentes (D3)**
+
+| Campo | Valor |
+|---|---|
+| Tipo | Base de datos |
+| Prioridad | Must, habilitador (semana 2) |
+| Estimación | **3 puntos** |
+| Rama | `feature/HB-06-entidades` |
+| Depende de | HB-05 |
+| Guía | [`docs/tickets/HB-06-entidades.md`](docs/tickets/HB-06-entidades.md) |
+
+**Descripción técnica.** Crea la app `entidades` con `Entidad` (supertipo) y `Residente` (subtipo, con la misma clave). Restricciones `uq_entidad_un_hogar`, `uq_entidad_id_tipo`, `ck_entidad_tipo`, `ck_entidad_nombre`, `ck_entidad_nombre_no_vacio`, `ck_residente_tipo`, `ck_residente_estado`, `ck_residente_baja`, `ck_residente_fechas`, `ck_residente_nombres` y `ck_residente_nacimiento` (secciones 3.1 y 3.3), y el índice `ix_residente_nombre`. La FK compuesta `fk_residente_entidad (entidad_id, tipo) → entidad (id, tipo)` va en una migración `RunSQL`, porque Django no declara FK compuestas. Una migración de datos crea el Hogar con el nombre de `HOGAR_NOMBRE` (por defecto, "Hogar Gerontológico Demo"). Provee el punto de integración 11: `Entidad.activa` y `Entidad.__str__`. El alta pasa por `services.registrar_residente()`, que crea la entidad y el residente en una sola transacción.
+
+**Criterios de aceptación**
+- [ ] La migración crea un solo Hogar, con `id = 1` en una base nueva; un segundo Hogar viola `uq_entidad_un_hogar`.
+- [ ] Un residente no puede colgar del Hogar (`fk_residente_entidad`).
+- [ ] Cada `CHECK` de entidad y residente rechaza su caso inválido (un test por restricción).
+- [ ] `activa` es verdadero para el Hogar y para los residentes `ACTIVO`, y falso para `EGRESADO` y `FALLECIDO`; `str()` devuelve el nombre del Hogar o "Carmen Torres Vega", sin los nombres vacíos.
+- [ ] `registrar_residente()` con datos inválidos lanza `ValidationError` y no deja una entidad suelta; funciona como `app_user`.
+- [ ] `migrate entidades zero` revierte todo.
+
+**Definición de hecho**
+- [ ] `sqlmigrate` revisado contra las secciones 3.1 y 3.3.
+- [ ] Salida de `\d residente` y de la fila del Hogar en el PR.
+
+---
+
+**HB-07 · [BD] Esquema de pautas (D6)**
+
+| Campo | Valor |
+|---|---|
+| Tipo | Base de datos |
+| Prioridad | Must como esquema (el mock lo necesita); las pantallas de pautas son *Could* |
+| Estimación | **2 puntos** |
+| Rama | `feature/HB-07-pautas` |
+| Depende de | HB-06 |
+| Guía | [`docs/tickets/HB-07-pautas.md`](docs/tickets/HB-07-pautas.md) |
+
+**Descripción técnica.** Crea la app `pautas` con el modelo `Pauta` (sección 3.2, D6): `dosis` `numeric(6,2)`, `frecuencia_horas` `smallint` y la vigencia `fecha_inicio`/`fecha_fin`. Restricciones `ck_pauta_dosis`, `ck_pauta_frecuencia`, `ck_pauta_fechas` y la de exclusión `ex_pauta_sin_traslape` (`ExclusionConstraint` con `daterange(..., '[]')`, sobre `btree_gist`). Índices `ix_pauta_vigente` (parcial) e `ix_pauta_residente_inicio`, sin índice propio sobre `residente_id`. Migración `RunSQL` con `fn_pauta_validar` + `tg_pauta_validar` (sección 3.3). Sin pantallas y sin registro en `/admin/`.
+
+**Criterios de aceptación**
+- [ ] `\d pauta` muestra las restricciones, los 2 índices y el *trigger* con sus nombres exactos.
+- [ ] Dosis 0, frecuencia 0 o 169 y fin anterior al inicio se rechazan.
+- [ ] 2 pautas traslapadas del mismo residente y medicamento se rechazan (también si una termina el día en que empieza la otra); cerrar la vigente permite registrar la nueva.
+- [ ] No se registran pautas de residentes egresados ni de medicamentos dados de baja.
+- [ ] `migrate pautas zero` revierte todo.
+
+**Definición de hecho**
+- [ ] Salida de `\d pauta` en el PR.
+
+---
+
+**HB-08 · [Backend/Frontend] Login, grupos y usuarios**
+
+| Campo | Valor |
+|---|---|
+| Tipo | Backend y frontend |
+| Prioridad | Must, habilitador (semana 2) |
+| Estimación | **3 puntos** |
+| Rama | `feature/HB-08-login-grupos` |
+| Depende de | HB-04, HB-06 |
+| Guía | [`docs/tickets/HB-08-login-grupos.md`](docs/tickets/HB-08-login-grupos.md) |
+
+**Descripción técnica.** Página de inicio de sesión propia en `/accounts/login/` y cierre de sesión por `POST`, con la plantilla común `base.html` (Bootstrap 5.3 servido desde `static/`, sin CDN ni JavaScript en línea, por la CSP), que heredarán todas las pantallas. Migración de datos con los 2 grupos: **Solo lectura** recibe `view_*` y **Lectura y escritura** `view_*`, `add_*` y `change_*`, sobre los modelos del catálogo y de residentes. Nadie recibe `delete_*`. Migración `RunSQL` con `uq_usuario_un_grupo`. En el panel, `UsuarioAdmin` exige exactamente un grupo a quien no es Administrador, le activa `is_staff` y no permite borrar usuarios; los grupos no se crean ni se borran a mano. Seguridad de la sección 2.5: `django-axes` bloquea la cuenta 15 min tras 5 intentos fallidos, y la sesión expira tras 30 min de inactividad y al cerrar el navegador.
+
+**Criterios de aceptación**
+- [ ] `/` lleva al login; con credenciales correctas se entra al panel y con incorrectas aparece "Usuario o contraseña incorrectos".
+- [ ] Existen exactamente los 2 grupos con sus permisos; ninguno tiene `delete_*` ni permisos sobre usuarios.
+- [ ] Un usuario no puede tener 2 grupos (`uq_usuario_un_grupo`), y el formulario del panel avisa si se elige ninguno o más de uno.
+- [ ] Solo el Administrador ve "Usuarios" y "Grupos" (`403` para los demás), y nadie borra usuarios.
+- [ ] El sexto intento tras 5 contraseñas incorrectas responde `429` con el mensaje de cuenta bloqueada.
+- [ ] El login tiene `<label>` en cada campo, se usa bien a 390 px y no tiene violaciones de CSP.
+
+**Definición de hecho**
+- [ ] Capturas del login en escritorio y celular en el PR.
+- [ ] Versión de `django-axes` fijada y anotada.
+
+---
+
+**HB-09 · [Panel] Catálogo y residentes en `/admin/`**
+
+| Campo | Valor |
+|---|---|
+| Tipo | Panel de administración |
+| Prioridad | Must, habilitador (semana 2) |
+| Estimación | **2 puntos** |
+| Rama | `feature/HB-09-admin-catalogo-residentes` |
+| Depende de | HB-08 |
+| Guía | [`docs/tickets/HB-09-admin-catalogo-residentes.md`](docs/tickets/HB-09-admin-catalogo-residentes.md) |
+
+**Descripción técnica.** Registra en el panel `Presentacion`, `PrincipioActivo`, `Medicamento` (con sus principios activos en línea, al menos uno, con *autocomplete*) y `Residente`, con los "Controles" de la sección 5: sin la acción "Eliminar" (la baja es lógica), búsqueda sin mayúsculas ni acentos con `f_unaccent(lower(...))`, filtros por estado, tipo y presentación, y sin consultas N+1 en las listas. El alta de residentes llama a `registrar_residente()` y no pide el estado; el egreso o la defunción se registran cambiando `estado` y `fecha_baja`. `Entidad` no se registra: el Hogar es fijo. Las reglas comunes viven en `apps/panel.py`.
+
+**Criterios de aceptación**
+- [ ] *Solo lectura* consulta el catálogo y los residentes (`200`), pero no da de alta ni cambia nada (`403`).
+- [ ] *Lectura y escritura* da de alta un medicamento con su principio activo en la misma pantalla; sin principio activo, el formulario avisa.
+- [ ] Un duplicado sin acentos y un egreso sin fecha de baja muestran un mensaje junto al formulario, nunca un `500`.
+- [ ] Desmarcar `activo` da de baja un medicamento; nadie puede borrar (`403`, incluido el Administrador).
+- [ ] Buscar "losartan" encuentra "Losartán" por nombre y por principio activo; "hernandez" encuentra "Hernández".
+- [ ] El alta de un residente crea su entidad `RESIDENTE` y lo deja `ACTIVO`.
+
+**Definición de hecho**
+- [ ] Capturas del alta de un medicamento y del mensaje de duplicado en el PR.
+- [ ] Sin violaciones de CSP en el panel.
+
 **Documentación proceso para esta seccion:** [06-tickets-trabajo.md](06-tickets-trabajo.md)
 
 ---
@@ -2846,7 +3137,7 @@ Con un solo desarrollador, GitHub no permite aprobar un PR propio. Por eso la ap
 > | 2 | Primero se integra `ci.yml` y se abre un PR para que los *jobs* corran; después se marcan como obligatorios | GitHub solo deja elegir *checks* que ya se ejecutaron alguna vez en el repositorio |
 > | 3 | El workflow corre **siempre**: nada de `paths:` ni `paths-ignore:` en `on:` | Si el workflow no corre, el *check* obligatorio nunca se reporta y el PR queda bloqueado |
 > | 4 | `e2e` se salta con una condición `if:` cuando el PR no toca el frontend (lo detecta el *job* `detectar cambios`) | Un *job* saltado cuenta como aprobado. En `push` a `main` y en el CI nocturno, `e2e` corre siempre |
-> | 5 | Mientras no exista `app/manage.py`, `lint`, `tests` y `e2e` se saltan | Los PR de solo documentación (como esta entrega) no fallan por falta de código |
+> | 5 | Cada *job* se activa cuando existe lo que necesita: `lint` e `imagen` con `app/manage.py` (HB-02), `tests` con `app/conftest.py` (HB-03) y `e2e` con `app/e2e/` (TK-03). Antes, se saltan | Los PR de solo documentación (como esta entrega) y los primeros tickets de habilitación no fallan por algo que todavía no existe |
 > | 6 | Los tests marcados `lento` (planes de ejecución) solo corren en el CI nocturno | Mantiene rápido el CI de cada PR |
 > | 7 | `detectar cambios` y `build de la imagen` corren pero **no** son obligatorios | El primero es auxiliar; el segundo verifica el `Dockerfile` sin bloquear PR de documentación |
 > | 8 | **La protección de ramas solo funciona en repositorios públicos** con una cuenta gratuita de GitHub | En un repositorio privado se necesita GitHub Pro, Team o Enterprise. Sin eso, las reglas de 7.3 son un acuerdo de trabajo: antes del *merge*, el autor comprueba a mano que `lint`, `tests` y `e2e` estén en verde |

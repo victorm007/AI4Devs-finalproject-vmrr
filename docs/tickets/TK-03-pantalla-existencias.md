@@ -25,7 +25,7 @@
 ### 0.2 Requisitos previos
 
 - TK-01 integrado en `main` (tablas y `datos_demo`). TK-02 no es obligatorio: el mock ya trae saldos.
-- De la semana 1: `base.html` con Bootstrap 5, el login de Django en `LOGIN_URL` (por defecto `/accounts/login/`), `Entidad.__str__` devuelve el nombre del Hogar o el nombre completo del residente, y `Medicamento` tiene el campo `principios_activos` (muchos a muchos).
+- De los tickets de habilitación: `base.html` con Bootstrap 5 y el login de Django en `LOGIN_URL` (`/accounts/login/`, HB-08); `Entidad.__str__` devuelve el nombre del Hogar o el nombre completo del residente (HB-06); `Medicamento` tiene el campo `principios_activos` (muchos a muchos, HB-05), y <https://localhost> funciona con HTTPS (HB-04).
 
 ```bash
 git switch main && git pull
@@ -582,7 +582,7 @@ def test_sin_resultados(demo):
     assert filas(buscar_existencias(q="ibuprofeno")) == []
 ```
 
-> Si los nombres que imprime `str(e.entidad)` no coinciden (por ejemplo, el formato del nombre del residente), ajusta el test al `__str__` real de la semana 1, no al revés.
+> Si los nombres que imprime `str(e.entidad)` no coinciden (por ejemplo, el formato del nombre del residente), ajusta el test al `__str__` real de HB-06, no al revés.
 
 ### 3.2 `apps/inventario/tests/test_views_existencias.py`: la vista y HTMX
 

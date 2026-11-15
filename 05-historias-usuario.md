@@ -115,8 +115,10 @@ Hice los 3 cambios en la sección 5 del `readme.md`:
 
 El Hogar es una entidad fija que crean las migraciones, así que no se da de alta.
 
+Se implementan en los tickets de habilitación HB-08 (login, grupos y usuarios) y HB-09 (catálogo y residentes), sobre los modelos de HB-05 a HB-07 (sección 6).
+
 **Ventajas para un desarrollo rápido:**
-- **Poco código:** cada modelo se configura en unas 20–30 líneas de `admin.py` (columnas, búsqueda, filtros y campos editables). Toda la configuración de la semana 1 cabe en horas, no en días.
+- **Poco código:** cada modelo se configura en unas 20–30 líneas de `admin.py` (columnas, búsqueda, filtros y campos editables). Toda la configuración del panel (HB-09) cabe en horas, no en días.
 - **Validaciones incluidas:** los formularios del panel aplican las validaciones del modelo y las restricciones declaradas en `Meta.constraints` (por ejemplo, rechazan un segundo "Losartán 50 mg tableta") y muestran el error junto al campo.
 - **Permisos ya resueltos:** el panel respeta los permisos de Django por grupo (`view`, `add`, `change`), validados en el servidor.
 - **Búsqueda, filtros y paginación** incluidos sin código.
@@ -135,14 +137,17 @@ El Hogar es una entidad fija que crean las migraciones, así que no se da de alt
 
 **Plan de 6 semanas** (1 desarrollador, sprints de 1 semana):
 
-| Semana | Entrega |
-|---|---|
-| 1 | Proyecto Django + Docker, login, grupos, catálogo y entidades (sección 3: D1 a D3) y habilitadores en `/admin/` |
-| 2 | **TK-01**: esquema de existencias, movimientos y conteos, usuarios de base de datos y permisos (sección 6) |
-| 2–3 | **HU-01** (servicios, pantallas y tests de concurrencia) |
-| 3–4 | **HU-02** (pantalla con filtros HTMX y `GET /existencias`) |
-| 4–5 | **HU-03** (captura, diferencias y cierre) |
-| 6 | Reporte mensual, pruebas de extremo a extremo, respaldos y despliegue en el servidor del hogar |
+| Semana | Entrega | Puntos |
+|---|---|---|
+| 1 | **HB-01 a HB-04**: contenedores `db`, `web` y `nginx`, conexión con los 2 usuarios de base de datos y modelo de usuario (sección 6) | 10 |
+| 2 | **HB-05 a HB-09**: catálogo, residentes y pautas (sección 3: D2, D3 y D6), login, grupos y habilitadores en `/admin/` | 13 |
+| 3 | **TK-01**: esquema de existencias, movimientos y conteos (sección 6) | 5 |
+| 3–4 | **HU-01** (servicios, pantallas y tests de concurrencia) | 8 |
+| 4–5 | **HU-02** (pantalla con filtros HTMX y `GET /existencias`) | 5 |
+| 5–6 | **HU-03** (captura, diferencias y cierre) | 8 |
+| 6 | Pruebas de extremo a extremo, respaldos, despliegue en el servidor del hogar y, si alcanza, el reporte mensual | — |
+
+**Riesgo del plan:** con la habilitación detallada en tickets, el MVP suma 49 puntos (sección 6), unos 8 por semana, y las semanas 1 y 2 quedan por encima de ese ritmo. El margen está en la semana 6: si algo se retrasa, el reporte mensual (*Should*) pasa a la siguiente iteración, y las 3 historias no se recortan.
 
 **ROI desde el primer día:** el hogar carga sus existencias actuales como entradas (HU-01) y desde ese momento puede consultarlas (HU-02). El primer conteo (HU-03) ya compara el anaquel contra un registro confiable, en lugar de contra una libreta.
 
