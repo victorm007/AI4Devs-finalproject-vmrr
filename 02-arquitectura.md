@@ -674,8 +674,8 @@ AI4Devs-finalproject-vmrr/
 └── app/                       # proyecto Django
     ├── Dockerfile
     ├── requirements.txt
-    ├── requirements-dev.txt   # pytest y ruff: solo desarrollo y CI, nunca en la imagen de producción
-    ├── pyproject.toml         # configuración de ruff y pytest
+    ├── requirements-dev.txt   # pytest, ruff y djLint: solo desarrollo y CI, nunca en la imagen de producción
+    ├── pyproject.toml         # configuración de ruff, djLint y pytest
     ├── manage.py
     ├── config/                # configuración global
     │   ├── settings/          # base.py, local.py, prod.py
@@ -717,7 +717,7 @@ AI4Devs-finalproject-vmrr/
 flowchart TB
     subgraph DEV["Desarrollo"]
         GH["GitHub<br/>repositorio"]
-        CI["GitHub Actions<br/>ruff + pytest + build de imagen"]
+        CI["GitHub Actions<br/>ruff + djLint + pytest + build de imagen"]
         GH --> CI
     end
     subgraph LAN["Red del hogar (producción actual)"]
@@ -799,7 +799,7 @@ C4Container
 **Orden de arranque:** `db` declara un *healthcheck* (`pg_isready`). `web` arranca con `depends_on: condition: service_healthy` y `nginx` arranca después de `web`. Así `web` nunca intenta conectarse a una base de datos que todavía no responde.
 
 **Proceso de despliegue:**
-1. **Integración continua:** en cada *push* o *pull request* a `main`, GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) ejecuta `ruff` (lint), `pytest` con cobertura contra un servicio PostgreSQL 17, las pruebas de extremo a extremo con Playwright si el PR toca el frontend, y el *build* de la imagen. Cada noche corren además los tests lentos. Solo se integra a `main` con los *checks* obligatorios en verde (sección 7.3).
+1. **Integración continua:** en cada *push* o *pull request* a `main`, GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) ejecuta `ruff` (lint y formato de Python), djLint (lint y formato de las plantillas), `pytest` con cobertura contra un servicio PostgreSQL 17, las pruebas de extremo a extremo con Playwright si el PR toca el frontend, y el *build* de la imagen. Cada noche corren además los tests lentos. Solo se integra a `main` con los *checks* obligatorios en verde (sección 7.3).
 2. **Despliegue (local o VPS):** se hace manualmente por SSH, lo cual es suficiente para un solo mantenedor:
    ```bash
    git pull origin main

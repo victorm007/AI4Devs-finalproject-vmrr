@@ -83,6 +83,48 @@ Hice los 3 cambios en la sección 5 del `readme.md`:
 
 ---
 
+## Prompt 3 — Usuario
+
+Creemos las épicas bajo la sección 5 del `readme.md`, para que guíen y aglutinen el trabajo y las historias de usuario con sus tickets. Esta es mi propuesta:
+
+- **Épica 1: Gestión de catálogos, entidades y usuarios (configuración base).** Agrupa la configuración inicial y el mantenimiento de los elementos estructurales que dan soporte al sistema (medicamentos, residentes, el Hogar y el control de accesos). Elementos y habilitadores agrupados:
+  - Catálogo de medicamentos (alta, baja lógica y modificación de nombre comercial, principio activo, tipo, presentación y concentración).
+  - Gestión de entidades (alta, cambio y control de estado de los residentes —activo, egresado, fallecido— y la entidad propia del Hogar).
+  - Gestión de usuarios y niveles de acceso globales (asignación de roles de *Solo lectura* o *Lectura y escritura*, administrados desde el panel de Django).
+- **Épica 2: Control y registro de movimientos de inventario.** Engloba las operaciones transaccionales diarias que modifican las existencias físicas y garantizan la trazabilidad por entidad. Historias agrupadas: HU-01, registrar entradas (indicando quién entregó y el origen), transferencias entre entidades y bajas por motivo (consumo, caducidad, merma, rotura, devolución, defunción o egreso).
+- **Épica 3: Consulta y filtrado de existencias.** Se enfoca en la visibilidad rápida y eficiente del inventario disponible para la toma de decisiones operativa. Historias agrupadas: HU-02, consultar existencias combinando filtros por residente, nombre comercial o principio activo (con búsqueda optimizada sin acentos).
+- **Épica 4: Auditoría, conteos físicos y reportes gerenciales.** Agrupa los procesos de control periódico, conciliación entre lo físico y el sistema, y la generación de reportes para la dirección. Historias agrupadas: HU-03, conteo físico a demanda por entidad y rango de fechas, comparando existencias físicas contra el registro y resaltando diferencias; y el reporte mensual de movimientos y existencias para la dirección.
+- **Épica 5: Gestión de pautas y prescripciones médicas.** Comprende el registro de la medicación prescrita a los residentes desde un enfoque informativo. Elementos agrupados: pauta del residente (registro de dosis, frecuencia, indicaciones y vigencia de cada medicamento por residente, clasificado en el MVP como alcance *Could*).
+
+---
+
+## Respuesta 3 — Claude
+
+Agregué el apartado **Épicas** a la sección 5, después de la tabla de historias y antes de los habilitadores. Tiene una tabla resumen y una ficha por épica con su objetivo, qué incluye, sus tickets y cuándo se da por terminada.
+
+| Épica | Historias y habilitadores | Tickets | Puntos |
+|---|---|---|---|
+| EP-01 · Configuración base: catálogo, entidades y usuarios | Habilitadores en `/admin/` | HB-01 a HB-06, HB-08 y HB-09 | 21 |
+| EP-02 · Registro de movimientos de inventario | HU-01 | TK-01, TK-02 y TK-04 | 13 |
+| EP-03 · Consulta y filtrado de existencias | HU-02 | TK-03 y TK-05 | 5 |
+| EP-04 · Conteos físicos y reportes para la dirección | HU-03 y reporte mensual (por definir) | TK-06 y TK-07 | 8 + reporte |
+| EP-05 · Pautas de los residentes | Pantallas de pautas (por definir) | HB-07 (esquema) | 2 + pantallas |
+
+Los 49 puntos de la sección 6 quedan repartidos entre las 5 épicas, sin sobrantes.
+
+**Cambios respecto de tu propuesta:**
+1. **EP-05 se llama "Pautas de los residentes":** el vocabulario del proyecto prohíbe "receta" y "prescripción"; el término es "pauta".
+2. **EP-04 no lleva "Auditoría":** la "bitácora de auditoría completa" está fuera de alcance (sección 1.2), y el nombre podía prometerla. Lo que hace la épica es conteo y conciliación.
+3. **"Roles" se dice "grupos"**, como en el resto del diseño.
+4. **La base técnica (HB-01 a HB-04) quedó en EP-01**, como parte de la configuración base. HB-07 quedó en EP-05.
+5. **TK-01 quedó en EP-02**, aunque también es la base de EP-03 y EP-04, porque HU-01 es su primer consumidor.
+
+**Otros cambios:**
+- Cada historia tiene una fila nueva **Épica** en su tabla de campos.
+- Corregí 2 números de funcionalidad que no coincidían con la sección 1.2: el reporte mensual es la funcionalidad 6 (no la 7), y la búsqueda en el catálogo de HU-02 es la 1 (no la 2).
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 5)
 
 ## 5. Historias de Usuario
@@ -99,7 +141,56 @@ Hice los 3 cambios en la sección 5 del `readme.md`:
 
 **Habilitadores** (necesarios, pero sin valor por sí solos, así que no se cuentan como historias principales): inicio de sesión con los 2 niveles de acceso, catálogo de medicamentos y alta de residentes. En el MVP se operan desde el panel `/admin/` de Django (ver más abajo).
 
-**Siguiente en el backlog:** el reporte mensual (funcionalidad 7, *Should*), que se calcula sobre los movimientos de HU-01. Su historia se definirá en una iteración posterior; el endpoint `GET /reportes/mensual` ya está diseñado (sección 4.5). Las pautas (funcionalidad 4) son informativas y no bloquean el inventario (*Could*).
+**Siguiente en el backlog:** el reporte mensual (funcionalidad 6, *Should*), que se calcula sobre los movimientos de HU-01. Su historia se definirá en una iteración posterior; el endpoint `GET /reportes/mensual` ya está diseñado (sección 4.5). Las pautas (funcionalidad 4) son informativas y no bloquean el inventario (*Could*).
+
+#### Épicas
+
+Las épicas agrupan el trabajo por objetivo de negocio. Cada una reúne funcionalidades de la sección 1.2, sus historias o habilitadores y los tickets que las implementan (sección 6). Así se ve qué avance de valor representa cada ticket y cuándo está completo un frente de trabajo.
+
+| Épica | Funcionalidades (1.2) | Historias y habilitadores | Tickets | Puntos | Prioridad | Semanas |
+|---|---|---|---|---|---|---|
+| **EP-01** · Configuración base: catálogo, entidades y usuarios | 1, 2 y 7 | Habilitadores en `/admin/` | HB-01 a HB-06, HB-08 y HB-09 | 21 | Must (habilitadora) | 1–2 |
+| **EP-02** · Registro de movimientos de inventario | 3 y 8 | HU-01 | TK-01, TK-02 y TK-04 | 13 | Must | 3–4 |
+| **EP-03** · Consulta y filtrado de existencias | 5 (y 3) | HU-02 | TK-03 y TK-05 | 5 | Must | 4–5 |
+| **EP-04** · Conteos físicos y reportes para la dirección | 6 | HU-03 y reporte mensual (historia por definir) | TK-06 y TK-07 | 8, más el reporte sin estimar | Must (HU-03), *Should* (reporte) | 5–6 |
+| **EP-05** · Pautas de los residentes | 4 | Pantallas de pautas (historia por definir) | HB-07 (solo el esquema) | 2, más las pantallas sin estimar | *Could* (el esquema es Must: lo usa el mock) | 2 |
+| **Total** | | | | **49** | | |
+
+**EP-01 · Configuración base: catálogo, entidades y usuarios**
+- **Objetivo:** dejar listos y mantenibles los elementos estructurales del sistema: medicamentos, residentes, el Hogar y el control de acceso. No entrega valor por sí sola, pero todas las demás épicas dependen de ella.
+- **Incluye:**
+  - **Catálogo de medicamentos:** alta, cambio y baja lógica de nombre comercial, principio activo, tipo (genérico u original), presentación y concentración.
+  - **Entidades:** alta y cambio de residentes y de su estado (activo, egresado o fallecido). El Hogar es una entidad fija que crean las migraciones.
+  - **Usuarios y niveles de acceso globales:** el Administrador da de alta a los usuarios y les asigna el grupo *Solo lectura* o *Lectura y escritura* desde el panel `/admin/`.
+  - **Base técnica** que lo hace posible: contenedores, conexión con los 2 usuarios de base de datos y HTTPS (HB-01 a HB-04).
+- **Tickets:** HB-01 a HB-04 (base técnica, 10 puntos), HB-05 y HB-06 (modelos de catálogo y entidades, 6) y HB-08 y HB-09 (login, grupos y panel, 5).
+- **Se da por terminada cuando** el Administrador crea un usuario de cada grupo por HTTPS, y uno de *Lectura y escritura* da de alta medicamentos y residentes en `/admin/` sin poder borrar nada.
+
+**EP-02 · Registro de movimientos de inventario**
+- **Objetivo:** registrar las operaciones diarias que cambian las existencias de cada entidad, con trazabilidad de quién, cuándo y por qué.
+- **Incluye:** HU-01, con las entradas (quién entregó y el origen), las transferencias entre entidades, las bajas por motivo (consumo, caducidad, merma, rotura, devolución a la familia, defunción o egreso) y la corrección de un movimiento con su movimiento inverso.
+- **Tickets:** TK-01 (esquema de existencias, movimientos y conteos; también es la base de EP-03 y EP-04), TK-02 (servicio de movimientos) y TK-04 (formularios e historial).
+- **Se da por terminada cuando** se cumplen los criterios de aceptación de HU-01 y la vista de conciliación queda vacía después de cualquier secuencia de movimientos.
+
+**EP-03 · Consulta y filtrado de existencias**
+- **Objetivo:** responder en segundos cuánto medicamento le queda a cada residente y al Hogar, desde la computadora o el celular.
+- **Incluye:** HU-02, con los filtros combinados por residente, nombre comercial o principio activo y la búsqueda sin mayúsculas ni acentos que usa los índices trigram, en pantalla y en `GET /api/v1/existencias`.
+- **Tickets:** TK-03 (pantalla con HTMX) y TK-05 (endpoint de la API).
+- **Se da por terminada cuando** se cumplen los criterios de aceptación de HU-02 y la prueba de integración de la sección 6 pasa en CI.
+
+**EP-04 · Conteos físicos y reportes para la dirección**
+- **Objetivo:** controlar periódicamente que lo registrado coincida con lo que hay en el anaquel, y entregar a la dirección un corte confiable.
+- **Incluye:**
+  - **HU-03:** conteo físico a demanda por entidad y período, que compara lo físico contra lo registrado y resalta las diferencias. Cada diferencia se resuelve con un movimiento de EP-02.
+  - **Reporte mensual** de movimientos y existencias: su historia se definirá en una iteración posterior; el endpoint `GET /reportes/mensual` ya está diseñado (sección 4.5).
+- **Tickets:** TK-06 (servicio de conteos) y TK-07 (pantallas del conteo). El reporte mensual tendrá los suyos cuando se defina su historia.
+- **Se da por terminada cuando** se cumplen los criterios de aceptación de HU-03 y los de la historia del reporte mensual. Si el reporte no entra en el MVP, la épica cierra sin él y el reporte pasa a la siguiente iteración (sección 5, "Riesgo del plan").
+
+**EP-05 · Pautas de los residentes**
+- **Objetivo:** registrar, de forma informativa, la dosis, la frecuencia, las indicaciones y la vigencia de cada medicamento por residente. No mueve existencias ni registra la administración por turno.
+- **Incluye:** el esquema de la tabla `pauta` con sus reglas (sin vigencias traslapadas, solo residentes y medicamentos activos) y, más adelante, sus pantallas.
+- **Tickets:** HB-07 (esquema). Las pantallas son *Could*: su historia y sus tickets se definirán si hay tiempo después de EP-04.
+- **Se da por terminada cuando** existan la historia y las pantallas de pautas. En el MVP solo se entrega el esquema.
 
 #### Habilitadores en el panel `/admin/` de Django
 
@@ -163,10 +254,11 @@ Se implementan en los tickets de habilitación HB-08 (login, grupos y usuarios) 
 
 | Campo | Valor |
 |---|---|
+| Épica | EP-02 · Registro de movimientos de inventario |
 | Prioridad | Must (1 de 3) |
 | Estimación | 8 puntos |
 | Funcionalidades | 3 (existencias por entidad) y 8 (trazabilidad mínima) de la sección 1.2 |
-| Depende de | Habilitadores: login, catálogo de medicamentos, residentes |
+| Depende de | Habilitadores de EP-01: login, catálogo de medicamentos, residentes |
 | Módulo | `inventario` (`services.py`: `registrar_entrada`, `transferir`, `dar_de_baja`, `corregir`) |
 
 **Reglas de negocio**
@@ -241,9 +333,10 @@ Escenario: Doble clic al guardar
 
 | Campo | Valor |
 |---|---|
+| Épica | EP-03 · Consulta y filtrado de existencias |
 | Prioridad | Must (2 de 3) |
 | Estimación | 5 puntos |
-| Funcionalidades | 3 (existencias), 5 (filtros combinados) y 2 (búsqueda en el catálogo) de la sección 1.2 |
+| Funcionalidades | 3 (existencias), 5 (filtros combinados) y 1 (búsqueda en el catálogo) de la sección 1.2 |
 | Depende de | HU-01 (sin movimientos no hay saldos) |
 | Módulo | `inventario` (pantalla con filtros HTMX) y `api` (`GET /existencias`, `GET /medicamentos`, sección 4.5) |
 
@@ -302,6 +395,7 @@ Escenario: La API devuelve lo mismo que la pantalla
 
 | Campo | Valor |
 |---|---|
+| Épica | EP-04 · Conteos físicos y reportes para la dirección |
 | Prioridad | Must (3 de 3) |
 | Estimación | 8 puntos |
 | Funcionalidades | 6 (inventario físico a demanda, existencia contra registrado) de la sección 1.2 |

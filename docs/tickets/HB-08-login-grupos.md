@@ -151,49 +151,57 @@ urlpatterns = [
 **3.2 `app/templates/base.html`** (sin `<script>` ni `style` en línea: los bloquea la CSP):
 
 ```django
-{% load static %}<!doctype html>
+{% load static %}
+<!DOCTYPE html>
 <html lang="es">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Inicio{% endblock %} · Medicamentos del Hogar</title>
-  <link rel="stylesheet" href="{% static 'css/vendor/bootstrap.min.css' %}">
-  {% block extra_head %}{% endblock %}
-</head>
-<body class="bg-light">
-  <nav class="navbar navbar-expand-md navbar-dark bg-primary mb-4">
-    <div class="container">
-      <span class="navbar-brand">Medicamentos del Hogar</span>
-      {% if user.is_authenticated %}
-        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#menu"
-                aria-controls="menu" aria-expanded="false" aria-label="Abrir el menú">
-          <span class="navbar-toggler-icon"></span>
-        </button>
-        <div class="collapse navbar-collapse" id="menu">
-          <ul class="navbar-nav me-auto">
-            {% block menu %}{% endblock %}
-            {% if user.is_staff %}
-              <li class="nav-item"><a class="nav-link" href="{% url 'admin:index' %}">Administración</a></li>
-            {% endif %}
-          </ul>
-          <form method="post" action="{% url 'logout' %}" class="d-flex align-items-center">
-            {% csrf_token %}
-            <span class="navbar-text me-3">{{ user.get_full_name|default:user.username }}</span>
-            <button type="submit" class="btn btn-outline-light btn-sm">Cerrar sesión</button>
-          </form>
-        </div>
-      {% endif %}
-    </div>
-  </nav>
-  <main class="container">
-    {% for message in messages %}
-      <div class="alert alert-info" role="status">{{ message }}</div>
-    {% endfor %}
-    {% block content %}{% endblock %}
-  </main>
-  <script src="{% static 'js/vendor/bootstrap.bundle.min.js' %}" defer></script>
-  {% block scripts %}{% endblock %}
-</body>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Inicio{% endblock %} · Medicamentos del Hogar</title>
+    <link rel="stylesheet" href="{% static 'css/vendor/bootstrap.min.css' %}">
+    {% block extra_head %}{% endblock %}
+  </head>
+  <body class="bg-light">
+    <nav class="navbar navbar-expand-md navbar-dark bg-primary mb-4">
+      <div class="container">
+        <span class="navbar-brand">Medicamentos del Hogar</span>
+        {% if user.is_authenticated %}
+          <button class="navbar-toggler"
+                  type="button"
+                  data-bs-toggle="collapse"
+                  data-bs-target="#menu"
+                  aria-controls="menu"
+                  aria-expanded="false"
+                  aria-label="Abrir el menú">
+            <span class="navbar-toggler-icon"></span>
+          </button>
+          <div class="collapse navbar-collapse" id="menu">
+            <ul class="navbar-nav me-auto">
+              {% block menu %}{% endblock %}
+              {% if user.is_staff %}
+                <li class="nav-item"><a class="nav-link" href="{% url 'admin:index' %}">Administración</a></li>
+              {% endif %}
+            </ul>
+            <form method="post"
+                  action="{% url 'logout' %}"
+                  class="d-flex align-items-center">
+              {% csrf_token %}
+              <span class="navbar-text me-3">{{ user.get_full_name|default:user.username }}</span>
+              <button type="submit" class="btn btn-outline-light btn-sm">Cerrar sesión</button>
+            </form>
+          </div>
+        {% endif %}
+      </div>
+    </nav>
+    <main class="container">
+      {% for message in messages %}
+        <div class="alert alert-info" role="status">{{ message }}</div>
+      {% endfor %}
+      {% block content %}{% endblock %}
+    </main>
+    <script src="{% static 'js/vendor/bootstrap.bundle.min.js' %}" defer></script>
+    {% block scripts %}{% endblock %}
+  </body>
 </html>
 ```
 
@@ -203,29 +211,39 @@ urlpatterns = [
 {% extends "base.html" %}
 {% block title %}Iniciar sesión{% endblock %}
 {% block content %}
-<div class="row justify-content-center">
-  <div class="col-12 col-sm-8 col-md-5 col-lg-4">
-    <h1 class="h3 mb-3">Iniciar sesión</h1>
-    {% if form.errors %}
-      <div class="alert alert-danger" role="alert">Usuario o contraseña incorrectos.</div>
-    {% endif %}
-    <form method="post" novalidate>
-      {% csrf_token %}
-      <div class="mb-3">
-        <label class="form-label" for="{{ form.username.id_for_label }}">Usuario</label>
-        <input type="text" name="username" id="{{ form.username.id_for_label }}" class="form-control"
-               autocomplete="username" autofocus required value="{{ form.username.value|default:'' }}">
-      </div>
-      <div class="mb-3">
-        <label class="form-label" for="{{ form.password.id_for_label }}">Contraseña</label>
-        <input type="password" name="password" id="{{ form.password.id_for_label }}" class="form-control"
-               autocomplete="current-password" required>
-      </div>
-      <input type="hidden" name="next" value="{{ next }}">
-      <button type="submit" class="btn btn-primary w-100">Entrar</button>
-    </form>
+  <div class="row justify-content-center">
+    <div class="col-12 col-sm-8 col-md-5 col-lg-4">
+      <h1 class="h3 mb-3">Iniciar sesión</h1>
+      {% if form.errors %}
+        <div class="alert alert-danger" role="alert">Usuario o contraseña incorrectos.</div>
+      {% endif %}
+      <form method="post" novalidate>
+        {% csrf_token %}
+        <div class="mb-3">
+          <label class="form-label" for="{{ form.username.id_for_label }}">Usuario</label>
+          <input type="text"
+                 name="username"
+                 id="{{ form.username.id_for_label }}"
+                 class="form-control"
+                 autocomplete="username"
+                 autofocus
+                 required
+                 value="{{ form.username.value|default:'' }}">
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="{{ form.password.id_for_label }}">Contraseña</label>
+          <input type="password"
+                 name="password"
+                 id="{{ form.password.id_for_label }}"
+                 class="form-control"
+                 autocomplete="current-password"
+                 required>
+        </div>
+        <input type="hidden" name="next" value="{{ next }}">
+        <button type="submit" class="btn btn-primary w-100">Entrar</button>
+      </form>
+    </div>
   </div>
-</div>
 {% endblock %}
 ```
 
@@ -235,12 +253,14 @@ urlpatterns = [
 {% extends "base.html" %}
 {% block title %}Cuenta bloqueada{% endblock %}
 {% block content %}
-<div class="alert alert-warning" role="alert">
-  Demasiados intentos fallidos. La cuenta queda bloqueada 15 minutos.
-  Si no recuerdas tu contraseña, pide al Administrador que la restablezca.
-</div>
+  <div class="alert alert-warning" role="alert">
+    Demasiados intentos fallidos. La cuenta queda bloqueada 15 minutos.
+    Si no recuerdas tu contraseña, pide al Administrador que la restablezca.
+  </div>
 {% endblock %}
 ```
+
+> **Formato de las plantillas:** están escritas como las deja djLint (HB-02, `[tool.djlint]` en `pyproject.toml`): 2 espacios de sangría y un atributo por línea cuando la etiqueta no cabe en 120 caracteres. Después de pegar o editar una plantilla, ejecuta `docker compose exec web djlint . --reformat` y luego `djlint . --lint`; el *job* `lint` del CI falla si una plantilla no tiene ese formato.
 
 ### Paso 4. Los 2 grupos y sus permisos (≈ 45 min)
 
@@ -641,7 +661,8 @@ def test_los_grupos_no_se_crean_a_mano(admin_client):
 
 | Criterio | Cómo se comprueba |
 |---|---|
-| Sin JavaScript ni estilos en línea; Bootstrap desde `static/` | Consola del navegador sin errores de CSP en <https://localhost/accounts/login/> |
+| Sin JavaScript ni estilos en línea; Bootstrap desde `static/` | Consola del navegador sin errores de CSP en <https://localhost/accounts/login/>; djLint (`H021`) rechaza los `style="..."` |
+| Plantillas con el formato y el lint de djLint | Sección 5, paso 1 |
 | `<label>` visible en cada campo del login | `test_la_pagina_de_login_no_usa_recursos_externos` |
 | Login usable en el celular (390 px), sin desplazamiento horizontal | Herramientas del navegador, modo dispositivo |
 | La autorización se valida en el servidor, no ocultando enlaces | Tests de `403` |
@@ -654,8 +675,10 @@ def test_los_grupos_no_se_crean_a_mano(admin_client):
 ## 5. Verificación: comandos y resultado esperado
 
 ```bash
-# 1. Calidad del código
+# 1. Calidad del código (las primeras plantillas: desde aquí corre djLint en el CI)
 docker compose exec web ruff check . && docker compose exec web ruff format --check .
+docker compose exec web djlint . --check && docker compose exec web djlint . --lint
+# 0 files would be updated. / Linted 3 files, found 0 errors.
 dj check && dj makemigrations --check --dry-run
 
 # 2. Tests
@@ -696,6 +719,7 @@ dj axes_reset                       # desbloquea las cuentas (solo desarrollo)
 
 | Síntoma | Causa probable | Solución |
 |---|---|---|
+| `djlint . --check` dice `files would be updated` | La plantilla no tiene el formato de djLint | `docker compose exec web djlint . --reformat`, revisa el diff y vuelve a commitear |
 | `AxesBackendRequestParameterRequired` en un test | El test usa `client.login()`, que no pasa la petición a `authenticate` | En los tests usa `client.force_login(usuario)` o un `POST` al login |
 | `403 CSRF` al cerrar sesión | El formulario de `base.html` no tiene `{% csrf_token %}` | Paso 3.2 |
 | `405 Method Not Allowed` al cerrar sesión con un enlace | Desde Django 5, `LogoutView` solo acepta `POST` | Usa el formulario de `base.html` |

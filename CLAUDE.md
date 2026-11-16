@@ -16,7 +16,7 @@ Proyecto final de AI4Devs: inventario de medicamentos para un hogar gerontológi
 * **API:** Django REST Framework, con endpoints de solo lectura en el MVP. El contrato es `docs/api/openapi.yaml`, **OpenAPI 3.2 escrito a mano** (*design-first*) y fuente de verdad; drf-spectacular solo genera un esquema 3.0/3.1 para la documentación interactiva (Swagger UI), según la sección 4.7.
 * **Base de Datos:** PostgreSQL 17.
 * **Frontend:** Plantillas Django renderizadas en servidor (SSR), Bootstrap 5, HTMX (2.0.x). Cero frameworks SPA (CSR) -React/Vue/Angular-.
-* **Testing y Linting:** pytest, pytest-django, pytest-cov, jsonschema (contratos de la API), Playwright, ruff.
+* **Testing y Linting:** pytest, pytest-django, pytest-cov, jsonschema (contratos de la API), Playwright, ruff (Python) y djLint 1.49.9 (plantillas, perfil `django`; versión congelada). No hay formateador de CSS ni de JS: solo hay los de Bootstrap y HTMX, minificados en `static/*/vendor/`, y no se reformatean.
 
 ## Flujo de Trabajo: TDD y Mock-First (OBLIGATORIO)
 
@@ -91,7 +91,8 @@ El entregable del curso exige mostrar los prompts usados con IA, y por eso cada 
 - Los prompts marcados "no registres" no se agregan a ningún transcript.
 - `prompts.md` lo edita el usuario, con su propia valoración del impacto: no lo modifiques, pero inclúyelo en los commits si tiene cambios.
 - `diagramas/` guarda los PNG que el usuario genera a partir del Mermaid del readme (ver `diagramas/diagrama.md`).
-
+-  Nunca omitas los formateos de `ruff` ni `djLint`. El entorno ejecutara validaciones automaticas tras cada modificacion de archivo.
+- 
 ## Tickets y pruebas
 
 Orden de ejecución: tickets de habilitación HB-01 a HB-09 (semanas 1 y 2: contenedores, conexión con los 2 usuarios de BD, catálogo, residentes, pautas, login y `/admin/`) → TK-01 (BD) → TK-02 (backend) y TK-03 (frontend) → prueba de integración → backlog (TK-04 a TK-07). Las guías paso a paso están en `docs/tickets/` (`HB-*.md` y `TK-*.md`), y `integracion.md` tiene la prueba conjunta.
@@ -121,7 +122,7 @@ Los tests usan el dataset real del mock (`app/fixtures/mock/`, sección 3.4), no
 | Toda la suite / un solo test | `make test` / `make test T=ruta::test` | `dtest -q` / `dtest ruta::test` |
 | Lo que corre el CI en cada PR | `make test-ci` | `dtest -m "not e2e and not lento" --cov=apps --cov-fail-under=80` |
 | Playwright | `make e2e` | ver el bloque de abajo |
-| Lint / formato | `make lint` / `make format` | `ruff check .` y `ruff format --check .` en `web` |
+| Lint / formato | `make lint` / `make format` | `ruff check .`, `ruff format --check .`, `djlint . --check` y `djlint . --lint` en `web` (formatear: `ruff format .` y `djlint . --reformat`) |
 | Migraciones pendientes | `make check-migrations` | `dj makemigrations --check --dry-run` |
 | Contrato OpenAPI | `make openapi` | `npx @redocly/cli lint docs/api/openapi.yaml` |
 
@@ -152,6 +153,7 @@ docker compose exec -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PASSWORD" \
     -e DJANGO_ALLOW_ASYNC_UNSAFE=true web pytest -m e2e e2e/ -q     # Playwright
 
 docker compose exec web ruff check . && docker compose exec web ruff format --check .
+docker compose exec web djlint . --check && docker compose exec web djlint . --lint   # plantillas (desde HB-08)
 dj makemigrations --check --dry-run
 
 # Cargar el mock (solo en una base recién migrada, y con app_owner)

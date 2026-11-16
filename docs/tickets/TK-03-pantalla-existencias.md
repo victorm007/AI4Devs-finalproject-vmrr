@@ -377,41 +377,48 @@ def dosis(valor) -> str:
 ```django
 {% extends "base.html" %}
 {% block title %}Existencias{% endblock %}
-
 {% block content %}
-<h1 class="h3 mb-3">Existencias</h1>
-
-<form id="filtros" method="get" action="{% url 'inventario:existencias' %}" class="row g-2 align-items-end mb-2"
-      hx-get="{% url 'inventario:existencias' %}" hx-target="#resultados" hx-push-url="true"
-      hx-trigger="input changed delay:300ms from:#id_q, change" hx-indicator="#cargando">
-  <div class="col-12 col-md-4">
-    <label for="{{ form.q.id_for_label }}" class="form-label">{{ form.q.label }}</label>
-    {{ form.q }}
-  </div>
-  <div class="col-12 col-sm-6 col-md-3">
-    <label for="{{ form.entidad.id_for_label }}" class="form-label">{{ form.entidad.label }}</label>
-    {{ form.entidad }}
-  </div>
-  <div class="col-12 col-sm-6 col-md-3">
-    <label for="{{ form.principio_activo.id_for_label }}" class="form-label">{{ form.principio_activo.label }}</label>
-    {{ form.principio_activo }}
-  </div>
-  <div class="col-12 col-md-2">
-    <div class="form-check py-2">
-      {{ form.incluir_sin_saldo }}
-      <label for="{{ form.incluir_sin_saldo.id_for_label }}" class="form-check-label">{{ form.incluir_sin_saldo.label }}</label>
+  <h1 class="h3 mb-3">Existencias</h1>
+  <form id="filtros"
+        method="get"
+        action="{% url 'inventario:existencias' %}"
+        class="row g-2 align-items-end mb-2"
+        hx-get="{% url 'inventario:existencias' %}"
+        hx-target="#resultados"
+        hx-push-url="true"
+        hx-trigger="input changed delay:300ms from:#id_q, change"
+        hx-indicator="#cargando">
+    <div class="col-12 col-md-4">
+      <label for="{{ form.q.id_for_label }}" class="form-label">{{ form.q.label }}</label>
+      {{ form.q }}
     </div>
-  </div>
-  {{ form.medicamento }}
-  <noscript><div class="col-12"><button class="btn btn-primary">Buscar</button></div></noscript>
-</form>
-
-{% include "inventario/_aviso.html" %}
-<div id="cargando" class="htmx-indicator text-body-secondary small mb-2" role="status">Buscando…</div>
-
-<div id="resultados" aria-live="polite">
-  {% include "inventario/_resultados.html" %}
-</div>
+    <div class="col-12 col-sm-6 col-md-3">
+      <label for="{{ form.entidad.id_for_label }}" class="form-label">{{ form.entidad.label }}</label>
+      {{ form.entidad }}
+    </div>
+    <div class="col-12 col-sm-6 col-md-3">
+      <label for="{{ form.principio_activo.id_for_label }}" class="form-label">{{ form.principio_activo.label }}</label>
+      {{ form.principio_activo }}
+    </div>
+    <div class="col-12 col-md-2">
+      <div class="form-check py-2">
+        {{ form.incluir_sin_saldo }}
+        <label for="{{ form.incluir_sin_saldo.id_for_label }}"
+               class="form-check-label">{{ form.incluir_sin_saldo.label }}</label>
+      </div>
+    </div>
+    {{ form.medicamento }}
+    <noscript>
+      <div class="col-12">
+        <button type="submit" class="btn btn-primary">Buscar</button>
+      </div>
+    </noscript>
+  </form>
+  {% include "inventario/_aviso.html" %}
+  <div id="cargando"
+       class="htmx-indicator text-body-secondary small mb-2"
+       role="status">Buscando…</div>
+  <div id="resultados" aria-live="polite">{% include "inventario/_resultados.html" %}</div>
 {% endblock %}
 ```
 
@@ -431,10 +438,8 @@ def dosis(valor) -> str:
 {% load inventario_extras %}
 {# En una respuesta HTMX válida, borra el aviso que pudiera haber quedado #}
 {% if request.htmx %}<div id="aviso" role="status" hx-swap-oob="true"></div>{% endif %}
-
 {% if existencias %}
   <p class="small text-body-secondary mb-2">{{ paginator.count }} resultado{{ paginator.count|pluralize }}</p>
-
   {# Escritorio (≥ 768 px): tabla #}
   <table class="table table-hover align-middle d-none d-md-table">
     <thead>
@@ -461,13 +466,14 @@ def dosis(valor) -> str:
       {% endfor %}
     </tbody>
   </table>
-
   {# Celular (< 768 px): tarjetas, sin desplazamiento horizontal #}
   <ul class="list-group d-md-none mb-3">
     {% for e in existencias %}
-      <li class="list-group-item d-flex justify-content-between align-items-start gap-2" data-test="existencia">
+      <li class="list-group-item d-flex justify-content-between align-items-start gap-2"
+          data-test="existencia">
         <div class="text-break">
-          <a class="fw-semibold" href="?{% querystring medicamento=e.medicamento_id page=None %}">{{ e.medicamento.nombre_comercial }}</a>
+          <a class="fw-semibold"
+             href="?{% querystring medicamento=e.medicamento_id page=None %}">{{ e.medicamento.nombre_comercial }}</a>
           <span>{{ e.medicamento.presentacion }} {{ e.medicamento.concentracion }}</span>
           <div class="small text-body-secondary">{{ e.entidad }} · {{ e.actualizado_en|date:"d/m/Y H:i" }}</div>
         </div>
@@ -477,21 +483,26 @@ def dosis(valor) -> str:
       </li>
     {% endfor %}
   </ul>
-
   {% if is_paginated %}
     <nav aria-label="Páginas de resultados">
       <ul class="pagination">
         {% if page_obj.has_previous %}
           <li class="page-item">
-            <a class="page-link" href="?{% querystring page=page_obj.previous_page_number %}"
-               hx-get="?{% querystring page=page_obj.previous_page_number %}" hx-target="#resultados" hx-push-url="true">Anterior</a>
+            <a class="page-link"
+               href="?{% querystring page=page_obj.previous_page_number %}"
+               hx-get="?{% querystring page=page_obj.previous_page_number %}"
+               hx-target="#resultados"
+               hx-push-url="true">Anterior</a>
           </li>
         {% endif %}
         <li class="page-item disabled"><span class="page-link">{{ page_obj.number }} de {{ paginator.num_pages }}</span></li>
         {% if page_obj.has_next %}
           <li class="page-item">
-            <a class="page-link" href="?{% querystring page=page_obj.next_page_number %}"
-               hx-get="?{% querystring page=page_obj.next_page_number %}" hx-target="#resultados" hx-push-url="true">Siguiente</a>
+            <a class="page-link"
+               href="?{% querystring page=page_obj.next_page_number %}"
+               hx-get="?{% querystring page=page_obj.next_page_number %}"
+               hx-target="#resultados"
+               hx-push-url="true">Siguiente</a>
           </li>
         {% endif %}
       </ul>
@@ -500,12 +511,15 @@ def dosis(valor) -> str:
 {% else %}
   <div class="text-center py-5" data-test="sin-resultados">
     <p class="mb-3">No hay existencias que coincidan con la búsqueda.</p>
-    <a class="btn btn-outline-secondary" href="{% url 'inventario:existencias' %}">Limpiar filtros</a>
+    <a class="btn btn-outline-secondary"
+       href="{% url 'inventario:existencias' %}">Limpiar filtros</a>
   </div>
 {% endif %}
 ```
 
 > **Reglas de las plantillas:** nada de `<script>` ni `onclick` en línea (los bloquea la CSP); todo campo con su `<label>`; los textos visibles en español; `{% querystring %}` es de Django 5.1+ y conserva los filtros al paginar.
+
+> **Formato de las plantillas:** están escritas como las deja djLint (HB-02, `[tool.djlint]` en `pyproject.toml`): 2 espacios de sangría y un atributo por línea cuando la etiqueta no cabe en 120 caracteres. Después de pegar o editar una plantilla, ejecuta `docker compose exec web djlint . --reformat` y luego `djlint . --lint`; el *job* `lint` del CI falla si una plantilla no tiene ese formato.
 
 Revisa la pantalla a mano: `https://localhost/existencias/`, con el modo de dispositivo de Chrome (F12 → icono de celular → 390 × 844).
 
@@ -740,6 +754,7 @@ Registra el marcador en la configuración de pytest: `markers = [..., "e2e: prue
 | La búsqueda usa los índices trigram | Comando 4 de la sección 5: el plan muestra `ix_medicamento_nombre_trgm` |
 | Sin N+1: mismo número de consultas con 1 y con 13 resultados | `test_sin_n_mas_1` |
 | Sin JavaScript propio ni en línea; HTMX servido desde `static/` | Revisión del PR y consola del navegador sin violaciones de CSP |
+| Plantillas con el formato y el lint de djLint | Sección 5, comando 1 |
 | Accesible: `<label>` en cada campo, `aria-live` en los resultados, navegación con teclado | `test_navegacion_con_teclado` y Lighthouse ≥ 90 |
 | *Responsive*: tarjetas bajo 768 px, sin desplazamiento horizontal, controles táctiles ≥ 44 px | `test_celular_sin_desplazamiento_horizontal` y revisión en 390 px |
 | La URL refleja los filtros y funciona sola (recargar, compartir, botón Atrás) | Revisión manual: copia la URL en otra pestaña |
@@ -754,6 +769,7 @@ Registra el marcador en la configuración de pytest: `markers = [..., "e2e: prue
 ```bash
 # 1. Calidad y tests unitarios
 docker compose exec web ruff check . && docker compose exec web ruff format --check .
+docker compose exec web djlint . --check && docker compose exec web djlint . --lint
 dtest apps/inventario -q
 
 # 2. Pruebas de extremo a extremo (Chromium sin interfaz, dentro del contenedor)
@@ -806,6 +822,7 @@ $CURL -b "$JAR" -H "HX-Request: true" -o /dev/null -w "%{time_total}\n" "$BASE/e
 
 | Síntoma | Causa probable | Solución |
 |---|---|---|
+| `djlint . --check` dice `files would be updated` | La plantilla no tiene el formato de djLint | `docker compose exec web djlint . --reformat`, revisa el diff y vuelve a commitear |
 | `'WSGIRequest' object has no attribute 'htmx'` | Falta el middleware de `django-htmx` | Paso 1 |
 | Al escribir no pasa nada | HTMX no cargó (404 en `htmx.min.js`) o la CSP lo bloqueó | Consola del navegador; ejecuta `collectstatic` y revisa la ruta del `<script>` |
 | La página completa aparece dentro de la tabla | La vista no distingue la petición HTMX | `get_template_names` y la cabecera `HX-Request` |

@@ -151,10 +151,13 @@ test-ci: ## Corre lo mismo que el CI en cada PR, con cobertura
 	$(DC) exec $(OWNER) web pytest -m "not e2e and not lento" --cov=apps --cov-fail-under=80
 e2e: ## Corre las pruebas de extremo a extremo con Playwright
 	$(DC) exec $(OWNER) -e DJANGO_ALLOW_ASYNC_UNSAFE=true web pytest -m e2e e2e/ -q
-lint: ## Corre ruff (sin modificar archivos)
+lint: ## Revisa Python (ruff) y plantillas (djLint) sin modificar archivos
 	$(DC) exec web ruff check . && $(DC) exec web ruff format --check .
-format: ## Formatea y corrige con ruff
+	$(DC) exec web djlint . --check && $(DC) exec web djlint . --lint
+# djlint --reformat termina con 1 cuando cambia algún archivo: aquí no es un error
+format: ## Formatea Python (ruff) y plantillas (djLint)
 	$(DC) exec web ruff format . && $(DC) exec web ruff check --fix .
+	$(DC) exec web djlint . --reformat --quiet || true
 check-migrations: ## Comprueba que no falten migraciones
 	$(DC) exec web python manage.py makemigrations --check --dry-run
 shell: ## Abre el shell de Django (como app_user)

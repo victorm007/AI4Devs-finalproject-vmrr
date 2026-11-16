@@ -125,7 +125,8 @@ Abre <https://localhost>: después del login aparece la consulta de existencias.
 make test            # toda la suite (un solo test: make test T=ruta::nombre_del_test)
 make test-ci         # lo mismo que corre el CI en cada PR, con cobertura
 make e2e             # pruebas de extremo a extremo con Playwright
-make lint            # ruff
+make lint            # ruff (Python) y djLint (plantillas), sin modificar archivos
+make format          # formatea Python y plantillas
 
 # Sin make, equivale a:
 set -a && . ./.env && set +a
@@ -526,8 +527,8 @@ AI4Devs-finalproject-vmrr/
 └── app/                       # proyecto Django
     ├── Dockerfile
     ├── requirements.txt
-    ├── requirements-dev.txt   # pytest y ruff: solo desarrollo y CI, nunca en la imagen de producción
-    ├── pyproject.toml         # configuración de ruff y pytest
+    ├── requirements-dev.txt   # pytest, ruff y djLint: solo desarrollo y CI, nunca en la imagen de producción
+    ├── pyproject.toml         # configuración de ruff, djLint y pytest
     ├── manage.py
     ├── config/                # configuración global
     │   ├── settings/          # base.py, local.py, prod.py
@@ -571,7 +572,7 @@ AI4Devs-finalproject-vmrr/
 flowchart TB
     subgraph DEV["Desarrollo"]
         GH["GitHub<br/>repositorio"]
-        CI["GitHub Actions<br/>ruff + pytest + build de imagen"]
+        CI["GitHub Actions<br/>ruff + djLint + pytest + build de imagen"]
         GH --> CI
     end
     subgraph LAN["Red del hogar (producción actual)"]
@@ -653,7 +654,7 @@ C4Container
 **Orden de arranque:** `db` declara un *healthcheck* (`pg_isready`). `web` arranca con `depends_on: condition: service_healthy` y `nginx` arranca después de `web`. Así `web` nunca intenta conectarse a una base de datos que todavía no responde.
 
 **Proceso de despliegue:**
-1. **Integración continua:** en cada *push* o *pull request* a `main`, GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) ejecuta `ruff` (lint), `pytest` con cobertura contra un servicio PostgreSQL 17, las pruebas de extremo a extremo con Playwright si el PR toca el frontend, y el *build* de la imagen. Cada noche corren además los tests lentos. Solo se integra a `main` con los *checks* obligatorios en verde (sección 7.3).
+1. **Integración continua:** en cada *push* o *pull request* a `main`, GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) ejecuta `ruff` (lint y formato de Python), djLint (lint y formato de las plantillas), `pytest` con cobertura contra un servicio PostgreSQL 17, las pruebas de extremo a extremo con Playwright si el PR toca el frontend, y el *build* de la imagen. Cada noche corren además los tests lentos. Solo se integra a `main` con los *checks* obligatorios en verde (sección 7.3).
 2. **Despliegue (local o VPS):** se hace manualmente por SSH, lo cual es suficiente para un solo mantenedor:
    ```bash
    git pull origin main
@@ -1945,7 +1946,56 @@ Las reglas de escritura (saldo insuficiente, duplicados, conteo cerrado, correcc
 
 **Habilitadores** (necesarios, pero sin valor por sí solos, así que no se cuentan como historias principales): inicio de sesión con los 2 niveles de acceso, catálogo de medicamentos y alta de residentes. En el MVP se operan desde el panel `/admin/` de Django (ver más abajo).
 
-**Siguiente en el backlog:** el reporte mensual (funcionalidad 7, *Should*), que se calcula sobre los movimientos de HU-01. Su historia se definirá en una iteración posterior; el endpoint `GET /reportes/mensual` ya está diseñado (sección 4.5). Las pautas (funcionalidad 4) son informativas y no bloquean el inventario (*Could*).
+**Siguiente en el backlog:** el reporte mensual (funcionalidad 6, *Should*), que se calcula sobre los movimientos de HU-01. Su historia se definirá en una iteración posterior; el endpoint `GET /reportes/mensual` ya está diseñado (sección 4.5). Las pautas (funcionalidad 4) son informativas y no bloquean el inventario (*Could*).
+
+#### Épicas
+
+Las épicas agrupan el trabajo por objetivo de negocio. Cada una reúne funcionalidades de la sección 1.2, sus historias o habilitadores y los tickets que las implementan (sección 6). Así se ve qué avance de valor representa cada ticket y cuándo está completo un frente de trabajo.
+
+| Épica | Funcionalidades (1.2) | Historias y habilitadores | Tickets | Puntos | Prioridad | Semanas |
+|---|---|---|---|---|---|---|
+| **EP-01** · Configuración base: catálogo, entidades y usuarios | 1, 2 y 7 | Habilitadores en `/admin/` | HB-01 a HB-06, HB-08 y HB-09 | 21 | Must (habilitadora) | 1–2 |
+| **EP-02** · Registro de movimientos de inventario | 3 y 8 | HU-01 | TK-01, TK-02 y TK-04 | 13 | Must | 3–4 |
+| **EP-03** · Consulta y filtrado de existencias | 5 (y 3) | HU-02 | TK-03 y TK-05 | 5 | Must | 4–5 |
+| **EP-04** · Conteos físicos y reportes para la dirección | 6 | HU-03 y reporte mensual (historia por definir) | TK-06 y TK-07 | 8, más el reporte sin estimar | Must (HU-03), *Should* (reporte) | 5–6 |
+| **EP-05** · Pautas de los residentes | 4 | Pantallas de pautas (historia por definir) | HB-07 (solo el esquema) | 2, más las pantallas sin estimar | *Could* (el esquema es Must: lo usa el mock) | 2 |
+| **Total** | | | | **49** | | |
+
+**EP-01 · Configuración base: catálogo, entidades y usuarios**
+- **Objetivo:** dejar listos y mantenibles los elementos estructurales del sistema: medicamentos, residentes, el Hogar y el control de acceso. No entrega valor por sí sola, pero todas las demás épicas dependen de ella.
+- **Incluye:**
+  - **Catálogo de medicamentos:** alta, cambio y baja lógica de nombre comercial, principio activo, tipo (genérico u original), presentación y concentración.
+  - **Entidades:** alta y cambio de residentes y de su estado (activo, egresado o fallecido). El Hogar es una entidad fija que crean las migraciones.
+  - **Usuarios y niveles de acceso globales:** el Administrador da de alta a los usuarios y les asigna el grupo *Solo lectura* o *Lectura y escritura* desde el panel `/admin/`.
+  - **Base técnica** que lo hace posible: contenedores, conexión con los 2 usuarios de base de datos y HTTPS (HB-01 a HB-04).
+- **Tickets:** HB-01 a HB-04 (base técnica, 10 puntos), HB-05 y HB-06 (modelos de catálogo y entidades, 6) y HB-08 y HB-09 (login, grupos y panel, 5).
+- **Se da por terminada cuando** el Administrador crea un usuario de cada grupo por HTTPS, y uno de *Lectura y escritura* da de alta medicamentos y residentes en `/admin/` sin poder borrar nada.
+
+**EP-02 · Registro de movimientos de inventario**
+- **Objetivo:** registrar las operaciones diarias que cambian las existencias de cada entidad, con trazabilidad de quién, cuándo y por qué.
+- **Incluye:** HU-01, con las entradas (quién entregó y el origen), las transferencias entre entidades, las bajas por motivo (consumo, caducidad, merma, rotura, devolución a la familia, defunción o egreso) y la corrección de un movimiento con su movimiento inverso.
+- **Tickets:** TK-01 (esquema de existencias, movimientos y conteos; también es la base de EP-03 y EP-04), TK-02 (servicio de movimientos) y TK-04 (formularios e historial).
+- **Se da por terminada cuando** se cumplen los criterios de aceptación de HU-01 y la vista de conciliación queda vacía después de cualquier secuencia de movimientos.
+
+**EP-03 · Consulta y filtrado de existencias**
+- **Objetivo:** responder en segundos cuánto medicamento le queda a cada residente y al Hogar, desde la computadora o el celular.
+- **Incluye:** HU-02, con los filtros combinados por residente, nombre comercial o principio activo y la búsqueda sin mayúsculas ni acentos que usa los índices trigram, en pantalla y en `GET /api/v1/existencias`.
+- **Tickets:** TK-03 (pantalla con HTMX) y TK-05 (endpoint de la API).
+- **Se da por terminada cuando** se cumplen los criterios de aceptación de HU-02 y la prueba de integración de la sección 6 pasa en CI.
+
+**EP-04 · Conteos físicos y reportes para la dirección**
+- **Objetivo:** controlar periódicamente que lo registrado coincida con lo que hay en el anaquel, y entregar a la dirección un corte confiable.
+- **Incluye:**
+  - **HU-03:** conteo físico a demanda por entidad y período, que compara lo físico contra lo registrado y resalta las diferencias. Cada diferencia se resuelve con un movimiento de EP-02.
+  - **Reporte mensual** de movimientos y existencias: su historia se definirá en una iteración posterior; el endpoint `GET /reportes/mensual` ya está diseñado (sección 4.5).
+- **Tickets:** TK-06 (servicio de conteos) y TK-07 (pantallas del conteo). El reporte mensual tendrá los suyos cuando se defina su historia.
+- **Se da por terminada cuando** se cumplen los criterios de aceptación de HU-03 y los de la historia del reporte mensual. Si el reporte no entra en el MVP, la épica cierra sin él y el reporte pasa a la siguiente iteración (sección 5, "Riesgo del plan").
+
+**EP-05 · Pautas de los residentes**
+- **Objetivo:** registrar, de forma informativa, la dosis, la frecuencia, las indicaciones y la vigencia de cada medicamento por residente. No mueve existencias ni registra la administración por turno.
+- **Incluye:** el esquema de la tabla `pauta` con sus reglas (sin vigencias traslapadas, solo residentes y medicamentos activos) y, más adelante, sus pantallas.
+- **Tickets:** HB-07 (esquema). Las pantallas son *Could*: su historia y sus tickets se definirán si hay tiempo después de EP-04.
+- **Se da por terminada cuando** existan la historia y las pantallas de pautas. En el MVP solo se entrega el esquema.
 
 #### Habilitadores en el panel `/admin/` de Django
 
@@ -2009,10 +2059,11 @@ Se implementan en los tickets de habilitación HB-08 (login, grupos y usuarios) 
 
 | Campo | Valor |
 |---|---|
+| Épica | EP-02 · Registro de movimientos de inventario |
 | Prioridad | Must (1 de 3) |
 | Estimación | 8 puntos |
 | Funcionalidades | 3 (existencias por entidad) y 8 (trazabilidad mínima) de la sección 1.2 |
-| Depende de | Habilitadores: login, catálogo de medicamentos, residentes |
+| Depende de | Habilitadores de EP-01: login, catálogo de medicamentos, residentes |
 | Módulo | `inventario` (`services.py`: `registrar_entrada`, `transferir`, `dar_de_baja`, `corregir`) |
 
 **Reglas de negocio**
@@ -2087,9 +2138,10 @@ Escenario: Doble clic al guardar
 
 | Campo | Valor |
 |---|---|
+| Épica | EP-03 · Consulta y filtrado de existencias |
 | Prioridad | Must (2 de 3) |
 | Estimación | 5 puntos |
-| Funcionalidades | 3 (existencias), 5 (filtros combinados) y 2 (búsqueda en el catálogo) de la sección 1.2 |
+| Funcionalidades | 3 (existencias), 5 (filtros combinados) y 1 (búsqueda en el catálogo) de la sección 1.2 |
 | Depende de | HU-01 (sin movimientos no hay saldos) |
 | Módulo | `inventario` (pantalla con filtros HTMX) y `api` (`GET /existencias`, `GET /medicamentos`, sección 4.5) |
 
@@ -2148,6 +2200,7 @@ Escenario: La API devuelve lo mismo que la pantalla
 
 | Campo | Valor |
 |---|---|
+| Épica | EP-04 · Conteos físicos y reportes para la dirección |
 | Prioridad | Must (3 de 3) |
 | Estimación | 8 puntos |
 | Funcionalidades | 6 (inventario físico a demanda, existencia contra registrado) de la sección 1.2 |
@@ -2302,7 +2355,7 @@ Quedan fuera de esta cuenta los endpoints `GET /medicamentos` y `GET /reportes/m
 | HB-09 | Panel `/admin/` | Catálogo y residentes en el panel, sin borrado y con búsqueda sin acentos | 2 | HB-08 | — | [HB-09](docs/tickets/HB-09-admin-catalogo-residentes.md) |
 
 **Definición de hecho común** (aplica a todos los tickets, TK y HB, además de la propia de cada uno):
-- El código pasa `ruff check` y `ruff format --check`, y no hay `print` ni código comentado.
+- El código pasa `ruff check` y `ruff format --check`, las plantillas pasan `djlint --check` y `djlint --lint`, y no hay `print` ni código comentado. No hay formateador de CSS ni de JS: el proyecto solo usa los de Bootstrap y HTMX, ya minificados en `static/*/vendor/`, que no se reformatean.
 - CI en verde: lint, `python manage.py makemigrations --check` y `pytest` contra PostgreSQL 17 (cada *job* se activa cuando existe lo que necesita, sección 7.3).
 - Cobertura ≥ 80 % en `apps/` (la exige el CI), más el umbral propio del ticket (sección 2.6).
 - *Pull request* revisado y aprobado, con la descripción, cómo probarlo y el enlace al ticket. Se integra a `main` con *squash merge*.
@@ -2342,7 +2395,7 @@ flowchart LR
 | `app/conftest.py`, `app/pruebas.py` | Agrega los *fixtures* y `saldo` | Solo los usa | Solo los usa | Los crea HB-03 (`conftest.py` vacío y `ejecutar_sql`). Después, solo TK-01 los modifica. Un *fixture* nuevo se pide en el PR de TK-01 o en uno propio |
 | `apps/inventario/migrations/` | `0001` a `0004` | — | — | TK-02 y TK-03 no crean migraciones. Si alguno la necesita, se renumera después del *rebase* |
 | `config/settings/base.py` | — | — | `django_htmx`, `LOGIN_REDIRECT_URL` | Lo crea HB-02 y lo completan HB-03 a HB-08 (`DATABASES` es de HB-03). Cambios en bloques distintos |
-| `requirements.txt` / `requirements-dev.txt` | — | — | `django-htmx` / `pytest-playwright` | Los crea HB-02 (`pytest`, `pytest-django`, `pytest-cov` y `ruff`). Una dependencia por línea, en orden alfabético |
+| `requirements.txt` / `requirements-dev.txt` | — | — | `django-htmx` / `pytest-playwright` | Los crea HB-02 (`djlint`, `pytest`, `pytest-django`, `pytest-cov` y `ruff`). Una dependencia por línea, en orden alfabético |
 | `docker-compose.yml`, `.env.example` | — | — | — | Los crean HB-01 a HB-04 (y HB-06 agrega `HOGAR_NOMBRE`). Los tickets TK no los modifican |
 
 #### Puntos de integración
@@ -2850,7 +2903,7 @@ Dejan lista la base sobre la que se construyen TK-01 a TK-07: contenedores, cone
 | Depende de | HB-01 |
 | Guía | [`docs/tickets/HB-02-imagen-web.md`](docs/tickets/HB-02-imagen-web.md) |
 
-**Descripción técnica.** Crea el proyecto Django 5.2 en `app/`, con la configuración separada en `config/settings/{base,local,prod}.py` (sección 2.3). `SECRET_KEY` (obligatoria), `DEBUG` y `ALLOWED_HOSTS` vienen del entorno, con `es-mx`, `America/Mexico_City` y `USE_TZ = True`. `DATABASES` todavía no se define: Django arranca con el backend `dummy` hasta HB-03. Agrega `requirements.txt` (Django, Gunicorn) y `requirements-dev.txt` (pytest, pytest-django, pytest-cov, ruff) con versiones fijas, y `pyproject.toml` con la configuración de ruff. El `Dockerfile` (`python:3.12-slim`) instala primero las dependencias, solo instala las de desarrollo con `INSTALAR_DEV=true`, corre como el usuario sin privilegios `django` y arranca Gunicorn en el puerto 8000. En Compose, `web` monta `./app` y el volumen `static`, está en las redes `frontend` y `backend`, espera a `db` sana, recibe solo sus variables (sin contraseñas de PostgreSQL) y no publica puertos.
+**Descripción técnica.** Crea el proyecto Django 5.2 en `app/`, con la configuración separada en `config/settings/{base,local,prod}.py` (sección 2.3). `SECRET_KEY` (obligatoria), `DEBUG` y `ALLOWED_HOSTS` vienen del entorno, con `es-mx`, `America/Mexico_City` y `USE_TZ = True`. `DATABASES` todavía no se define: Django arranca con el backend `dummy` hasta HB-03. Agrega `requirements.txt` (Django, Gunicorn) y `requirements-dev.txt` (djLint, congelado en 1.49.9; pytest, pytest-django, pytest-cov, ruff) con versiones fijas, y `pyproject.toml` con la configuración de ruff y de djLint (perfil `django`, sin revisar `staticfiles/` ni `static/vendor/`). El `Dockerfile` (`python:3.12-slim`) instala primero las dependencias, solo instala las de desarrollo con `INSTALAR_DEV=true`, corre como el usuario sin privilegios `django` y arranca Gunicorn en el puerto 8000. En Compose, `web` monta `./app` y el volumen `static`, está en las redes `frontend` y `backend`, espera a `db` sana, recibe solo sus variables (sin contraseñas de PostgreSQL) y no publica puertos.
 
 **Criterios de aceptación**
 - [ ] `docker compose up -d` deja `db` sana y `web` corriendo; `manage.py check` no reporta problemas.
@@ -2860,6 +2913,7 @@ Dejan lista la base sobre la que se construyen TK-01 a TK-07: contenedores, cone
 - [ ] Sin `SECRET_KEY` en `.env`, Compose se niega a arrancar con un mensaje claro.
 - [ ] La imagen construida con `INSTALAR_DEV=false` (la del CI) no contiene pytest.
 - [ ] En el PR, el CI corre `lint` y `build de la imagen` en verde, y `tests` y `e2e` aparecen saltados.
+- [ ] `djlint . --check` lee `[tool.djlint]` de `pyproject.toml` y, sin plantillas todavía, responde `No files to check!`; el paso de djLint del CI se omite.
 
 **Definición de hecho**
 - [ ] Versiones fijadas anotadas en el PR.
@@ -3021,6 +3075,7 @@ Dejan lista la base sobre la que se construyen TK-01 a TK-07: contenedores, cone
 - [ ] Solo el Administrador ve "Usuarios" y "Grupos" (`403` para los demás), y nadie borra usuarios.
 - [ ] El sexto intento tras 5 contraseñas incorrectas responde `429` con el mensaje de cuenta bloqueada.
 - [ ] El login tiene `<label>` en cada campo, se usa bien a 390 px y no tiene violaciones de CSP.
+- [ ] Las plantillas (`base.html`, `login.html`, `bloqueado.html`) pasan `djlint --check` y `djlint --lint`; desde este ticket el CI corre djLint.
 
 **Definición de hecho**
 - [ ] Capturas del login en escritorio y celular en el PR.
@@ -3115,7 +3170,7 @@ Un PR se integra a `main` solo si cumple **todos**:
 | Criterio | Umbral | Cómo se verifica |
 |---|---|---|
 | **Pruebas** | `pytest` completo en verde contra PostgreSQL 17, incluida la prueba de integración de la sección 6. Si toca el frontend, también los e2e de Playwright | *Checks* obligatorios `tests` y `e2e` |
-| **Calidad estática** | `ruff check`, `ruff format --check` y `makemigrations --check` sin errores | *Checks* obligatorios `lint` (ruff) y `tests` (migraciones) |
+| **Calidad estática** | `ruff check`, `ruff format --check`, `djlint --check`, `djlint --lint` y `makemigrations --check` sin errores | *Checks* obligatorios `lint` (ruff y djLint) y `tests` (migraciones) |
 | **Cobertura** | ≥ 80 % en todo `apps/` (sección 2.6), más el umbral del ticket (TK-02 ≥ 90 % en `services.py`); la cobertura total no baja respecto de `main` | El *job* `tests` falla con menos de 80 % (`--cov-fail-under=80`) y guarda `coverage.xml`; el umbral del ticket y la comparación con `main` los verifica el autor y los anota en la plantilla |
 | **Aprobaciones** | 1 aprobación sin comentarios bloqueantes abiertos. Con un solo desarrollador: autorrevisión y revisión con IA registradas en el PR | Revisión en GitHub y conversaciones resueltas |
 | **Definición de hecho** | La común y la del ticket (sección 6), con todos los criterios de aceptación cumplidos | Checklist del autor, revisada por el revisor |

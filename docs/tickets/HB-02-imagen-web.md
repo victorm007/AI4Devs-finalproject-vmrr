@@ -46,8 +46,8 @@ AI4Devs-finalproject-vmrr/
     ├── Dockerfile                  # NUEVO
     ├── .dockerignore               # NUEVO
     ├── requirements.txt            # NUEVO: Django y Gunicorn (versiones fijas)
-    ├── requirements-dev.txt        # NUEVO: pytest, pytest-django, pytest-cov, ruff
-    ├── pyproject.toml              # NUEVO: configuración de ruff
+    ├── requirements-dev.txt        # NUEVO: pytest, pytest-django, pytest-cov, ruff, djlint
+    ├── pyproject.toml              # NUEVO: configuración de ruff y djLint
     ├── manage.py                   # NUEVO
     ├── static/.gitkeep             # NUEVO: carpeta de estáticos propios (vacía por ahora)
     ├── templates/.gitkeep          # NUEVO: plantillas comunes (base.html llega en HB-08)
@@ -92,13 +92,14 @@ gunicorn==23.0.0
 
 ```text
 # Dependencias de desarrollo y CI. Una por línea, en orden alfabético.
+djlint==1.49.9
 pytest==8.4.1
 pytest-cov==6.2.1
 pytest-django==4.11.1
 ruff==0.12.4
 ```
 
-> Los números son un ejemplo de julio de 2025: pon los que te dio `pip index versions`. Anótalos en el PR. El CI instala `ruff` con la versión exacta de este archivo.
+> Los números son un ejemplo de julio de 2025: pon los que te dio `pip index versions`, **salvo `djlint`, que se queda en 1.49.9**: es la versión acordada, y las plantillas de las guías (HB-08, TK-03) están comprobadas con ella. Subirla cambia el formato esperado, así que se hace en un PR propio que reformatee todas las plantillas. Anota las versiones en el PR. El CI instala `ruff` y `djlint` con la versión exacta de este archivo.
 
 ### Paso 2. Proyecto Django y configuración por entorno (≈ 1 h)
 
@@ -261,7 +262,9 @@ application = get_asgi_application()
 
 **2.7 Carpetas vacías:** `touch app/static/.gitkeep app/templates/.gitkeep app/config/__init__.py app/config/settings/__init__.py`.
 
-### Paso 3. Configuración de ruff (≈ 10 min)
+### Paso 3. Configuración de ruff y djLint (≈ 15 min)
+
+El proyecto tiene un formateador por tipo de archivo: **ruff** para Python y **djLint** para las plantillas de Django (`.html`). No hay formateador de CSS ni de JS: todo el CSS y el JS es de terceros y ya viene minificado (Bootstrap en HB-08, HTMX en TK-03), y se excluye de la revisión.
 
 `app/pyproject.toml`:
 
@@ -278,7 +281,19 @@ select = ["E4", "E7", "E9", "F", "I", "B", "UP"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["apps", "config"]
+
+[tool.djlint]
+# Formato y lint de las plantillas de Django (readme, sección 6: definición de hecho común)
+profile = "django"
+indent = 2
+max_line_length = 120
+# H030 y H031 piden <meta> de descripción y palabras clave: no aplican a una app interna con login
+ignore = "H030,H031"
+# Archivos generados (collectstatic, cobertura, trazas de Playwright) y de terceros
+extend_exclude = "staticfiles,static/vendor,htmlcov,test-results"
 ```
+
+> djLint solo revisa `.html`. Su lint también protege la CSP: la regla `H021` rechaza los estilos en línea (`style="..."`), que nginx bloquea (HB-04). Mientras no haya plantillas (hasta HB-08), `djlint .` responde `No files to check!` con código de salida 2: es lo esperado, y por eso el CI se salta ese paso si no existe ningún `.html`.
 
 ### Paso 4. `Dockerfile` e imagen (≈ 45 min)
 
@@ -297,7 +312,7 @@ WORKDIR /app
 
 # Primero las dependencias, para aprovechar la caché de Docker
 COPY requirements.txt requirements-dev.txt ./
-# INSTALAR_DEV=true en desarrollo (pytest y ruff dentro del contenedor); false en producción
+# INSTALAR_DEV=true en desarrollo (pytest, ruff y djLint dentro del contenedor); false en producción
 ARG INSTALAR_DEV=false
 RUN pip install -r requirements.txt \
  && if [ "$INSTALAR_DEV" = "true" ]; then pip install -r requirements-dev.txt; fi
@@ -354,7 +369,7 @@ ALLOWED_HOSTS=localhost,127.0.0.1
 # config.settings.local en desarrollo; config.settings.prod en el servidor del hogar y el VPS
 DJANGO_SETTINGS_MODULE=config.settings.local
 
-# Imagen de web: true instala pytest y ruff (desarrollo); false en producción
+# Imagen de web: true instala pytest, ruff y djLint (desarrollo); false en producción
 INSTALAR_DEV=true
 # Opcional en desarrollo: --reload reinicia Gunicorn al guardar un .py
 GUNICORN_CMD_ARGS=--reload
@@ -434,7 +449,8 @@ Este ticket todavía no tiene código de negocio ni base de datos, así que **no
 | 5 | `web` llega a `db` por la red `backend` | Sección 5, paso 5 | `db:5432 alcanzable` |
 | 6 | Sin `SECRET_KEY`, no arranca | `SECRET_KEY= docker compose config --quiet` | Error: `Falta SECRET_KEY en .env` (la variable del *shell* manda sobre `.env`) |
 | 7 | La imagen de producción no trae herramientas de desarrollo | Sección 5, paso 6 | `WARNING: Package(s) not found: pytest` |
-| 8 | Lint | `ruff check .` y `ruff format --check .` | Sin errores |
+| 8 | Lint y formato de Python | `ruff check .` y `ruff format --check .` | Sin errores |
+| 9 | djLint instalado y configurado | `djlint . --check` | `No files to check!` (aún no hay plantillas; el código de salida 2 es lo esperado) |
 
 ---
 
@@ -449,6 +465,7 @@ Este ticket todavía no tiene código de negocio ni base de datos, así que **no
 | La imagen de producción no instala `requirements-dev.txt` | Prueba 7 |
 | Capas de Docker ordenadas: dependencias antes que el código | Un cambio en un `.py` no reinstala dependencias al reconstruir |
 | Código y comentarios en español; ruff sin errores | Prueba 8 |
+| djLint lee su configuración de `pyproject.toml` | Prueba 9 |
 
 ---
 
@@ -461,6 +478,8 @@ set -a && . ./.env && set +a
 docker compose exec web ruff check . && docker compose exec web ruff format --check .
 docker compose exec web python manage.py check
 # System check identified no issues (0 silenced).
+docker compose exec web djlint . --check
+# No files to check! 😢   (código 2: las plantillas llegan en HB-08)
 
 # 2. Usuario del proceso y puertos
 docker compose exec web whoami                       # django
@@ -522,5 +541,6 @@ touch app/config/urls.py && docker compose build web 2>&1 | grep "RUN pip instal
 | `ModuleNotFoundError: No module named 'config'` | `WORKDIR` o `context` distintos de `app/` | Revisa `build.context: ./app` y `WORKDIR /app` |
 | `Permission denied` al escribir en `/app` (Linux) | Tu usuario del equipo no tiene el UID 1000 | Agrega `APP_UID=<salida de id -u>` a `.env` y `docker compose build web` |
 | `ruff format --check` falla | Formato distinto al de ruff | `docker compose exec web ruff format .` y vuelve a commitear |
+| `djlint` revisa archivos de `staticfiles/` o de `vendor/` | Falta `extend_exclude` o `djlint` no corre desde `app/` | Revisa `[tool.djlint]` (paso 3); `docker compose exec web` ya corre en `/app` |
 | `pip index versions` dice "unknown command" | pip antiguo en la imagen | Usa `docker run --rm python:3.12-slim pip install <paquete>==` y lee las versiones del error |
 | En Git Bash, rutas como `/app` se convierten a `C:/Program Files/Git/app` | Conversión automática de rutas de MSYS | Antepón `MSYS_NO_PATHCONV=1` al comando `docker` |

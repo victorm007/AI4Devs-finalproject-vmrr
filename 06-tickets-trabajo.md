@@ -226,6 +226,67 @@ Con esas respuestas, tu propuesta quedó en **9 tickets de habilitación (HB-01 
 
 ---
 
+## Prompt 7 — Usuario
+
+¿Qué formateadores para el código de Python, las plantillas de Django y los archivos de CSS y JS tenemos incluidos?
+
+---
+
+## Respuesta 7 — Claude
+
+Solo hay formateador para Python. Las plantillas de Django, el CSS y el JS no tienen ninguno en el diseño.
+
+| Tipo de archivo | Formateador | Dónde está previsto |
+|---|---|---|
+| Python | **ruff** (`ruff format` y `ruff check`) | Configurado en HB-02 (`pyproject.toml`); lo exigen el *job* `lint` del CI, la plantilla del PR y la definición de hecho de cada ticket |
+| Plantillas de Django | Ninguno | — |
+| CSS y JS | Ninguno | — |
+
+Tampoco hay `.editorconfig` ni `pre-commit`. Todo el CSS y JS previsto es de terceros y ya viene minificado (Bootstrap 5.3.3 en HB-08 y HTMX 2.0.4 en TK-03, en `static/*/vendor/`), y la CSP de nginx impide el JS en línea.
+
+**Recomendación:** djLint para las plantillas (es un paquete de Python, así que entra en `requirements-dev.txt` y en `pyproject.toml` sin agregar Node), y nada para CSS y JS mientras no haya archivos propios: reformatear los minificados de terceros los rompería y llenaría los diffs.
+
+---
+
+## Prompt 8 — Usuario
+
+Agrégalos, por favor.
+
+---
+
+## Respuesta 8 — Claude
+
+Agregué **djLint** (perfil `django`) para las plantillas. CSS y JS siguen sin formateador, y la definición de hecho común explica por qué.
+
+**Antes de documentarlo, lo probé:** instalé djLint en un entorno temporal y lo corrí sobre las plantillas de las guías de HB-08 y TK-03. El lint pasó (salvo un `<button>` sin `type`, que corregí), pero el formato no, así que reemplacé esas plantillas por la versión que deja `djlint --reformat`: 2 espacios de sangría y un atributo por línea cuando la etiqueta no cabe en 120 caracteres. Los tests de esas guías siguen siendo válidos, porque solo buscan textos y atributos que no cambiaron.
+
+**Dónde quedó:**
+- **HB-02:** `djlint` en `requirements-dev.txt` y `[tool.djlint]` en `pyproject.toml`. Ignora H030 y H031 (piden `<meta>` de descripción, que no aplica a una app interna) y excluye `staticfiles/`, `static/vendor/`, `htmlcov/` y `test-results/`. Su regla H021, que rechaza los `style="..."`, coincide con la CSP.
+- **CI (*job* `lint`):** instala ruff y djLint con la versión de `requirements-dev.txt` y corre `djlint . --check` y `djlint . --lint`. Sin plantillas, djLint termina con código 2, así que ese paso se salta mientras no exista ningún `.html` (hasta HB-08).
+- **`Makefile` (TK-01):** `make lint` y `make format` incluyen djLint. `djlint --reformat` termina con 1 cuando cambia un archivo, y en `make format` eso no cuenta como error.
+- **HB-08 y TK-03:** plantillas formateadas, nota de cómo reformatear, criterio de calidad, comando de verificación y una fila en "Si te bloqueas".
+- **readme:** sección 1.4 (`make lint` y `make format`), 2.3 (estructura), 2.4 (CI), definición de hecho común, ficha de HB-02 y HB-08, archivos compartidos y criterio de *merge* "Calidad estática" de la sección 7.3. También la plantilla del PR y `CLAUDE.md`.
+
+El diagrama de infraestructura de la sección 2.4 sigue diciendo "ruff + pytest": no lo cambié para no dejar desactualizado el PNG de `diagramas/`.
+
+---
+
+## Prompt 9 — Usuario
+
+1. Cámbialo: los diagramas se renderizan en GitHub.
+2. Usemos la última versión estable y congelémosla ahí, con la 1.49.9 de djLint.
+
+---
+
+## Respuesta 9 — Claude
+
+1. **Diagrama de infraestructura (sección 2.4):** el nodo del CI dice ahora "ruff + djLint + pytest + build de imagen". Apliqué el mismo cambio en el anexo de `02-arquitectura.md`.
+2. **djLint congelado en 1.49.9:** HB-02 lo fija en `requirements-dev.txt` y lo saca de la consulta de versiones de su paso 1. La nota del paso aclara que, a diferencia de las demás, esa versión no se actualiza al hacer el ticket: subirla cambia el formato esperado y va en un PR propio que reformatee todas las plantillas. También lo indican la ficha de HB-02 (sección 6) y `CLAUDE.md`.
+
+Repetí la prueba con djLint 1.49.9: las plantillas de las guías de HB-08 y TK-03 pasan `--check` y `--lint`, la regla H021 sigue rechazando los estilos en línea y, sin plantillas, el código de salida sigue siendo 2 (el CI salta ese paso).
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 6)
 
 ## 6. Tickets de Trabajo
@@ -281,7 +342,7 @@ Quedan fuera de esta cuenta los endpoints `GET /medicamentos` y `GET /reportes/m
 | HB-09 | Panel `/admin/` | Catálogo y residentes en el panel, sin borrado y con búsqueda sin acentos | 2 | HB-08 | — | [HB-09](docs/tickets/HB-09-admin-catalogo-residentes.md) |
 
 **Definición de hecho común** (aplica a todos los tickets, TK y HB, además de la propia de cada uno):
-- El código pasa `ruff check` y `ruff format --check`, y no hay `print` ni código comentado.
+- El código pasa `ruff check` y `ruff format --check`, las plantillas pasan `djlint --check` y `djlint --lint`, y no hay `print` ni código comentado. No hay formateador de CSS ni de JS: el proyecto solo usa los de Bootstrap y HTMX, ya minificados en `static/*/vendor/`, que no se reformatean.
 - CI en verde: lint, `python manage.py makemigrations --check` y `pytest` contra PostgreSQL 17 (cada *job* se activa cuando existe lo que necesita, sección 7.3).
 - Cobertura ≥ 80 % en `apps/` (la exige el CI), más el umbral propio del ticket (sección 2.6).
 - *Pull request* revisado y aprobado, con la descripción, cómo probarlo y el enlace al ticket. Se integra a `main` con *squash merge*.
@@ -321,7 +382,7 @@ flowchart LR
 | `app/conftest.py`, `app/pruebas.py` | Agrega los *fixtures* y `saldo` | Solo los usa | Solo los usa | Los crea HB-03 (`conftest.py` vacío y `ejecutar_sql`). Después, solo TK-01 los modifica. Un *fixture* nuevo se pide en el PR de TK-01 o en uno propio |
 | `apps/inventario/migrations/` | `0001` a `0004` | — | — | TK-02 y TK-03 no crean migraciones. Si alguno la necesita, se renumera después del *rebase* |
 | `config/settings/base.py` | — | — | `django_htmx`, `LOGIN_REDIRECT_URL` | Lo crea HB-02 y lo completan HB-03 a HB-08 (`DATABASES` es de HB-03). Cambios en bloques distintos |
-| `requirements.txt` / `requirements-dev.txt` | — | — | `django-htmx` / `pytest-playwright` | Los crea HB-02 (`pytest`, `pytest-django`, `pytest-cov` y `ruff`). Una dependencia por línea, en orden alfabético |
+| `requirements.txt` / `requirements-dev.txt` | — | — | `django-htmx` / `pytest-playwright` | Los crea HB-02 (`djlint`, `pytest`, `pytest-django`, `pytest-cov` y `ruff`). Una dependencia por línea, en orden alfabético |
 | `docker-compose.yml`, `.env.example` | — | — | — | Los crean HB-01 a HB-04 (y HB-06 agrega `HOGAR_NOMBRE`). Los tickets TK no los modifican |
 
 #### Puntos de integración
@@ -829,7 +890,7 @@ Dejan lista la base sobre la que se construyen TK-01 a TK-07: contenedores, cone
 | Depende de | HB-01 |
 | Guía | [`docs/tickets/HB-02-imagen-web.md`](docs/tickets/HB-02-imagen-web.md) |
 
-**Descripción técnica.** Crea el proyecto Django 5.2 en `app/`, con la configuración separada en `config/settings/{base,local,prod}.py` (sección 2.3). `SECRET_KEY` (obligatoria), `DEBUG` y `ALLOWED_HOSTS` vienen del entorno, con `es-mx`, `America/Mexico_City` y `USE_TZ = True`. `DATABASES` todavía no se define: Django arranca con el backend `dummy` hasta HB-03. Agrega `requirements.txt` (Django, Gunicorn) y `requirements-dev.txt` (pytest, pytest-django, pytest-cov, ruff) con versiones fijas, y `pyproject.toml` con la configuración de ruff. El `Dockerfile` (`python:3.12-slim`) instala primero las dependencias, solo instala las de desarrollo con `INSTALAR_DEV=true`, corre como el usuario sin privilegios `django` y arranca Gunicorn en el puerto 8000. En Compose, `web` monta `./app` y el volumen `static`, está en las redes `frontend` y `backend`, espera a `db` sana, recibe solo sus variables (sin contraseñas de PostgreSQL) y no publica puertos.
+**Descripción técnica.** Crea el proyecto Django 5.2 en `app/`, con la configuración separada en `config/settings/{base,local,prod}.py` (sección 2.3). `SECRET_KEY` (obligatoria), `DEBUG` y `ALLOWED_HOSTS` vienen del entorno, con `es-mx`, `America/Mexico_City` y `USE_TZ = True`. `DATABASES` todavía no se define: Django arranca con el backend `dummy` hasta HB-03. Agrega `requirements.txt` (Django, Gunicorn) y `requirements-dev.txt` (djLint, congelado en 1.49.9; pytest, pytest-django, pytest-cov, ruff) con versiones fijas, y `pyproject.toml` con la configuración de ruff y de djLint (perfil `django`, sin revisar `staticfiles/` ni `static/vendor/`). El `Dockerfile` (`python:3.12-slim`) instala primero las dependencias, solo instala las de desarrollo con `INSTALAR_DEV=true`, corre como el usuario sin privilegios `django` y arranca Gunicorn en el puerto 8000. En Compose, `web` monta `./app` y el volumen `static`, está en las redes `frontend` y `backend`, espera a `db` sana, recibe solo sus variables (sin contraseñas de PostgreSQL) y no publica puertos.
 
 **Criterios de aceptación**
 - [ ] `docker compose up -d` deja `db` sana y `web` corriendo; `manage.py check` no reporta problemas.
@@ -839,6 +900,7 @@ Dejan lista la base sobre la que se construyen TK-01 a TK-07: contenedores, cone
 - [ ] Sin `SECRET_KEY` en `.env`, Compose se niega a arrancar con un mensaje claro.
 - [ ] La imagen construida con `INSTALAR_DEV=false` (la del CI) no contiene pytest.
 - [ ] En el PR, el CI corre `lint` y `build de la imagen` en verde, y `tests` y `e2e` aparecen saltados.
+- [ ] `djlint . --check` lee `[tool.djlint]` de `pyproject.toml` y, sin plantillas todavía, responde `No files to check!`; el paso de djLint del CI se omite.
 
 **Definición de hecho**
 - [ ] Versiones fijadas anotadas en el PR.
@@ -1000,6 +1062,7 @@ Dejan lista la base sobre la que se construyen TK-01 a TK-07: contenedores, cone
 - [ ] Solo el Administrador ve "Usuarios" y "Grupos" (`403` para los demás), y nadie borra usuarios.
 - [ ] El sexto intento tras 5 contraseñas incorrectas responde `429` con el mensaje de cuenta bloqueada.
 - [ ] El login tiene `<label>` en cada campo, se usa bien a 390 px y no tiene violaciones de CSP.
+- [ ] Las plantillas (`base.html`, `login.html`, `bloqueado.html`) pasan `djlint --check` y `djlint --lint`; desde este ticket el CI corre djLint.
 
 **Definición de hecho**
 - [ ] Capturas del login en escritorio y celular en el PR.
