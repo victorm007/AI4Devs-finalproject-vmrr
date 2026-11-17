@@ -332,6 +332,32 @@ Creé `docs/adr/` con un índice (`README.md`) y **24 ADR** en formato MADR lige
 
 ---
 
+## Prompt 12 — Usuario
+
+Agrega esta sección en el `CLAUDE.md` y verifica que no haya conflictos:
+
+> ### Decisiones de Arquitectura (ADRs)
+> Las decisiones estructurales e irreversibles del sistema están documentadas en `docs/adr/` (índice en `docs/adr/README.md`).
+> - **Cumplimiento obligatorio:** Ninguna propuesta de OpenSpec, ticket ni cambio de código puede contradecir un ADR en estado `Aceptado` (por ejemplo: privilegios de `app_user`, inmutabilidad de `movimiento`, prohibición de SPA/JS en línea, uso exacto de `f_unaccent(lower(...))`, o conteos sin autoajuste).
+> - **Supersedencia:** Si un requisito futuro exige cambiar una decisión aceptada, primero se crea un nuevo ADR (`docs/adr/NNNN-*.md`) que marque el anterior como `Supersedido por ADR-NNNN` y se actualiza `readme.md` antes de modificar código o specs.
+> - **Revisión:** El subagente `adversarial-reviewer` debe validar cada PR contra los ADRs aplicables además de las specs de OpenSpec.
+
+---
+
+## Respuesta 12 — Claude
+
+Agregué la sección tal cual en `CLAUDE.md`, como subsección de "Flujo de trabajo", justo después de las reglas de arquitectura. Los 5 ejemplos que cita corresponden a ADR existentes: 0006 (privilegios de `app_user`), 0012 (inmutabilidad de `movimiento`), 0002 (sin SPA ni JavaScript en línea), 0017 (`f_unaccent(lower(...))`) y 0015 (conteos sin autoajuste).
+
+**Conflictos que encontré y corregí:**
+1. **Nombre del estado:** el índice de `docs/adr/` decía que un ADR cambiado pasa a `Reemplazado por ADR-NNNN`. Lo cambié a `Supersedido por ADR-NNNN` y agregué un apartado "Cumplimiento y supersedencia" que remite a `CLAUDE.md`.
+2. **Precedencia:** el índice decía "si un ADR y el readme no coinciden, manda el readme". Eso permitía cambiar una decisión solo en el readme, sin ADR nuevo. Ahora dice que una diferencia es un error de documentación que se corrige antes de seguir, y que para cambiar una decisión se sigue la supersedencia. Sigue siendo compatible con que el readme sea la fuente de verdad del diseño, porque la supersedencia exige actualizarlo.
+3. **El subagente no conocía los ADR:** `.claude/agents/adversarial-reviewer.md` solo contrastaba contra `openspec/specs/`. Ahora contrasta también contra los ADR aceptados que apliquen, y contradecir uno es un hallazgo crítico, salvo que el PR incluya el ADR que lo supersede.
+4. **Instrucción de revisión en `CLAUDE.md` y en el readme:** la sección Git de `CLAUDE.md` pedía contrastar "mientras no exista `openspec/specs/`" solo contra los criterios de aceptación. Ahora pide contrastar siempre contra los ADR. También lo agregué al paso 2 del proceso de revisión del readme (apartado 7.2).
+
+Además, el estado del repositorio de `CLAUDE.md` menciona ahora los ADR de `docs/adr/`. No hice commit.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 2)
 
 ### 2.1. Diagrama de arquitectura

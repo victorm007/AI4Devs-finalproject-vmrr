@@ -2,7 +2,7 @@
 
 Esta carpeta formaliza las decisiones de arquitectura significativas que ya están tomadas en el diseño del proyecto, antes de inicializar OpenSpec.
 
-**Origen:** cada decisión sale de `readme.md` (secciones 2 a 6) y de `CLAUDE.md`. Ningún ADR agrega requisitos nuevos: si un ADR y el readme no coinciden, manda el readme. Cada ADR indica en **Fuentes** las secciones de donde sale, y en **Alternativas consideradas** solo menciona las que el propio diseño descarta; cuando el diseño no documenta ninguna, lo dice.
+**Origen:** cada decisión sale de `readme.md` (secciones 2 a 6) y de `CLAUDE.md`. Ningún ADR agrega requisitos nuevos. Si un ADR y el readme no coinciden, es un error de documentación que se corrige antes de seguir; para cambiar una decisión se sigue la supersedencia de más abajo. Cada ADR indica en **Fuentes** las secciones de donde sale, y en **Alternativas consideradas** solo menciona las que el propio diseño descarta; cuando el diseño no documenta ninguna, lo dice.
 
 **Formato:** MADR ligero, con estado, fecha, *capabilities* afectadas, fuentes, contexto, decisión, alternativas consideradas y consecuencias.
 
@@ -42,4 +42,11 @@ Esta carpeta formaliza las decisiones de arquitectura significativas que ya est�
 1. Copia la estructura de un ADR existente con el siguiente número libre: `NNNN-titulo-en-kebab-case.md`.
 2. Escríbelo en español y con el vocabulario de dominio de `CLAUDE.md`: Residente, Entidad, Medicamento, Existencia, Movimiento, Pauta y Baja.
 3. Agrega su fila a la tabla de este índice.
-4. Un ADR aceptado no se reescribe. Si una decisión cambia, se crea un ADR nuevo que la reemplaza, y el anterior pasa a estado `Reemplazado por ADR-NNNN`.
+4. Un ADR aceptado no se reescribe.
+
+## Cumplimiento y supersedencia
+
+Las reglas están en `CLAUDE.md` ("Decisiones de Arquitectura (ADRs)"):
+- Ninguna propuesta de OpenSpec, ticket ni cambio de código puede contradecir un ADR en estado `Aceptado`.
+- Para cambiar una decisión aceptada, primero se crea un ADR nuevo, el anterior pasa a estado `Supersedido por ADR-NNNN` (en su ficha y en este índice), y se actualiza `readme.md`. Solo después se modifican el código o las specs.
+- El subagente `adversarial-reviewer` valida cada PR contra los ADR que apliquen.

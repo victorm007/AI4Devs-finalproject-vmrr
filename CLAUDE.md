@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Proyecto final de AI4Devs: inventario de medicamentos para un hogar gerontológico (una sede, ~20 residentes, 1 a 3 usuarios). El equipo y la documentación trabajan en español.
 
-**Todavía no hay código de la aplicación.** Solo existen la documentación, el contrato de la API, el dataset mock, el CI y la configuración de Claude Code (`.claude/`: hooks de secretos, de formato y de verificación, skill `/commit` y subagente `adversarial-reviewer`) y el verificador `scripts/verificar.py`. `app/` contiene únicamente `fixtures/mock/`; no existen aún `manage.py`, `docker-compose.yml`, `Makefile`, `db/init/` ni el resto de `scripts/`. Los comandos de Django y Docker de abajo son los **previstos** en el diseño, y el código de `docs/tickets/` nunca se ha ejecutado: compruébalos antes de darlos por buenos.
+**Todavía no hay código de la aplicación.** Solo existen la documentación (incluidos los ADR de `docs/adr/`), el contrato de la API, el dataset mock, el CI y la configuración de Claude Code (`.claude/`: hooks de secretos, de formato y de verificación, skill `/commit` y subagente `adversarial-reviewer`) y el verificador `scripts/verificar.py`. `app/` contiene únicamente `fixtures/mock/`; no existen aún `manage.py`, `docker-compose.yml`, `Makefile`, `db/init/` ni el resto de `scripts/`. Los comandos de Django y Docker de abajo son los **previstos** en el diseño, y el código de `docs/tickets/` nunca se ha ejecutado: compruébalos antes de darlos por buenos.
 
 `readme.md` es la fuente de verdad del diseño. Sus secciones: 1 producto, 2 arquitectura, 3 modelo de datos, 4 API, 5 historias (HU-01 a HU-03), 6 tickets (TK-01 a TK-07, orden de ejecución, puntos de integración, criterios de revisión), 7 proceso de PR y criterios de *merge*.
 
@@ -43,6 +43,12 @@ Detalles que rompen cosas si se olvidan:
 - Django rechaza nombres de índice de más de 30 caracteres (`models.E034`); de ahí abreviaturas como `ix_movimiento_dest_med_fecha`. Tablas, restricciones e índices usan los nombres exactos de las secciones 3.1 y 3.3.
 - Los índices trigram solo se usan si el ORM genera exactamente `f_unaccent(lower(campo))`.
 - Las cantidades son `Decimal` (en dosis), nunca `float`.
+
+### Decisiones de Arquitectura (ADRs)
+Las decisiones estructurales e irreversibles del sistema están documentadas en `docs/adr/` (índice en `docs/adr/README.md`).
+- **Cumplimiento obligatorio:** Ninguna propuesta de OpenSpec, ticket ni cambio de código puede contradecir un ADR en estado `Aceptado` (por ejemplo: privilegios de `app_user`, inmutabilidad de `movimiento`, prohibición de SPA/JS en línea, uso exacto de `f_unaccent(lower(...))`, o conteos sin autoajuste).
+- **Supersedencia:** Si un requisito futuro exige cambiar una decisión aceptada, primero se crea un nuevo ADR (`docs/adr/NNNN-*.md`) que marque el anterior como `Supersedido por ADR-NNNN` y se actualiza `readme.md` antes de modificar código o specs.
+- **Revisión:** El subagente `adversarial-reviewer` debe validar cada PR contra los ADRs aplicables además de las specs de OpenSpec.
 
 ## Estándares y Convenciones de Base de Datos
 - **Dos Usuarios de BD:** El sistema usa `app_owner` para DDL/migraciones y `app_user` para ejecución de la app (DML). Asume siempre que `app_user` NO tiene permisos de `TRUNCATE`, `UPDATE` o `DELETE` en tablas inmutables como `movimiento`, ni puede alterar tablas o apagar triggers.
@@ -170,7 +176,7 @@ CI (`.github/workflows/ci.yml`): el *job* `lint` corre `python scripts/verificar
 - **Commits:** solo cuando el usuario lo pida, con la skill `/commit`. Los mensajes van en español (`docs: ...`, `feat(inventario): ...`). No incluyas `.idea/`.
 - **Push y PR: una sola vez, al terminar la unidad de trabajo**, no al cerrar cada petición. Entonces van, en este orden:
   1. `git push` y `gh pr create`, con la plantilla `.github/pull_request_template.md` y una descripción completa de los cambios en el cuerpo del PR.
-  2. El pase del subagente `adversarial-reviewer` (`.claude/agents/`) sobre ese PR, como lo último antes de dar la unidad por terminada. Tiene solo lectura (sin Bash), así que al invocarlo pásale la lista de archivos cambiados y el diff. Mientras no exista `openspec/specs/`, que contraste el cambio contra los criterios de aceptación de las secciones 5 y 6 del readme y la guía del ticket.
+  2. El pase del subagente `adversarial-reviewer` (`.claude/agents/`) sobre ese PR, como lo último antes de dar la unidad por terminada. Tiene solo lectura (sin Bash), así que al invocarlo pásale la lista de archivos cambiados y el diff. Siempre contrasta el cambio contra los ADR aceptados que apliquen (`docs/adr/`); mientras no exista `openspec/specs/`, también contra los criterios de aceptación de las secciones 5 y 6 del readme y la guía del ticket.
 - Cuando abras el PR, no repitas ese resumen en el chat: la sesión se va a perder, el PR no. Responde solo con la URL del PR.
 
 <!--
