@@ -193,6 +193,34 @@ Lo probé con 23 comandos (commits con mensaje en heredoc, here-string o `-C`, y
 
 ---
 
+## Prompt 6 — Usuario
+
+Crea una skill para hacer `git push`, por petición y de forma segura, que sirva para hacer push o para actualizar un PR.
+
+---
+
+## Respuesta 6 — Claude
+
+Creé la skill **`/push`** en `.claude/skills/push/SKILL.md`. Solo se ejecuta cuando el usuario la pide.
+
+- **`/push`:** sube los commits de la rama actual. Si la rama ya tiene un PR abierto, el push lo actualiza y la skill deja un comentario con los commits nuevos.
+- **`/push pr`:** además, crea el PR con la plantilla llena si no existe, o regenera su descripción si ya existe. Después pasa el subagente `adversarial-reviewer` (contra los ADR y los criterios de aceptación) y registra sus hallazgos como comentario del PR.
+
+**Qué la hace segura:**
+- No sube a `main` ni con la cabeza separada, y solo sube la rama actual.
+- Nunca fuerza: si el remoto tiene commits que no están en local, se detiene y propone `git pull --rebase`, sin ejecutarlo.
+- Avisa si quedan cambios sin commitear (no van en el push) o si la rama está atrasada respecto de `main`, que es un criterio de *merge*.
+- Antes de subir corre `scripts/verificar.py`, lo mismo que el *job* `lint` del CI. El hook de secretos sigue revisando cada push y no se esquiva.
+- El PR no lleva secretos, datos personales ni menciones `@` sueltas, y la respuesta final es solo la URL del PR, como pide `CLAUDE.md`.
+
+**GitHub CLI:** `gh` no está instalado en este equipo. Sin él, la skill hace el push y entrega la URL para abrir el PR en el navegador y el cuerpo listo en un archivo; para crear y actualizar PR desde la skill hace falta `winget install --id GitHub.cli` y `gh auth login`.
+
+Probé los pasos de solo lectura sobre `feature/entrega-2-vmrr`: la rama todavía no existe en el remoto, tiene 34 commits por subir respecto de `origin/main`, `main` no está adelantado y el verificador termina bien. No hice push.
+
+También lo documenté en `CLAUDE.md` (sección Git) y en el paso 1 del proceso de revisión del readme (apartado 7.2).
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 7)
 
 ## 7. Pull Requests
@@ -239,7 +267,7 @@ flowchart LR
     I --> J["Ticket cerrado<br/>lecciones al readme/guías"]
 ```
 
-1. **Autor.** Trabaja la unidad completa en su rama, con commits pequeños, y la verifica en local con `make lint` y `make test-ci` (lo mismo que corre el CI). Con Claude Code, además, los hooks del proyecto formatean cada archivo de código que escribe y corren `scripts/verificar.py`, el mismo del *job* `lint`, antes de cada commit. **Al terminar la unidad** hace *push* y abre **un solo PR**, con la plantilla llena. CI corre en ese momento y en cada *push* posterior; si falla, el autor lo corrige en la misma rama antes de pedir revisión.
+1. **Autor.** Trabaja la unidad completa en su rama, con commits pequeños, y la verifica en local con `make lint` y `make test-ci` (lo mismo que corre el CI). Con Claude Code, además, los hooks del proyecto formatean cada archivo de código que escribe y corren `scripts/verificar.py`, el mismo del *job* `lint`, antes de cada commit. **Al terminar la unidad** hace *push* y abre **un solo PR**, con la plantilla llena (con Claude Code, la skill `/push pr`, que sube la rama sin forzar y verifica antes con `scripts/verificar.py`). CI corre en ese momento y en cada *push* posterior; si falla, el autor lo corrige en la misma rama antes de pedir revisión.
 2. **Revisor.** Usa los **criterios de revisión de código** de la sección 6. Marca cada comentario como **[bloqueante]**, **[sugerencia]** o **[nit]** y responde en máximo 1 día hábil.
    - **Con un solo desarrollador:** el autor revisa al día siguiente con la lista y pasa además el subagente `adversarial-reviewer` (`.claude/agents/`), que revisa el cambio con el objetivo de refutarlo, también contra las decisiones de arquitectura aceptadas de [`docs/adr/`](docs/adr/README.md). Las 2 revisiones quedan registradas como comentarios en el PR.
 3. **Autor.** Responde cada comentario: lo corrige (con el commit que lo resuelve) o explica por qué no. Solo el revisor marca un comentario bloqueante como resuelto.
