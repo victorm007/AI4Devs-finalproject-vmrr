@@ -1,0 +1,165 @@
+{
+  "_meta": {
+    "descripcion": "Dataset mock para demo y desarrollo - Gestión de Medicamentos Hogar Gerontológico",
+    "version": 1,
+    "advertencia": "Datos 100% ficticios. Las contraseñas de los usuarios son públicas: no cargar este archivo en producción.",
+    "zona_horaria": "America/Mexico_City (UTC-06:00)",
+    "escenario": "Septiembre y la primera quincena de octubre de 2026 en un hogar con 3 residentes. El consumo se registra al corte de cada mes.",
+    "carga": "app/fixtures/mock/cargar_mock.sql (ver sección 3.4 del readme)",
+    "referencias": {
+      "entidades": "\"HOGAR\" o el id del residente (101, 102, 103)",
+      "usuarios": "username",
+      "presentaciones_y_motivos": "nombre / clave de los datos semilla de las migraciones",
+      "existencias": "se calculan a partir de los movimientos; existencias_esperadas sirve para verificar la carga"
+    }
+  },
+
+  "usuarios": [
+    {
+      "username": "consulta.demo",
+      "first_name": "Laura",
+      "last_name": "Méndez Castro",
+      "email": "laura.mendez@example.com",
+      "grupo": "Solo lectura",
+      "password_hash": "pbkdf2_sha256$1000000$6e7c03beb472f22577d502$jYG8Mk+BYoXl4aHSUbP5l0yE3D5769TRHQT2tgtpCRU="
+    },
+    {
+      "username": "operador.demo",
+      "first_name": "Jorge",
+      "last_name": "Salinas Pérez",
+      "email": "jorge.salinas@example.com",
+      "grupo": "Lectura y escritura",
+      "password_hash": "pbkdf2_sha256$1000000$00aef73a2eb2672c49663b$WG7Cv8Ufq/u+cS9g5Qkx30Pwoz+zGEwRa4qD0QycmZY="
+    }
+  ],
+
+  "principios_activos": [
+    "Metformina",
+    "Losartán",
+    "Hidroclorotiazida",
+    "Omeprazol",
+    "Paracetamol",
+    "Levotiroxina",
+    "Atorvastatina",
+    "Ácido acetilsalicílico",
+    "Donepezilo",
+    "Quetiapina",
+    "Salbutamol",
+    "Rivastigmina",
+    "Hipromelosa"
+  ],
+
+  "medicamentos": [
+    { "id": 1,  "nombre_comercial": "Metformina",       "tipo": "GENERICO", "presentacion": "tableta",   "concentracion": "850 mg",          "principios_activos": ["Metformina"] },
+    { "id": 2,  "nombre_comercial": "Losartán",         "tipo": "GENERICO", "presentacion": "tableta",   "concentracion": "50 mg",           "principios_activos": ["Losartán"] },
+    { "id": 3,  "nombre_comercial": "Cozaar",           "tipo": "ORIGINAL", "presentacion": "tableta",   "concentracion": "50 mg",           "principios_activos": ["Losartán"] },
+    { "id": 4,  "nombre_comercial": "Hyzaar",           "tipo": "ORIGINAL", "presentacion": "tableta",   "concentracion": "50 mg / 12.5 mg", "principios_activos": ["Losartán", "Hidroclorotiazida"] },
+    { "id": 5,  "nombre_comercial": "Omeprazol",        "tipo": "GENERICO", "presentacion": "cápsula",   "concentracion": "20 mg",           "principios_activos": ["Omeprazol"] },
+    { "id": 6,  "nombre_comercial": "Paracetamol",      "tipo": "GENERICO", "presentacion": "tableta",   "concentracion": "500 mg",          "principios_activos": ["Paracetamol"] },
+    { "id": 7,  "nombre_comercial": "Tempra",           "tipo": "ORIGINAL", "presentacion": "jarabe",    "concentracion": "160 mg / 5 ml",   "principios_activos": ["Paracetamol"] },
+    { "id": 8,  "nombre_comercial": "Eutirox",          "tipo": "ORIGINAL", "presentacion": "tableta",   "concentracion": "100 mcg",         "principios_activos": ["Levotiroxina"] },
+    { "id": 9,  "nombre_comercial": "Atorvastatina",    "tipo": "GENERICO", "presentacion": "tableta",   "concentracion": "20 mg",           "principios_activos": ["Atorvastatina"] },
+    { "id": 10, "nombre_comercial": "Aspirina Protect", "tipo": "ORIGINAL", "presentacion": "tableta",   "concentracion": "100 mg",          "principios_activos": ["Ácido acetilsalicílico"] },
+    { "id": 11, "nombre_comercial": "Donepezilo",       "tipo": "GENERICO", "presentacion": "tableta",   "concentracion": "10 mg",           "principios_activos": ["Donepezilo"] },
+    { "id": 12, "nombre_comercial": "Quetiapina",       "tipo": "GENERICO", "presentacion": "tableta",   "concentracion": "25 mg",           "principios_activos": ["Quetiapina"] },
+    { "id": 13, "nombre_comercial": "Ventolin",         "tipo": "ORIGINAL", "presentacion": "inhalador", "concentracion": "100 mcg / dosis", "principios_activos": ["Salbutamol"] },
+    { "id": 14, "nombre_comercial": "Exelon",           "tipo": "ORIGINAL", "presentacion": "parche",    "concentracion": "4.6 mg / 24 h",   "principios_activos": ["Rivastigmina"] },
+    { "id": 15, "nombre_comercial": "Hipromelosa",      "tipo": "GENERICO", "presentacion": "gotas",     "concentracion": "0.5 %",           "principios_activos": ["Hipromelosa"] }
+  ],
+
+  "residentes": [
+    { "id": 101, "primer_nombre": "María",  "segundo_nombre": "Guadalupe", "primer_apellido": "Hernández", "segundo_apellido": "López",  "fecha_nacimiento": "1938-04-12", "fecha_ingreso": "2023-02-01" },
+    { "id": 102, "primer_nombre": "José",   "segundo_nombre": "Luis",      "primer_apellido": "Ramírez",   "segundo_apellido": "Ortega", "fecha_nacimiento": "1941-11-03", "fecha_ingreso": "2024-06-15" },
+    { "id": 103, "primer_nombre": "Carmen", "segundo_nombre": null,        "primer_apellido": "Torres",    "segundo_apellido": "Vega",   "fecha_nacimiento": "1935-07-22", "fecha_ingreso": "2025-01-10" }
+  ],
+
+  "pautas": [
+    { "residente_id": 101, "medicamento_id": 1, "dosis": 1, "frecuencia_horas": 12, "si_necesario": false, "indicaciones": "Con el desayuno y la cena", "fecha_inicio": "2026-09-02", "fecha_fin": null, "registrado_por": "operador.demo" },
+    { "residente_id": 102, "medicamento_id": 3, "dosis": 1, "frecuencia_horas": 24, "si_necesario": false, "indicaciones": "Por la mañana", "fecha_inicio": "2026-09-03", "fecha_fin": null, "registrado_por": "operador.demo" },
+    { "residente_id": 103, "medicamento_id": 6, "dosis": 1, "frecuencia_horas": 8, "si_necesario": true, "indicaciones": "En caso de dolor o fiebre; máximo 3 tomas al día", "fecha_inicio": "2026-09-10", "fecha_fin": null, "registrado_por": "operador.demo" }
+  ],
+
+  "movimientos": [
+    { "id": 1,  "fecha_hora": "2026-09-01T09:00:00-06:00", "tipo": "ENTRADA", "medicamento_id": 6,  "cantidad": 100, "destino": "HOGAR", "origen_entrada": "HOGAR",    "entregado_por": "Compra del hogar - farmacia local", "usuario": "operador.demo" },
+    { "id": 2,  "fecha_hora": "2026-09-01T09:05:00-06:00", "tipo": "ENTRADA", "medicamento_id": 5,  "cantidad": 60,  "destino": "HOGAR", "origen_entrada": "HOGAR",    "entregado_por": "Compra del hogar - farmacia local", "usuario": "operador.demo" },
+    { "id": 3,  "fecha_hora": "2026-09-01T09:10:00-06:00", "tipo": "ENTRADA", "medicamento_id": 10, "cantidad": 60,  "destino": "HOGAR", "origen_entrada": "HOGAR",    "entregado_por": "Compra del hogar - farmacia local", "usuario": "operador.demo" },
+    { "id": 4,  "fecha_hora": "2026-09-01T09:15:00-06:00", "tipo": "ENTRADA", "medicamento_id": 7,  "cantidad": 24,  "destino": "HOGAR", "origen_entrada": "HOGAR",    "entregado_por": "Compra del hogar - farmacia local", "usuario": "operador.demo", "nota": "1 frasco de 120 ml = 24 dosis de 5 ml" },
+    { "id": 5,  "fecha_hora": "2026-09-02T10:00:00-06:00", "tipo": "ENTRADA", "medicamento_id": 1,  "cantidad": 60,  "destino": 101,     "origen_entrada": "FAMILIAR", "entregado_por": "Rosa Hernández López (hija)", "usuario": "operador.demo" },
+    { "id": 6,  "fecha_hora": "2026-09-02T10:05:00-06:00", "tipo": "ENTRADA", "medicamento_id": 9,  "cantidad": 30,  "destino": 101,     "origen_entrada": "FAMILIAR", "entregado_por": "Rosa Hernández López (hija)", "usuario": "operador.demo" },
+    { "id": 7,  "fecha_hora": "2026-09-03T11:00:00-06:00", "tipo": "ENTRADA", "medicamento_id": 3,  "cantidad": 30,  "destino": 102,     "origen_entrada": "FAMILIAR", "entregado_por": "Miguel Ramírez Soto (hijo)", "usuario": "operador.demo" },
+    { "id": 8,  "fecha_hora": "2026-09-03T11:05:00-06:00", "tipo": "ENTRADA", "medicamento_id": 11, "cantidad": 30,  "destino": 102,     "origen_entrada": "FAMILIAR", "entregado_por": "Miguel Ramírez Soto (hijo)", "usuario": "operador.demo" },
+    { "id": 9,  "fecha_hora": "2026-09-04T16:00:00-06:00", "tipo": "ENTRADA", "medicamento_id": 8,  "cantidad": 30,  "destino": 103,     "origen_entrada": "FAMILIAR", "entregado_por": "Ana Torres Ruiz (sobrina)", "usuario": "operador.demo" },
+    { "id": 10, "fecha_hora": "2026-09-04T16:05:00-06:00", "tipo": "ENTRADA", "medicamento_id": 14, "cantidad": 30,  "destino": 103,     "origen_entrada": "FAMILIAR", "entregado_por": "Ana Torres Ruiz (sobrina)", "usuario": "operador.demo" },
+    { "id": 11, "fecha_hora": "2026-09-05T12:00:00-06:00", "tipo": "ENTRADA", "medicamento_id": 2,  "cantidad": 30,  "destino": "HOGAR", "origen_entrada": "OTRO",     "entregado_por": "Donación Parroquia San José", "usuario": "operador.demo" },
+
+    { "id": 12, "fecha_hora": "2026-09-10T08:30:00-06:00", "tipo": "TRANSFERENCIA", "medicamento_id": 6, "cantidad": 20, "origen": "HOGAR", "destino": 103, "usuario": "operador.demo", "nota": "Para la pauta en caso necesario de Carmen" },
+
+    { "id": 13, "fecha_hora": "2026-09-12T13:00:00-06:00", "tipo": "BAJA", "medicamento_id": 10, "cantidad": 2,  "origen": "HOGAR", "motivo_baja": "MERMA",     "usuario": "operador.demo", "nota": "Blíster dañado por humedad" },
+    { "id": 14, "fecha_hora": "2026-09-25T17:00:00-06:00", "tipo": "BAJA", "medicamento_id": 7,  "cantidad": 24, "origen": "HOGAR", "motivo_baja": "CADUCIDAD", "usuario": "operador.demo", "nota": "Frasco caducado el 2026-09-20" },
+    { "id": 15, "fecha_hora": "2026-09-30T20:00:00-06:00", "tipo": "BAJA", "medicamento_id": 1,  "cantidad": 58, "origen": 101,     "motivo_baja": "CONSUMO",   "usuario": "operador.demo", "nota": "Consumo de septiembre: 2 dosis al día del 2 al 30" },
+    { "id": 16, "fecha_hora": "2026-09-30T20:05:00-06:00", "tipo": "BAJA", "medicamento_id": 9,  "cantidad": 29, "origen": 101,     "motivo_baja": "CONSUMO",   "usuario": "operador.demo", "nota": "Consumo de septiembre" },
+    { "id": 17, "fecha_hora": "2026-09-30T20:10:00-06:00", "tipo": "BAJA", "medicamento_id": 3,  "cantidad": 28, "origen": 102,     "motivo_baja": "CONSUMO",   "usuario": "operador.demo", "nota": "Consumo de septiembre: 1 dosis al día del 3 al 30" },
+    { "id": 18, "fecha_hora": "2026-09-30T20:15:00-06:00", "tipo": "BAJA", "medicamento_id": 11, "cantidad": 28, "origen": 102,     "motivo_baja": "CONSUMO",   "usuario": "operador.demo", "nota": "Consumo de septiembre" },
+    { "id": 19, "fecha_hora": "2026-09-30T20:20:00-06:00", "tipo": "BAJA", "medicamento_id": 8,  "cantidad": 27, "origen": 103,     "motivo_baja": "CONSUMO",   "usuario": "operador.demo", "nota": "Consumo de septiembre: 1 dosis al día del 4 al 30" },
+    { "id": 20, "fecha_hora": "2026-09-30T20:25:00-06:00", "tipo": "BAJA", "medicamento_id": 14, "cantidad": 27, "origen": 103,     "motivo_baja": "CONSUMO",   "usuario": "operador.demo", "nota": "Consumo de septiembre" },
+    { "id": 21, "fecha_hora": "2026-09-30T20:30:00-06:00", "tipo": "BAJA", "medicamento_id": 6,  "cantidad": 6,  "origen": 103,     "motivo_baja": "CONSUMO",   "usuario": "operador.demo", "nota": "6 tomas en caso necesario" },
+
+    { "id": 22, "fecha_hora": "2026-10-01T10:00:00-06:00", "tipo": "ENTRADA", "medicamento_id": 1, "cantidad": 600, "destino": 101, "origen_entrada": "FAMILIAR", "entregado_por": "Rosa Hernández López (hija)", "usuario": "operador.demo", "nota": "Error de captura: se escribió 600 en lugar de 60" },
+    { "id": 23, "fecha_hora": "2026-10-01T10:20:00-06:00", "tipo": "BAJA",    "medicamento_id": 1, "cantidad": 600, "origen": 101, "motivo_baja": "CORRECCION", "corrige_a_id": 22, "usuario": "operador.demo", "nota": "Corrige el movimiento 22" },
+    { "id": 24, "fecha_hora": "2026-10-01T10:25:00-06:00", "tipo": "ENTRADA", "medicamento_id": 1, "cantidad": 60,  "destino": 101, "origen_entrada": "FAMILIAR", "entregado_por": "Rosa Hernández López (hija)", "usuario": "operador.demo", "nota": "Captura correcta de la entrega del 1 de octubre" },
+    { "id": 25, "fecha_hora": "2026-10-02T09:00:00-06:00", "tipo": "TRANSFERENCIA", "medicamento_id": 2, "cantidad": 10, "origen": "HOGAR", "destino": 102, "usuario": "operador.demo", "nota": "Préstamo de losartán genérico mientras la familia trae Cozaar" },
+    { "id": 26, "fecha_hora": "2026-10-03T11:00:00-06:00", "tipo": "ENTRADA", "medicamento_id": 3, "cantidad": 30, "destino": 102, "origen_entrada": "FAMILIAR", "entregado_por": "Miguel Ramírez Soto (hijo)", "usuario": "operador.demo" },
+    { "id": 27, "fecha_hora": "2026-10-03T16:00:00-06:00", "tipo": "ENTRADA", "medicamento_id": 8, "cantidad": 30, "destino": 103, "origen_entrada": "FAMILIAR", "entregado_por": "Ana Torres Ruiz (sobrina)", "usuario": "operador.demo" },
+    { "id": 28, "fecha_hora": "2026-10-05T13:00:00-06:00", "tipo": "BAJA",    "medicamento_id": 5, "cantidad": 1,  "origen": "HOGAR", "motivo_baja": "ROTURA", "usuario": "operador.demo", "nota": "Cápsula rota al abrir el frasco" }
+  ],
+
+  "conteos": [
+    {
+      "id": 1,
+      "entidad": 101,
+      "periodo_inicio": "2026-09-01",
+      "periodo_fin": "2026-09-30",
+      "estado": "CERRADO",
+      "usuario": "operador.demo",
+      "creado_en": "2026-09-30T21:00:00-06:00",
+      "cerrado_en": "2026-09-30T21:30:00-06:00",
+      "nota": "Corte mensual de María. Falta 1 tableta de atorvastatina; se informó a la familia.",
+      "detalles": [
+        { "medicamento_id": 1, "cantidad_fisica": 2, "cantidad_sistema": 2 },
+        { "medicamento_id": 9, "cantidad_fisica": 0, "cantidad_sistema": 1 }
+      ]
+    },
+    {
+      "id": 2,
+      "entidad": "HOGAR",
+      "periodo_inicio": "2026-10-01",
+      "periodo_fin": "2026-10-15",
+      "estado": "EN_PROCESO",
+      "usuario": "operador.demo",
+      "creado_en": "2026-10-15T18:00:00-06:00",
+      "cerrado_en": null,
+      "nota": "Conteo quincenal del botiquín del hogar. Faltan por contar Losartán y Tempra.",
+      "detalles": [
+        { "medicamento_id": 6,  "cantidad_fisica": 80, "cantidad_sistema": 80 },
+        { "medicamento_id": 5,  "cantidad_fisica": 58, "cantidad_sistema": 59 },
+        { "medicamento_id": 10, "cantidad_fisica": 58, "cantidad_sistema": 58 }
+      ]
+    }
+  ],
+
+  "existencias_esperadas": [
+    { "entidad": "HOGAR", "medicamento_id": 6,  "saldo": 80 },
+    { "entidad": "HOGAR", "medicamento_id": 5,  "saldo": 59 },
+    { "entidad": "HOGAR", "medicamento_id": 10, "saldo": 58 },
+    { "entidad": "HOGAR", "medicamento_id": 7,  "saldo": 0 },
+    { "entidad": "HOGAR", "medicamento_id": 2,  "saldo": 20 },
+    { "entidad": 101,     "medicamento_id": 1,  "saldo": 62 },
+    { "entidad": 101,     "medicamento_id": 9,  "saldo": 1 },
+    { "entidad": 102,     "medicamento_id": 3,  "saldo": 32 },
+    { "entidad": 102,     "medicamento_id": 11, "saldo": 2 },
+    { "entidad": 102,     "medicamento_id": 2,  "saldo": 10 },
+    { "entidad": 103,     "medicamento_id": 8,  "saldo": 33 },
+    { "entidad": 103,     "medicamento_id": 14, "saldo": 3 },
+    { "entidad": 103,     "medicamento_id": 6,  "saldo": 14 }
+  ]
+}
