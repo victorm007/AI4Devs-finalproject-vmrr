@@ -287,6 +287,38 @@ Repetí la prueba con djLint 1.49.9: las plantillas de las guías de HB-08 y TK-
 
 ---
 
+## Prompt 10 — Usuario
+
+Ya inicialicé OpenSpec. Quiero configurarlo para que tome lo siguiente:
+1. La fuente de las historias de usuario y de los tickets, de las secciones correspondientes del `readme.md`.
+2. La arquitectura, el stack tecnológico, los ADR y las convenciones de la BD (`CLAUDE.md`).
+3. Reglas:
+   - Todo `proposal.md` debe incluir el ID exacto de la historia de usuario y del ticket en su encabezado.
+   - Todo criterio de aceptación debe convertirse en escenarios GIVEN/WHEN/THEN en `specs/`.
+   - Cada tarea de `tasks.md` debe respetar la arquitectura mock-first / TDD definida en `CLAUDE.md`.
+
+---
+
+## Respuesta 10 — Claude
+
+Configuré `openspec/config.yaml` (OpenSpec 2.1, esquema `spec-driven`), que inyecta su contexto y sus reglas en las instrucciones de cada artefacto:
+
+- **`context`:** apunta a las fuentes de verdad sin copiarlas, para que no se desincronicen. Historias en la sección 5 del readme; tickets en la sección 6 y en `docs/tickets/`; modelo de datos en la 3 y API en la 4 con `openapi.yaml`; arquitectura y stack en la 2 y en `CLAUDE.md`; ADR en `docs/adr/`; convenciones de BD, TDD y pruebas en `CLAUDE.md`. También fija las 8 capabilities (una por app de Django), el vocabulario de dominio y que todo se escribe en español.
+- **`rules.proposal`:** bajo el título va `**Historia:** HU-NN · **Ticket:** TK-NN · **Épica:** EP-NN`, con los IDs exactos de la tabla de tickets. Un cambio implementa un solo ticket y su nombre empieza por el ID. Los tickets HB no tienen historia: `— (habilitador de EP-NN)`.
+- **`rules.specs`:** cada escenario Gherkin de la historia ("Dado/Cuando/Entonces/Y" → GIVEN/WHEN/THEN/AND) y cada casilla de "Criterios de aceptación" del ticket se convierte en un `#### Scenario:`, con el origen en su nombre, sin inventar comportamiento.
+- **`rules.design`:** cita y respeta los ADR aceptados, y usa los nombres exactos de la sección 3 y las convenciones de BD.
+- **`rules.tasks`:** mock-first y TDD. Por grupo, primero los tests en rojo con `datos_demo`, después la implementación; PostgreSQL real, `app_user`, concurrencia, `EXPLAIN` y contrato de la API; cada tarea con su comando de verificación de la guía del ticket; el último grupo comprueba la definición de hecho.
+- **`operations`:** `apply` trabaja tarea por tarea, de rojo a verde, y corre `scripts/verificar.py`; `archive` comprueba la definición de hecho y el readme. Commit y push solo por petición.
+
+**Lo probé** con un cambio temporal, que borré después. GIVEN/WHEN/THEN/AND en viñetas pasan `openspec validate --strict`. Pero un requisito escrito solo con "DEBE" falla en modo estricto, porque el validador exige SHALL o MUST. Por eso la regla pide "DEBE (MUST)", y los encabezados que lee el validador quedan en inglés. `openspec instructions` muestra el contexto y las reglas en proposal, tasks y apply.
+
+**Para que todo coincida:**
+- `CLAUDE.md` tiene un apartado "OpenSpec" con estas reglas, y el estado del repositorio menciona `openspec/`. El recordatorio de capabilities ya no dice que OpenSpec no existe.
+- `adversarial-reviewer` y la skill `/push` contrastan también contra los escenarios del cambio del ticket. Ahora la condición es "mientras `openspec/specs/` no tenga specs", porque la carpeta ya existe.
+- Agregué `openspec/` a la estructura de ficheros del readme (apartado 2.3).
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 6)
 
 ## 6. Tickets de Trabajo

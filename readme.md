@@ -506,6 +506,7 @@ flowchart TB
 AI4Devs-finalproject-vmrr/
 ├── readme.md                  # documentación del proyecto
 ├── prompts.md                 # prompts utilizados con IA
+├── openspec/                  # OpenSpec: config.yaml (fuentes y reglas), specs/ y changes/ (un cambio por ticket)
 ├── docs/                      # documentación de apoyo y diagramas
 │   ├── api/openapi.yaml       # contrato de la API (sección 4)
 │   ├── adr/                   # decisiones de arquitectura (ADR), índice en adr/README.md

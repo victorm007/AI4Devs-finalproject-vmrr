@@ -58,7 +58,7 @@ Reglas que nunca se rompen:
 3. **Cuerpo del PR:** la plantilla `.github/pull_request_template.md` llena por completo y en español: ticket e historia, qué cambia y por qué, cómo probarlo, tabla de archivos, puntos de integración y checklist marcado con lo que de verdad se cumplió. Borra los comentarios y las secciones que no apliquen.
    - Sin secretos ni datos personales. Escribe entre comillas invertidas cualquier `@algo` que no sea un usuario real de GitHub.
    - Termina con la línea `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
-4. **Revisión adversarial** (después de crear el PR o de subir commits nuevos a uno abierto): invoca el subagente `adversarial-reviewer`. No tiene Bash, así que pásale la lista de archivos cambiados y el diff (`gh pr diff <n>`). Pídele que contraste el cambio con los ADR aceptados de `docs/adr/` y, mientras no exista `openspec/specs/`, con los criterios de aceptación del readme (secciones 5 y 6) y la guía del ticket. Registra sus hallazgos como comentario del PR (`gh pr comment <n> --body-file -`), como pide el readme (7.2).
+4. **Revisión adversarial** (después de crear el PR o de subir commits nuevos a uno abierto): invoca el subagente `adversarial-reviewer`. No tiene Bash, así que pásale la lista de archivos cambiados y el diff (`gh pr diff <n>`). Pídele que contraste el cambio con los ADR aceptados de `docs/adr/` y con los escenarios de `openspec/specs/` y del cambio de OpenSpec del ticket; mientras `openspec/specs/` no tenga specs, también con los criterios de aceptación del readme (secciones 5 y 6) y la guía del ticket. Registra sus hallazgos como comentario del PR (`gh pr comment <n> --body-file -`), como pide el readme (7.2).
 
 ## 6. Respuesta
 
