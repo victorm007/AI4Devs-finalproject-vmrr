@@ -92,14 +92,14 @@ gunicorn==23.0.0
 
 ```text
 # Dependencias de desarrollo y CI. Una por línea, en orden alfabético.
-djlint==1.49.9
+djlint==1.50.4
 pytest==8.4.1
 pytest-cov==6.2.1
 pytest-django==4.11.1
 ruff==0.12.4
 ```
 
-> Los números son un ejemplo de julio de 2025: pon los que te dio `pip index versions`, **salvo `djlint`, que se queda en 1.49.9**: es la versión acordada, y las plantillas de las guías (HB-08, TK-03) están comprobadas con ella. Subirla cambia el formato esperado, así que se hace en un PR propio que reformatee todas las plantillas. Anota las versiones en el PR. El CI instala `ruff` y `djlint` con la versión exacta de este archivo.
+> Los números son un ejemplo de julio de 2025: pon los que te dio `pip index versions`, **salvo `djlint`, que se queda en 1.50.4**: es la versión acordada, y las plantillas de las guías (HB-08, TK-03) están comprobadas con ella. Subirla cambia el formato esperado, así que se hace en un PR propio que reformatee todas las plantillas. Anota las versiones en el PR. El CI instala `ruff` y `djlint` con la versión exacta de este archivo.
 
 ### Paso 2. Proyecto Django y configuración por entorno (≈ 1 h)
 
@@ -432,7 +432,7 @@ Ejecuta la sección 5 completa.
 
 ### Paso 7. *Pull request* (≈ 15 min)
 
-En el PR, el CI corre por primera vez `lint` y `build de la imagen`. `tests` y `e2e` aparecen como saltados (*skipped*): se activan en HB-03 y TK-03, y un *job* saltado cuenta como aprobado (sección 7.3).
+En el PR, el CI corre por primera vez `lint` (con `scripts/verificar.py`) y `build de la imagen`. `tests` y `e2e` aparecen como saltados (*skipped*): se activan en HB-03 y TK-03, y un *job* saltado cuenta como aprobado (sección 7.3).
 
 ---
 
@@ -480,6 +480,9 @@ docker compose exec web python manage.py check
 # System check identified no issues (0 silenced).
 docker compose exec web djlint . --check
 # No files to check! 😢   (código 2: las plantillas llegan en HB-08)
+# Lo mismo que el job lint del CI (necesita Python en tu equipo; usa el contenedor web):
+python scripts/verificar.py
+# - djLint: no hay plantillas .html todavía, se omite.  ...  Sin errores de lint ni de formato.
 
 # 2. Usuario del proceso y puertos
 docker compose exec web whoami                       # django

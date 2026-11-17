@@ -95,28 +95,18 @@ jobs:
     needs: detectar
     if: needs.detectar.outputs.hay_codigo == 'true'
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: app
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Instalar ruff y djLint (versiones fijadas en requirements-dev.txt)
+        working-directory: app
         run: pip install $(grep -iE '^(ruff|djlint)[=<>~ ]' requirements-dev.txt || echo ruff djlint)
-      - run: ruff check .
-      - run: ruff format --check .
-      - name: Plantillas (djLint)
-        # Sin plantillas, djLint termina con código 2: el paso se salta hasta que exista
-        # la primera (HB-08). Configuración en pyproject.toml ([tool.djlint]).
-        run: |
-          if git ls-files -- '*.html' | grep -q .; then
-            djlint . --check
-            djlint . --lint
-          else
-            echo "No hay plantillas .html todavía: se omite djLint"
-          fi
+      - name: Verificar (scripts/verificar.py, el mismo que corre Claude Code antes de cada commit)
+        # ruff check, ruff format --check y, si hay plantillas, djlint --check y --lint.
+        # Sin plantillas (hasta HB-08) omite djLint, que en ese caso termina con código 2.
+        run: python scripts/verificar.py --modo local
 
   # ---------------------------------------------------------------------------
   # Check obligatorio: migraciones, pruebas (incluida la de integración) y cobertura

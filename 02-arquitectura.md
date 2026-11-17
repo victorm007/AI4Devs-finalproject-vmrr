@@ -668,6 +668,7 @@ AI4Devs-finalproject-vmrr/
 ├── db/
 │   └── init/01_roles.sh       # crea los usuarios app_owner y app_user al crear el volumen
 ├── scripts/
+│   ├── verificar.py           # ruff y djLint: lo corren el job lint del CI y el hook de commits
 │   ├── migrate.sh             # migrate con las credenciales de app_owner
 │   ├── backup_db.sh           # respaldo con pg_dump
 │   └── restore_db.sh          # restauración de un respaldo
@@ -799,7 +800,7 @@ C4Container
 **Orden de arranque:** `db` declara un *healthcheck* (`pg_isready`). `web` arranca con `depends_on: condition: service_healthy` y `nginx` arranca después de `web`. Así `web` nunca intenta conectarse a una base de datos que todavía no responde.
 
 **Proceso de despliegue:**
-1. **Integración continua:** en cada *push* o *pull request* a `main`, GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) ejecuta `ruff` (lint y formato de Python), djLint (lint y formato de las plantillas), `pytest` con cobertura contra un servicio PostgreSQL 17, las pruebas de extremo a extremo con Playwright si el PR toca el frontend, y el *build* de la imagen. Cada noche corren además los tests lentos. Solo se integra a `main` con los *checks* obligatorios en verde (sección 7.3).
+1. **Integración continua:** en cada *push* o *pull request* a `main`, GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) ejecuta `scripts/verificar.py` (`ruff` para el lint y el formato de Python, djLint para los de las plantillas), `pytest` con cobertura contra un servicio PostgreSQL 17, las pruebas de extremo a extremo con Playwright si el PR toca el frontend, y el *build* de la imagen. Cada noche corren además los tests lentos. Solo se integra a `main` con los *checks* obligatorios en verde (sección 7.3).
 2. **Despliegue (local o VPS):** se hace manualmente por SSH, lo cual es suficiente para un solo mantenedor:
    ```bash
    git pull origin main

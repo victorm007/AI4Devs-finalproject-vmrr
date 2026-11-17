@@ -9,6 +9,25 @@
             "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/bloquear_secretos.py\"",
             "timeout": 60,
             "statusMessage": "Revisando secretos antes de commit/push..."
+          },
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/verificar_antes_commit.py\"",
+            "timeout": 300,
+            "statusMessage": "Verificando el código (ruff y djLint) antes del commit..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/formatear_codigo.py\"",
+            "timeout": 120,
+            "statusMessage": "Formateando el código con ruff y djLint..."
           }
         ]
       }

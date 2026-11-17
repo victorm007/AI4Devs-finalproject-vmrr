@@ -30,11 +30,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-# ---------------------------------------------------------------- comandos
-
-RE_GIT_OP = re.compile(r"\bgit\b[^;&|\n]*?\b(commit|push)\b")
-RE_GIT_ADD = re.compile(r"\bgit\b[^;&|\n]*?\badd\b")
-RE_COMMIT_ALL = re.compile(r"\bcommit\b[^;&|\n]*?(?:\s--all\b|\s-(?!-)[A-Za-z]*a)")
+sys.dont_write_bytecode = True  # no dejar __pycache__ en .claude/hooks/
+from comandos_git import comandos_git  # noqa: E402  (mismo directorio: solo comandos git reales)
 
 # ---------------------------------------------------------------- patrones
 
@@ -242,11 +239,10 @@ def _dedup(h: list[tuple[str, str, str]]) -> list[tuple[str, str, str]]:
     return list(dict.fromkeys(h))
 
 
-def revisar_commit(cwd: str, comando: str) -> list[tuple[str, str, str]]:
+def revisar_commit(cwd: str, agrega: bool, todo: bool) -> list[tuple[str, str, str]]:
     base = ["diff", "-U0", "--no-color", "--no-ext-diff"]
     hallazgos = revisar_parche(_git(cwd, *base, "--cached"))
-    agrega = bool(RE_GIT_ADD.search(comando))
-    if agrega or RE_COMMIT_ALL.search(comando):
+    if agrega or todo:
         # `git commit -a` o `git add ... && git commit`: lo no preparado también entra.
         hallazgos += revisar_parche(_git(cwd, *base))
     if agrega:
@@ -304,24 +300,28 @@ def main() -> int:
     except ValueError:
         return 0
     comando = (entrada.get("tool_input") or {}).get("command") or ""
-    ops = {m.group(1) for m in RE_GIT_OP.finditer(comando)}
-    if not ops:
+    # Solo los `git commit` / `git push` que se van a ejecutar, no el texto dentro de un
+    # mensaje, un echo o un heredoc. `git -C <ruta>` y `cd <ruta> &&` fijan el repositorio.
+    try:
+        git = comandos_git(comando, entrada.get("cwd") or str(RAIZ))
+    except Exception:  # noqa: BLE001  si no se puede analizar, se revisa por precaución
+        git = []
+        if re.search(r"\bgit\b[^;&|\n]*?\b(commit|push)\b", comando):
+            negar("No se pudo analizar el comando git. Bloqueado por precaución.")
+            return 0
+    operaciones = [c for c in git if c.subcomando in ("commit", "push")]
+    if not operaciones:
         return 0
-    cwd = entrada.get("cwd") or str(RAIZ)
-    # `git -C <ruta> ...` o `cd <ruta> && git ...` cambian el repositorio revisado.
-    m = re.search(r"""\bgit\s+-C\s+("[^"]+"|'[^']+'|\S+)""", comando) or re.match(
-        r"""\s*(?:cd|Set-Location)\s+("[^"]+"|'[^']+'|\S+)\s*(?:&&|;)""", comando
-    )
-    if m:
-        destino = m.group(1).strip("\"'")
-        cwd = destino if os.path.isabs(destino) or re.match(r"[A-Za-z]:", destino) else str(Path(cwd) / destino)
+    ops = {c.subcomando for c in operaciones}
+    agrega = any(c.subcomando == "add" for c in git)
 
     hallazgos: list[tuple[str, str, str]] = []
     try:
-        if "commit" in ops:
-            hallazgos += revisar_commit(cwd, comando)
-        if "push" in ops:
-            hallazgos += revisar_push(cwd)
+        for c in operaciones:
+            if c.subcomando == "commit":
+                hallazgos += revisar_commit(c.cwd, agrega, c.tiene_opcion_corta("a", "--all"))
+            else:
+                hallazgos += revisar_push(c.cwd)
     except Exception as e:  # falla cerrada: sin revisión no hay commit ni push
         registrar("/".join(sorted(ops)), [("-", "-", f"error_revision:{type(e).__name__}")])
         negar(f"No se pudo revisar el contenido antes de git {'/'.join(sorted(ops))} ({e}). Bloqueado por precaución.")

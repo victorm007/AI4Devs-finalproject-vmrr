@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Proyecto final de AI4Devs: inventario de medicamentos para un hogar gerontológico (una sede, ~20 residentes, 1 a 3 usuarios). El equipo y la documentación trabajan en español.
 
-**Todavía no hay código de la aplicación.** Solo existen la documentación, el contrato de la API, el dataset mock, el CI y la configuración de Claude Code (`.claude/`: hook de secretos, skill `/commit` y subagente `adversarial-reviewer`). `app/` contiene únicamente `fixtures/mock/`; no existen aún `manage.py`, `docker-compose.yml`, `Makefile`, `db/init/` ni `scripts/`. Los comandos de Django y Docker de abajo son los **previstos** en el diseño, y el código de `docs/tickets/` nunca se ha ejecutado: compruébalos antes de darlos por buenos.
+**Todavía no hay código de la aplicación.** Solo existen la documentación, el contrato de la API, el dataset mock, el CI y la configuración de Claude Code (`.claude/`: hooks de secretos, de formato y de verificación, skill `/commit` y subagente `adversarial-reviewer`) y el verificador `scripts/verificar.py`. `app/` contiene únicamente `fixtures/mock/`; no existen aún `manage.py`, `docker-compose.yml`, `Makefile`, `db/init/` ni el resto de `scripts/`. Los comandos de Django y Docker de abajo son los **previstos** en el diseño, y el código de `docs/tickets/` nunca se ha ejecutado: compruébalos antes de darlos por buenos.
 
 `readme.md` es la fuente de verdad del diseño. Sus secciones: 1 producto, 2 arquitectura, 3 modelo de datos, 4 API, 5 historias (HU-01 a HU-03), 6 tickets (TK-01 a TK-07, orden de ejecución, puntos de integración, criterios de revisión), 7 proceso de PR y criterios de *merge*.
 
@@ -16,7 +16,7 @@ Proyecto final de AI4Devs: inventario de medicamentos para un hogar gerontológi
 * **API:** Django REST Framework, con endpoints de solo lectura en el MVP. El contrato es `docs/api/openapi.yaml`, **OpenAPI 3.2 escrito a mano** (*design-first*) y fuente de verdad; drf-spectacular solo genera un esquema 3.0/3.1 para la documentación interactiva (Swagger UI), según la sección 4.7.
 * **Base de Datos:** PostgreSQL 17.
 * **Frontend:** Plantillas Django renderizadas en servidor (SSR), Bootstrap 5, HTMX (2.0.x). Cero frameworks SPA (CSR) -React/Vue/Angular-.
-* **Testing y Linting:** pytest, pytest-django, pytest-cov, jsonschema (contratos de la API), Playwright, ruff (Python) y djLint 1.49.9 (plantillas, perfil `django`; versión congelada). No hay formateador de CSS ni de JS: solo hay los de Bootstrap y HTMX, minificados en `static/*/vendor/`, y no se reformatean.
+* **Testing y Linting:** pytest, pytest-django, pytest-cov, jsonschema (contratos de la API), Playwright, ruff (Python) y djLint 1.50.4 (plantillas, perfil `django`; versión congelada). No hay formateador de CSS ni de JS: solo hay los de Bootstrap y HTMX, minificados en `static/*/vendor/`, y no se reformatean.
 
 ## Flujo de Trabajo: TDD y Mock-First (OBLIGATORIO)
 
@@ -122,6 +122,7 @@ Los tests usan el dataset real del mock (`app/fixtures/mock/`, sección 3.4), no
 | Toda la suite / un solo test | `make test` / `make test T=ruta::test` | `dtest -q` / `dtest ruta::test` |
 | Lo que corre el CI en cada PR | `make test-ci` | `dtest -m "not e2e and not lento" --cov=apps --cov-fail-under=80` |
 | Playwright | `make e2e` | ver el bloque de abajo |
+| Verificación estática (lo mismo que el *job* `lint`) | — | `python scripts/verificar.py` (`--corregir` formatea primero; usa el contenedor `web` si está corriendo) |
 | Lint / formato | `make lint` / `make format` | `ruff check .`, `ruff format --check .`, `djlint . --check` y `djlint . --lint` en `web` (formatear: `ruff format .` y `djlint . --reformat`) |
 | Migraciones pendientes | `make check-migrations` | `dj makemigrations --check --dry-run` |
 | Contrato OpenAPI | `make openapi` | `npx @redocly/cli lint docs/api/openapi.yaml` |
@@ -161,7 +162,7 @@ docker compose cp app/fixtures/mock/. db:/tmp/mock/
 dpsql -v ON_ERROR_STOP=1 -f /tmp/mock/cargar_mock.sql
 ```
 
-CI (`.github/workflows/ci.yml`): cada *job* se activa cuando existe lo que necesita: `lint` e `imagen` con `app/manage.py` (HB-02), `tests` con `app/conftest.py` (HB-03) y `e2e` con `app/e2e/` (TK-03); antes se saltan, y un *job* saltado cuenta como aprobado. Sus nombres son los que exige la protección de `main`: no los renombres sin leer la nota de la sección 7.3. `tests` exige cobertura ≥ 80 % sobre `apps/`.
+CI (`.github/workflows/ci.yml`): el *job* `lint` corre `python scripts/verificar.py --modo local`, el mismo verificador del hook de commits. Cada *job* se activa cuando existe lo que necesita: `lint` e `imagen` con `app/manage.py` (HB-02), `tests` con `app/conftest.py` (HB-03) y `e2e` con `app/e2e/` (TK-03); antes se saltan, y un *job* saltado cuenta como aprobado. Sus nombres son los que exige la protección de `main`: no los renombres sin leer la nota de la sección 7.3. `tests` exige cobertura ≥ 80 % sobre `apps/`.
 
 ## Git
 
@@ -200,3 +201,9 @@ todavía no existen `openspec/` ni las capabilities. Borrador para entonces, ya 
 Cuenta como ejemplo y no bloquea: valores con marcadores como `demo`, `ejemplo`, `cambia-esto`, `${VAR}` o `<valor>`; datos personales y hashes dentro de `app/fixtures/mock/`; cualquier línea con el comentario `secreto-ok`, y los valores de `.claude/hooks/secretos-permitidos.txt`. Los tokens con forma reconocible solo se exceptúan con `secreto-ok` o esa lista.
 
 Cuando bloquea, **no se desactiva, no se salta y no se reescribe el comando para esquivarlo**: se sustituye el dato por uno inventado (correo en `example.com`, clave de mentira), se saca el `.env` del índice o, si de verdad es un ejemplo, se marca con `secreto-ok` o se agrega a la lista de permitidos, y se vuelve a intentar. Cada bloqueo añade una línea a `.claude/logs/secretos-bloqueados.log` con la fecha, la operación, el archivo, la línea y la categoría, nunca el valor. Ese registro es local (está en `.gitignore`) y no se commitea. Si la revisión falla, el hook bloquea por precaución. Solo cubre los comandos que ejecuta Claude, no los que el usuario corre en su terminal.
+
+**Formato y verificación del código** (también en `.claude/settings.json`; los 2 llaman a `scripts/verificar.py`, el mismo verificador del *job* `lint` del CI):
+- **`PostToolUse` (`Edit|Write`), `.claude/hooks/formatear_codigo.py`:** al escribir un `.py` o `.html` dentro de `app/`, lo formatea con ruff o djLint (`verificar.py --corregir <archivo>`). Si el formateador lo cambió, avisa para volver a leerlo antes de la siguiente edición; si quedan errores de lint que no se corrigen solos, los devuelve para arreglarlos. Sin ruff ni djLint disponibles, solo lo avisa.
+- **`PreToolUse` (`Bash|PowerShell`), `.claude/hooks/verificar_antes_commit.py`:** antes de cada `git commit` que incluya código de `app/` (`.py`, `.html` o `pyproject.toml`), corre el verificador completo y niega el commit si hay errores o si no se pudo verificar (sin ruff ni djLint: falla cerrada). Los commits de solo documentación pasan sin verificar. Revisa el árbol de trabajo, así que conviene no dejar cambios sin preparar. Se corrige el código (`python scripts/verificar.py --corregir` para el formato) y se reintenta; no se salta.
+- **Solo comandos git reales:** el hook de secretos y el de verificación reconocen un `git commit` o `git push` con `.claude/hooks/comandos_git.py`, que separa el comando como lo haría el shell. Reaccionan al commit o push que se va a ejecutar, también con `git -C <ruta>`, `cd <ruta> &&` o un mensaje en heredoc, pero no al texto "git commit" dentro de un `echo`, un `grep`, un comentario o el cuerpo de un heredoc.
+- **Dónde busca ruff y djLint:** primero en el contenedor `web` si está corriendo, con las versiones de `requirements-dev.txt`; si no, las instaladas en el equipo. Antes de que exista `app/manage.py` (HB-02) no hay nada que verificar.

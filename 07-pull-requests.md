@@ -138,6 +138,61 @@ Además, al activar la regla habrá que cambiar 2 cosas que venían de otro proy
 
 ---
 
+## Prompt 4 — Usuario
+
+En la versión de djLint tienes razón: usemos la más reciente, que es la estable, 1.50.0, para las plantillas de Django. Además, configura un hook `PostToolUse` para cuando hagas `Edit` y `Write` de código, y otro `PreToolUse` antes de los commits, con un script verificador que vaya en ese `PreToolUse`. Ese script verificador también debe quedar integrado en el flujo de CI de GitHub.
+
+(Respuesta a mi pregunta sobre la versión, porque la más reciente de la serie 1.50 es la 1.50.4:) 1.50.4.
+
+---
+
+## Respuesta 4 — Claude
+
+**djLint 1.50.4:** queda congelado en esa versión en la guía de HB-02, la ficha de HB-02 (sección 6) y `CLAUDE.md`. Las plantillas de las guías de HB-08 y TK-03 pasan `--check` y `--lint` con ella, igual que con la 1.49.9.
+
+**Verificador `scripts/verificar.py`:** solo usa la biblioteca estándar de Python. Corre `ruff check`, `ruff format --check` y, si hay plantillas, `djlint --check` y `djlint --lint`, desde `app/` y con su `pyproject.toml`.
+- Usa el contenedor `web` si está corriendo, con las versiones de `requirements-dev.txt`; si no, las herramientas instaladas en el equipo (`--modo auto|docker|local`).
+- `--corregir` formatea antes de verificar, y con rutas de archivos revisa solo esos archivos.
+- Antes de que exista `app/manage.py` (HB-02) no hay nada que verificar y termina bien. Sin ruff ni djLint termina con código 3, y con errores, con 1.
+
+**Hooks en `.claude/settings.json`:**
+- **`PostToolUse` (`Edit|Write`), `formatear_codigo.py`:** formatea el `.py` o `.html` de `app/` recién escrito con `verificar.py --corregir <archivo>`. Si lo cambió, avisa para volver a leerlo antes de la siguiente edición. Si quedan errores de lint que no se corrigen solos, los devuelve para arreglarlos.
+- **`PreToolUse` (`Bash|PowerShell`), `verificar_antes_commit.py`:** antes de cada commit que incluya código de `app/`, corre el verificador completo y niega el commit si hay errores o si no se pudo verificar (falla cerrada, como el hook de secretos). Los commits de solo documentación pasan sin verificar. Corre junto al hook de secretos, no lo reemplaza.
+
+**CI:** el *job* `lint` instala ruff y djLint de `requirements-dev.txt` y corre `python scripts/verificar.py --modo local`. Así, el CI y el hook de commits ejecutan exactamente lo mismo, y la lógica para saltar djLint sin plantillas vive en un solo lugar.
+
+**Lo probé** en un repositorio de prueba con ruff y djLint 1.50.4: archivo bien formateado, mal formateado, plantilla con estilo en línea (H021), sin herramientas, archivo fuera de `app/`, commit de solo documentación, commit con código mal formateado (se niega), el mismo commit ya corregido (pasa) y la opción `-C` de git desde otra carpeta.
+
+**Documentación:** `CLAUDE.md` (estado del repositorio, tabla de comandos, CI y los 2 hooks), readme (estructura de 2.3, CI de 2.4, proceso de 7.2 y criterio "Calidad estática" de 7.3) y guía de HB-02.
+
+---
+
+## Prompt 5 — Usuario
+
+1. Haz que el hook reaccione a los commits reales: esa es la intención.
+2. Recuérdame mañana.
+3. ¿Recordarás esta sesión?
+
+---
+
+## Respuesta 5 — Claude
+
+**1. Solo commits y push reales.** Los 2 hooks `PreToolUse` (secretos y verificación) buscaban el texto `git ... commit` con una expresión regular. Por eso bloqueaban comandos que solo lo mencionaban: un `echo`, el cuerpo de un heredoc con un mensaje o un script, o el texto `git -C <ruta>`. En 3 casos, la "ruta" del texto ni siquiera existía, y el hook bloqueó por precaución.
+
+Ahora los 2 usan `.claude/hooks/comandos_git.py`, que separa el comando como lo haría el shell, sin ejecutar nada:
+- Respeta comillas, heredocs de Bash, here-strings de PowerShell y comentarios: su contenido es texto, no comandos.
+- Corta por `;`, `&&`, `||`, `|` y saltos de línea, y solo cuenta un comando cuya primera palabra es `git` (saltando `VAR=valor`, `&`, `if`, `then` o `{`).
+- Salta las opciones globales de git y respeta `git -C <ruta>`, `cd <ruta>` y `Set-Location`, incluidas las rutas de Git Bash (`/c/...`).
+- Detecta `-a`, `--all` o `-am` en el commit, y un `git add` en el mismo comando, para revisar también lo no preparado.
+
+Lo probé con 23 comandos (commits con mensaje en heredoc, here-string o `-C`, y los 3 falsos positivos de hoy) y con los 2 hooks en un repositorio de prueba: siguen bloqueando un `.env` en staging, un correo real antes del push y el código mal formateado, y ya no reaccionan al texto.
+
+**2. Recordatorio:** quedó programado para mañana en esta sesión. Solo funciona si la sesión sigue abierta.
+
+**3. Memoria:** no recuerdo las conversaciones por mí mismo. Lo que se conserva es la memoria del proyecto (`MEMORY.md` y sus notas), que actualicé con el estado de hoy, y el historial de la sesión, que se puede retomar con `claude --continue` o `claude --resume`. Además, el repositorio y los transcripts guardan todas las decisiones.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 7)
 
 ## 7. Pull Requests
@@ -184,7 +239,7 @@ flowchart LR
     I --> J["Ticket cerrado<br/>lecciones al readme/guías"]
 ```
 
-1. **Autor.** Trabaja la unidad completa en su rama, con commits pequeños, y la verifica en local con `make lint` y `make test-ci` (lo mismo que corre el CI). **Al terminar la unidad** hace *push* y abre **un solo PR**, con la plantilla llena. CI corre en ese momento y en cada *push* posterior; si falla, el autor lo corrige en la misma rama antes de pedir revisión.
+1. **Autor.** Trabaja la unidad completa en su rama, con commits pequeños, y la verifica en local con `make lint` y `make test-ci` (lo mismo que corre el CI). Con Claude Code, además, los hooks del proyecto formatean cada archivo de código que escribe y corren `scripts/verificar.py`, el mismo del *job* `lint`, antes de cada commit. **Al terminar la unidad** hace *push* y abre **un solo PR**, con la plantilla llena. CI corre en ese momento y en cada *push* posterior; si falla, el autor lo corrige en la misma rama antes de pedir revisión.
 2. **Revisor.** Usa los **criterios de revisión de código** de la sección 6. Marca cada comentario como **[bloqueante]**, **[sugerencia]** o **[nit]** y responde en máximo 1 día hábil.
    - **Con un solo desarrollador:** el autor revisa al día siguiente con la lista y pasa además el subagente `adversarial-reviewer` (`.claude/agents/`), que revisa el cambio con el objetivo de refutarlo. Las 2 revisiones quedan registradas como comentarios en el PR.
 3. **Autor.** Responde cada comentario: lo corrige (con el commit que lo resuelve) o explica por qué no. Solo el revisor marca un comentario bloqueante como resuelto.
@@ -198,7 +253,7 @@ Un PR se integra a `main` solo si cumple **todos**:
 | Criterio | Umbral | Cómo se verifica |
 |---|---|---|
 | **Pruebas** | `pytest` completo en verde contra PostgreSQL 17, incluida la prueba de integración de la sección 6. Si toca el frontend, también los e2e de Playwright | *Checks* obligatorios `tests` y `e2e` |
-| **Calidad estática** | `ruff check`, `ruff format --check`, `djlint --check`, `djlint --lint` y `makemigrations --check` sin errores | *Checks* obligatorios `lint` (ruff y djLint) y `tests` (migraciones) |
+| **Calidad estática** | `ruff check`, `ruff format --check`, `djlint --check`, `djlint --lint` y `makemigrations --check` sin errores | *Checks* obligatorios `lint` (`scripts/verificar.py`: ruff y djLint) y `tests` (migraciones) |
 | **Cobertura** | ≥ 80 % en todo `apps/` (sección 2.6), más el umbral del ticket (TK-02 ≥ 90 % en `services.py`); la cobertura total no baja respecto de `main` | El *job* `tests` falla con menos de 80 % (`--cov-fail-under=80`) y guarda `coverage.xml`; el umbral del ticket y la comparación con `main` los verifica el autor y los anota en la plantilla |
 | **Aprobaciones** | 1 aprobación sin comentarios bloqueantes abiertos. Con un solo desarrollador: autorrevisión y revisión con IA registradas en el PR | Revisión en GitHub y conversaciones resueltas |
 | **Definición de hecho** | La común y la del ticket (sección 6), con todos los criterios de aceptación cumplidos | Checklist del autor, revisada por el revisor |

@@ -521,6 +521,7 @@ AI4Devs-finalproject-vmrr/
 ├── db/
 │   └── init/01_roles.sh       # crea los usuarios app_owner y app_user al crear el volumen
 ├── scripts/
+│   ├── verificar.py           # ruff y djLint: lo corren el job lint del CI y el hook de commits
 │   ├── migrate.sh             # migrate con las credenciales de app_owner
 │   ├── backup_db.sh           # respaldo con pg_dump
 │   └── restore_db.sh          # restauración de un respaldo
@@ -654,7 +655,7 @@ C4Container
 **Orden de arranque:** `db` declara un *healthcheck* (`pg_isready`). `web` arranca con `depends_on: condition: service_healthy` y `nginx` arranca después de `web`. Así `web` nunca intenta conectarse a una base de datos que todavía no responde.
 
 **Proceso de despliegue:**
-1. **Integración continua:** en cada *push* o *pull request* a `main`, GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) ejecuta `ruff` (lint y formato de Python), djLint (lint y formato de las plantillas), `pytest` con cobertura contra un servicio PostgreSQL 17, las pruebas de extremo a extremo con Playwright si el PR toca el frontend, y el *build* de la imagen. Cada noche corren además los tests lentos. Solo se integra a `main` con los *checks* obligatorios en verde (sección 7.3).
+1. **Integración continua:** en cada *push* o *pull request* a `main`, GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) ejecuta `scripts/verificar.py` (`ruff` para el lint y el formato de Python, djLint para los de las plantillas), `pytest` con cobertura contra un servicio PostgreSQL 17, las pruebas de extremo a extremo con Playwright si el PR toca el frontend, y el *build* de la imagen. Cada noche corren además los tests lentos. Solo se integra a `main` con los *checks* obligatorios en verde (sección 7.3).
 2. **Despliegue (local o VPS):** se hace manualmente por SSH, lo cual es suficiente para un solo mantenedor:
    ```bash
    git pull origin main
@@ -2903,7 +2904,7 @@ Dejan lista la base sobre la que se construyen TK-01 a TK-07: contenedores, cone
 | Depende de | HB-01 |
 | Guía | [`docs/tickets/HB-02-imagen-web.md`](docs/tickets/HB-02-imagen-web.md) |
 
-**Descripción técnica.** Crea el proyecto Django 5.2 en `app/`, con la configuración separada en `config/settings/{base,local,prod}.py` (sección 2.3). `SECRET_KEY` (obligatoria), `DEBUG` y `ALLOWED_HOSTS` vienen del entorno, con `es-mx`, `America/Mexico_City` y `USE_TZ = True`. `DATABASES` todavía no se define: Django arranca con el backend `dummy` hasta HB-03. Agrega `requirements.txt` (Django, Gunicorn) y `requirements-dev.txt` (djLint, congelado en 1.49.9; pytest, pytest-django, pytest-cov, ruff) con versiones fijas, y `pyproject.toml` con la configuración de ruff y de djLint (perfil `django`, sin revisar `staticfiles/` ni `static/vendor/`). El `Dockerfile` (`python:3.12-slim`) instala primero las dependencias, solo instala las de desarrollo con `INSTALAR_DEV=true`, corre como el usuario sin privilegios `django` y arranca Gunicorn en el puerto 8000. En Compose, `web` monta `./app` y el volumen `static`, está en las redes `frontend` y `backend`, espera a `db` sana, recibe solo sus variables (sin contraseñas de PostgreSQL) y no publica puertos.
+**Descripción técnica.** Crea el proyecto Django 5.2 en `app/`, con la configuración separada en `config/settings/{base,local,prod}.py` (sección 2.3). `SECRET_KEY` (obligatoria), `DEBUG` y `ALLOWED_HOSTS` vienen del entorno, con `es-mx`, `America/Mexico_City` y `USE_TZ = True`. `DATABASES` todavía no se define: Django arranca con el backend `dummy` hasta HB-03. Agrega `requirements.txt` (Django, Gunicorn) y `requirements-dev.txt` (djLint, congelado en 1.50.4; pytest, pytest-django, pytest-cov, ruff) con versiones fijas, y `pyproject.toml` con la configuración de ruff y de djLint (perfil `django`, sin revisar `staticfiles/` ni `static/vendor/`). El `Dockerfile` (`python:3.12-slim`) instala primero las dependencias, solo instala las de desarrollo con `INSTALAR_DEV=true`, corre como el usuario sin privilegios `django` y arranca Gunicorn en el puerto 8000. En Compose, `web` monta `./app` y el volumen `static`, está en las redes `frontend` y `backend`, espera a `db` sana, recibe solo sus variables (sin contraseñas de PostgreSQL) y no publica puertos.
 
 **Criterios de aceptación**
 - [ ] `docker compose up -d` deja `db` sana y `web` corriendo; `manage.py check` no reporta problemas.
@@ -3156,7 +3157,7 @@ flowchart LR
     I --> J["Ticket cerrado<br/>lecciones al readme/guías"]
 ```
 
-1. **Autor.** Trabaja la unidad completa en su rama, con commits pequeños, y la verifica en local con `make lint` y `make test-ci` (lo mismo que corre el CI). **Al terminar la unidad** hace *push* y abre **un solo PR**, con la plantilla llena. CI corre en ese momento y en cada *push* posterior; si falla, el autor lo corrige en la misma rama antes de pedir revisión.
+1. **Autor.** Trabaja la unidad completa en su rama, con commits pequeños, y la verifica en local con `make lint` y `make test-ci` (lo mismo que corre el CI). Con Claude Code, además, los hooks del proyecto formatean cada archivo de código que escribe y corren `scripts/verificar.py`, el mismo del *job* `lint`, antes de cada commit. **Al terminar la unidad** hace *push* y abre **un solo PR**, con la plantilla llena. CI corre en ese momento y en cada *push* posterior; si falla, el autor lo corrige en la misma rama antes de pedir revisión.
 2. **Revisor.** Usa los **criterios de revisión de código** de la sección 6. Marca cada comentario como **[bloqueante]**, **[sugerencia]** o **[nit]** y responde en máximo 1 día hábil.
    - **Con un solo desarrollador:** el autor revisa al día siguiente con la lista y pasa además el subagente `adversarial-reviewer` (`.claude/agents/`), que revisa el cambio con el objetivo de refutarlo. Las 2 revisiones quedan registradas como comentarios en el PR.
 3. **Autor.** Responde cada comentario: lo corrige (con el commit que lo resuelve) o explica por qué no. Solo el revisor marca un comentario bloqueante como resuelto.
@@ -3170,7 +3171,7 @@ Un PR se integra a `main` solo si cumple **todos**:
 | Criterio | Umbral | Cómo se verifica |
 |---|---|---|
 | **Pruebas** | `pytest` completo en verde contra PostgreSQL 17, incluida la prueba de integración de la sección 6. Si toca el frontend, también los e2e de Playwright | *Checks* obligatorios `tests` y `e2e` |
-| **Calidad estática** | `ruff check`, `ruff format --check`, `djlint --check`, `djlint --lint` y `makemigrations --check` sin errores | *Checks* obligatorios `lint` (ruff y djLint) y `tests` (migraciones) |
+| **Calidad estática** | `ruff check`, `ruff format --check`, `djlint --check`, `djlint --lint` y `makemigrations --check` sin errores | *Checks* obligatorios `lint` (`scripts/verificar.py`: ruff y djLint) y `tests` (migraciones) |
 | **Cobertura** | ≥ 80 % en todo `apps/` (sección 2.6), más el umbral del ticket (TK-02 ≥ 90 % en `services.py`); la cobertura total no baja respecto de `main` | El *job* `tests` falla con menos de 80 % (`--cov-fail-under=80`) y guarda `coverage.xml`; el umbral del ticket y la comparación con `main` los verifica el autor y los anota en la plantilla |
 | **Aprobaciones** | 1 aprobación sin comentarios bloqueantes abiertos. Con un solo desarrollador: autorrevisión y revisión con IA registradas en el PR | Revisión en GitHub y conversaciones resueltas |
 | **Definición de hecho** | La común y la del ticket (sección 6), con todos los criterios de aceptación cumplidos | Checklist del autor, revisada por el revisor |
