@@ -292,6 +292,46 @@ El `readme.md` lo mencionaba solo de forma indirecta (`CREATEDB` en el apartado 
 
 ---
 
+## Prompt 11 — Usuario
+
+Lee `readme.md` (secciones 2, 3, 4, 5 y 6) y `CLAUDE.md` para extraer las decisiones arquitectónicas significativas ya tomadas y formalizarlas como Architecture Decision Records (ADR) en `docs/adr/`, antes de inicializar OpenSpec.
+
+Restricciones obligatorias:
+1. *Zero hallucination*: toda decisión, restricción SQL, tabla, índice, umbral o regla de negocio debe salir estrictamente de `readme.md` y `CLAUDE.md`. No inventes requisitos ni alternativas que no se deduzcan del diseño actual.
+2. Vocabulario de dominio estricto: usa exclusivamente Residente, Entidad, Medicamento, Existencia, Movimiento, Pauta y Baja (nunca sinónimos).
+3. Idioma: español en todos los archivos.
+
+Archivos a crear:
+1. `docs/adr/README.md`: tabla índice con ID, título, estado (`Aceptado`), fecha (`2026-11-16`) y *capabilities* futuras afectadas (`accounts`, `catalogo`, `entidades`, `pautas`, `inventario`, `conteos`, `reportes`, `api`).
+2. Un ADR numerado (`docs/adr/0001-titulo-en-kebab-case.md`, `0002-...`) por cada decisión arquitectónica encontrada en el `readme.md`, en formato MADR ligero.
+
+Al terminar, muéstrame la estructura creada en `docs/adr/` y verifica que ningún archivo contenga datos sensibles ni viole los hooks del proyecto. No hagas commit todavía.
+
+---
+
+## Respuesta 11 — Claude
+
+Creé `docs/adr/` con un índice (`README.md`) y **24 ADR** en formato MADR ligero: estado, fecha, *capabilities* afectadas, fuentes, contexto, decisión, alternativas consideradas y consecuencias.
+
+| Grupo | ADR |
+|---|---|
+| Arquitectura y despliegue | 0001 monolito modular MVT · 0002 renderizado en el servidor con HTMX · 0003 Docker Compose con 3 contenedores · 0004 configuración por entorno y variables `DB_*` |
+| Base de datos | 0005 PostgreSQL como última barrera · 0006 dos usuarios de BD · 0007 nombres con prefijo · 0008 supertipo Entidad · 0009 Bajas lógicas y `ON DELETE RESTRICT` · 0010 cantidades en dosis y fechas con zona |
+| Inventario | 0011 capa de servicios como única vía de escritura · 0012 Movimientos inmutables y corrección · 0013 Existencia materializada y conciliable · 0014 concurrencia y bloqueo en orden fijo · 0015 el conteo físico no ajusta Existencias · 0016 Pautas informativas con vigencia |
+| Búsqueda, API y acceso | 0017 búsqueda sin acentos con trigram · 0018 índices guiados por consultas · 0019 API de solo lectura con OpenAPI *design-first* · 0020 habilitadores en `/admin/` · 0021 autorización por 2 grupos · 0022 autenticación con Argon2, sesiones y django-axes |
+| Calidad | 0023 pruebas contra PostgreSQL real · 0024 calidad estática con un verificador único |
+
+**Cómo respeté las restricciones:**
+- **Sin inventar:** cada ADR cita en "Fuentes" las secciones del readme y de `CLAUDE.md` de donde sale. "Alternativas consideradas" solo menciona las que el propio diseño descarta (por ejemplo, microservicios o SPA, `DATABASE_URL`, asociación polimórfica, `FLOAT`, ajuste automático del conteo, pantallas propias en lugar de `/admin/`); cuando el diseño no documenta ninguna, el ADR lo dice. Quité 2 afirmaciones de mi primer borrador que no salían literalmente del readme: "tokens" en la API V2 y el nombre de un formateador de CSS.
+- **Vocabulario:** busqué los términos prohibidos. "Transacción" solo aparece como transacción de base de datos y `DELETE` solo como SQL, HTTP o permiso de Django. Cambié "un cliente externo" por "otra aplicación" en el ADR-0019.
+- **Capabilities:** el índice usa "Todas" para las 8 y lo explica debajo de la tabla.
+
+**Verificación:** el detector del hook de secretos no encontró nada en los 25 archivos; los 2 hooks `PreToolUse`, simulados ante `git add docs/adr && git commit`, permiten el commit; no hay correos, contraseñas ni datos personales.
+
+**Readme:** agregué `docs/adr/` a la estructura de ficheros del apartado 2.3. No hice commit.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 2)
 
 ### 2.1. Diagrama de arquitectura
@@ -655,6 +695,7 @@ AI4Devs-finalproject-vmrr/
 ├── prompts.md                 # prompts utilizados con IA
 ├── docs/                      # documentación de apoyo y diagramas
 │   ├── api/openapi.yaml       # contrato de la API (sección 4)
+│   ├── adr/                   # decisiones de arquitectura (ADR), índice en adr/README.md
 │   └── tickets/               # guías paso a paso de los tickets (sección 6)
 ├── docker-compose.yml         # servicios: nginx, web, db
 ├── Makefile                   # atajos de desarrollo local (make help); el CI no lo usa

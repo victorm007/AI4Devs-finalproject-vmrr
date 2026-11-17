@@ -91,8 +91,8 @@ El entregable del curso exige mostrar los prompts usados con IA, y por eso cada 
 - Los prompts marcados "no registres" no se agregan a ningún transcript.
 - `prompts.md` lo edita el usuario, con su propia valoración del impacto: no lo modifiques, pero inclúyelo en los commits si tiene cambios.
 - `diagramas/` guarda los PNG que el usuario genera a partir del Mermaid del readme (ver `diagramas/diagrama.md`).
--  Nunca omitas los formateos de `ruff` ni `djLint`. El entorno ejecutara validaciones automaticas tras cada modificacion de archivo.
-- 
+- Nunca omitas los formateos de `ruff` ni `djLint`. El entorno ejecutará validaciones automáticas tras cada modificación de archivo.
+
 ## Tickets y pruebas
 
 Orden de ejecución: tickets de habilitación HB-01 a HB-09 (semanas 1 y 2: contenedores, conexión con los 2 usuarios de BD, catálogo, residentes, pautas, login y `/admin/`) → TK-01 (BD) → TK-02 (backend) y TK-03 (frontend) → prueba de integración → backlog (TK-04 a TK-07). Las guías paso a paso están en `docs/tickets/` (`HB-*.md` y `TK-*.md`), y `integracion.md` tiene la prueba conjunta.
