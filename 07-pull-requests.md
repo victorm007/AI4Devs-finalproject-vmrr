@@ -221,6 +221,52 @@ También lo documenté en `CLAUDE.md` (sección Git) y en el paso 1 del proceso 
 
 ---
 
+## Prompt 7 — Usuario
+
+1. Que lo haga la skill.
+2. Sí se permite, si el plan aprobado lo declara.
+3. Déjalas como están; pon un comentario de que el ancla de `CLAUDE.md` evita el commit que dejaría commits rotos.
+
+---
+
+## Respuesta 7 — Claude
+
+Creé el flujo TDD para implementar tickets, con estas 3 decisiones:
+
+- **`.claude/skills/implementar-ticket/SKILL.md`:** una sola skill para backend, frontend e infraestructura. Su orden es explorar, plan, parada para aprobar, tests, rojo, congelar, implementar hasta el verde, comprobar que la huella está intacta y cierre. No hace commit, push ni PR.
+- **`.claude/agents/test-writer.md`:** escribe los tests a partir de los criterios de aceptación y de las piezas de contrato. No lee `docs/tickets/`, porque las guías traen la implementación, ni el código de producción, y no tiene Bash.
+- **`.claude/agents/implementer.md`:** implementa contra los tests congelados. Si un test parece incorrecto, lo devuelve como disputa en lugar de cambiarlo.
+- **Ancla en `CLAUDE.md`:** cualquier ticket HB o TK, o cualquier cambio de la aplicación, pasa por la skill sin que nadie tenga que pedirlo.
+
+**Decisiones aplicadas:**
+1. **OpenSpec:** si falta el cambio del ticket, la skill lo crea y lo valida antes de la parada, para aprobar la spec junto con el plan.
+2. **`docker compose down -v`:** solo se ejecuta si el plan aprobado lo declara, y nunca lo lanza un subagente.
+3. **Commits por paso:** las guías no cambian. El ancla explica que su frase "Haz un commit al terminar cada paso" no aplica dentro de la skill, porque dejaría commits rotos en la historia, con tests en rojo o pasos a medias.
+
+El ciclo todavía no se ha probado con un ticket real.
+
+---
+
+## Prompt 8 — Usuario
+
+Regístralo. Otra pregunta: ¿esta configuración dispara `/opsx:propose`, `/opsx:apply`, etc.?
+
+---
+
+## Respuesta 8 — Claude
+
+No. Esos comandos no están instalados en este proyecto ni en el perfil del usuario, y la skill `implementar-ticket` no los invoca: usa directamente la CLI (`openspec new change`, `openspec instructions` y `openspec validate`).
+
+| Comando | Qué lo cubre hoy |
+|---|---|
+| `/opsx:propose` | El paso 2 de la skill, que crea y valida el cambio antes de la parada |
+| `/opsx:apply` | Los pasos 3 a 8 de la skill, que además exigen rojo, huella y disputas |
+| `/opsx:archive` y `/opsx:sync` | Nada: es un hueco del flujo |
+
+Como nadie archiva los cambios, `openspec/specs/` seguiría vacío, y el subagente `adversarial-reviewer` contrasta contra esas specs. La CLI ya trae `openspec archive <cambio>`, que actualiza las specs principales, así que basta agregar ese paso al flujo sin instalar `/opsx:apply`, que competiría con la skill.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 7)
 
 ## 7. Pull Requests
