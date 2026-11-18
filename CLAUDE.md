@@ -21,6 +21,7 @@ Proyecto final de AI4Devs: inventario de medicamentos para un hogar gerontológi
 ## Flujo de Trabajo: TDD y Mock-First (OBLIGATORIO)
 
 * **TDD (Test-Driven Development):** Siempre que la tarea lo permita, DEBES seguir el ciclo Red-Green-Refactor. Antes de escribir código de producción en `services.py`, vistas o modelos, escribe los tests correspondientes basados en los criterios de aceptación del ticket. Asegúrate de que fallen primero.
+* **Excepción de TDD:** HB-01 y HB-02 son configuración declarativa y aún no tienen pytest: su fase roja son los comandos con resultado esperado de la sección 3 de su guía, que se ejecutan antes de crear los archivos. HB-03 a HB-09 siguen el ciclo completo. Un test que pasa desde el inicio, porque ya lo garantiza Django o un ticket anterior, es de regresión: la guía lo indica.
 * **Mock-First / Fixture-Driven:** El proyecto cuenta con un dataset base riguroso (`app/fixtures/mock/demo.json` y `cargar_mock.sql`). NO inventes datos de prueba aleatorios usando librerías como Faker a menos que sea estrictamente necesario para un caso límite aislado. Basa el desarrollo de la UI y los tests de integración en el fixture compartido `datos_demo`.
 
 ### Reglas de Arquitectura (Monolito Modular MVT)

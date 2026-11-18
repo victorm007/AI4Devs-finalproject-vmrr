@@ -61,7 +61,34 @@ app/
 
 ## 2. Tareas paso a paso
 
-### Paso 1. La app y la migración de extensiones (≈ 30 min)
+El orden sigue TDD (`CLAUDE.md`): primero los tests en rojo, después la implementación.
+
+### Paso 1. Tests en rojo (≈ 45 min)
+
+Crea solo lo necesario para que pytest encuentre los tests:
+
+```bash
+mkdir -p app/apps/catalogo/tests
+touch app/apps/catalogo/__init__.py app/apps/catalogo/tests/__init__.py
+```
+
+Escribe los tests de la sección 3 y ejecútalos **antes** de implementar:
+
+```bash
+dtest apps/catalogo -q
+# ModuleNotFoundError: No module named 'apps.catalogo.models'
+```
+
+> El error de importación es el rojo inicial: indica que el módulo aún no existe. El rojo útil llega después, cuando el módulo ya existe y fallan las reglas.
+
+Así avanza `dtest apps/catalogo -q` con cada paso:
+
+| Al terminar | Resultado esperado |
+|---|---|
+| Paso 4 (modelos) | Pasan extensiones, `f_unaccent`, principios activos e índices. Siguen en rojo los que necesitan las presentaciones semilla |
+| Paso 5 (semilla) | Todos pasan |
+
+### Paso 2. La app y la migración de extensiones (≈ 30 min)
 
 ```bash
 mkdir -p app/apps/catalogo/migrations app/apps/catalogo/tests
@@ -124,7 +151,7 @@ class Migration(migrations.Migration):
     ]
 ```
 
-### Paso 2. Expresiones compartidas (≈ 15 min)
+### Paso 3. Expresiones compartidas (≈ 15 min)
 
 `app/apps/expresiones.py`. Las usan los modelos de este ticket, los de HB-06 y HB-07, y el panel de HB-09:
 
@@ -152,7 +179,7 @@ def no_vacio(campo: str) -> GreaterThan:
     return GreaterThan(Length(Trim(campo)), 0)
 ```
 
-### Paso 3. Modelos (≈ 1 h)
+### Paso 4. Modelos (≈ 1 h)
 
 `app/apps/catalogo/models.py`. Lee los comentarios: explican cada decisión.
 
@@ -315,7 +342,7 @@ dj sqlmigrate catalogo 0002 | grep -E "CONSTRAINT|INDEX"
 
 Debes ver `uq_principio_activo_nombre`, `uq_medicamento_nombre_pres_conc` (como `CREATE UNIQUE INDEX` con `f_unaccent(LOWER(...))`), `ck_*`, los 2 índices `gin_trgm_ops` y `ix_mpa_principio_medicamento`, y **ningún** índice suelto sobre `medicamento_principio_activo.medicamento_id` ni `principio_activo_id`.
 
-### Paso 4. Presentaciones semilla (≈ 15 min)
+### Paso 5. Presentaciones semilla (≈ 15 min)
 
 ```bash
 dj makemigrations catalogo --empty --name presentaciones
@@ -353,11 +380,11 @@ class Migration(migrations.Migration):
 dpsql -c '\d medicamento'
 ```
 
-### Paso 5. Tests (≈ 1 h)
+### Paso 6. Tests en verde (≈ 15 min)
 
-Escribe los de la sección 3 y ejecútalos con `dtest apps/catalogo -q`. El de plan de ejecución está marcado `lento`: córrelo aparte con `dtest -m lento apps/catalogo -q`.
+Ejecuta los de la sección 3 con `dtest apps/catalogo -q`: todos deben pasar. El de plan de ejecución está marcado `lento`: córrelo aparte con `dtest -m lento apps/catalogo -q`.
 
-### Paso 6. Verificación final y *pull request* (≈ 30 min)
+### Paso 7. Verificación final y *pull request* (≈ 30 min)
 
 Ejecuta la sección 5 completa, marca la lista de la sección 6 y abre el PR.
 
@@ -560,9 +587,9 @@ Medicamento.objects.all().delete()   # solo en desarrollo: deja la base vacía
 | Síntoma | Causa probable | Solución |
 |---|---|---|
 | `permission denied to create extension "pg_trgm"` | La base no es de `app_owner`, o migraste con `dj migrate` | HB-01 (dueño de la base) y `./scripts/migrate.sh` |
-| `function f_unaccent(text) does not exist` al migrar `0002` | `0002_modelos` no depende de `0001_extensiones` | Genera `0002` **después** de `0001` (paso 1) |
+| `function f_unaccent(text) does not exist` al migrar `0002` | `0002_modelos` no depende de `0001_extensiones` | Genera `0002` **después** de `0001` (paso 2) |
 | `functions in index expression must be marked IMMUTABLE` | Usaste `unaccent()` directamente en el índice | Usa `sin_acentos()`, que llama a `f_unaccent` |
 | `models.E034: The index name ... cannot be longer than 30 characters` | Nombre de índice largo | Usa los nombres de la sección 3.3 |
 | `TypeError: ... unexpected keyword argument 'condition'` en `CheckConstraint` | Django menor a 5.1 | Verifica `requirements.txt`: Django 5.2 LTS |
 | El test de plan muestra `Seq Scan` | La expresión del ORM no es igual a la del índice, o faltó `enable_seqscan = off` | Usa `sin_acentos()` y el test tal cual |
-| `permission denied for table medicamento` desde `dj shell` | La migración no dependía de `0002_privilegios` | Paso 1 (`dependencies`) y recrea la base |
+| `permission denied for table medicamento` desde `dj shell` | La migración no dependía de `0002_privilegios` | Paso 2 (`dependencies`) y recrea la base |

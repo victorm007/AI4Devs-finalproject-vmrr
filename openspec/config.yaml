@@ -103,6 +103,10 @@ rules:
       verde y, si hace falta, una de refactor los mantiene en verde. Nunca se usan
       factories ni Faker, salvo para un caso límite aislado.
     - >-
+      Excepción de TDD: HB-01 y HB-02 no tienen pytest. Su tarea "rojo" ejecuta los comandos
+      con resultado esperado de la sección 3 de la guía antes de crear los archivos, y la de
+      implementación los deja con ese resultado.
+    - >-
       Los tests corren contra PostgreSQL 17 real, nunca contra SQLite ni con la
       persistencia simulada. Las pruebas de servicios de inventario corren como app_user
       (fixture como_app_user, o SET ROLE en los tests con hilos), y las de services.py

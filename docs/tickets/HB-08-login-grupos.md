@@ -67,7 +67,29 @@ app/
 
 ## 2. Tareas paso a paso
 
-### Paso 1. Bootstrap local y `django-axes` (≈ 20 min)
+El orden sigue TDD (`CLAUDE.md`): primero los tests en rojo, después la implementación.
+
+### Paso 1. Tests en rojo (≈ 1 h 15 min)
+
+Escribe los tests de la sección 3 y ejecútalos **antes** de implementar:
+
+```bash
+dtest apps/accounts/tests/test_grupos.py apps/accounts/tests/test_login.py \
+      apps/accounts/tests/test_admin_usuarios.py -q
+```
+
+Solo debe pasar `test_sin_sesion_el_panel_pide_login`, porque el panel de Django ya lo hace por defecto: es un test de regresión.
+
+Así avanza el rojo con cada paso:
+
+| Al terminar | Comando | Resultado esperado |
+|---|---|---|
+| Paso 3 (configuración) | `dtest apps/accounts/tests/test_login.py -k expira -q` | `1 passed` |
+| Paso 4 (rutas y login) | `dtest apps/accounts/tests/test_login.py -k "pagina_de_login or raiz" -q` | `2 passed` |
+| Paso 5 (grupos) | `dtest apps/accounts/tests/test_grupos.py apps/accounts/tests/test_login.py -q` | Todos pasan |
+| Paso 6 (usuarios en el panel) | `dtest apps/accounts/tests/test_admin_usuarios.py -q` | Todos pasan |
+
+### Paso 2. Bootstrap local y `django-axes` (≈ 20 min)
 
 ```bash
 # Bootstrap 5.3.x desde static/: la CSP de nginx (HB-04) no permite CDN
@@ -84,7 +106,7 @@ echo "django-axes==<versión anotada>" >> app/requirements.txt       # y ordena 
 docker compose up -d --build web
 ```
 
-### Paso 2. Configuración (≈ 30 min)
+### Paso 3. Configuración (≈ 30 min)
 
 En `app/config/settings/base.py`:
 
@@ -124,9 +146,9 @@ LOGIN_REDIRECT_URL = "admin:index"  # TK-03 lo cambia a la pantalla de existenci
 LOGOUT_REDIRECT_URL = "login"
 ```
 
-### Paso 3. Rutas, plantillas y login (≈ 1 h)
+### Paso 4. Rutas, plantillas y login (≈ 1 h)
 
-**3.1 `app/config/urls.py`:**
+**4.1 `app/config/urls.py`:**
 
 ```python
 """Rutas del proyecto. Cada app agrega las suyas en su ticket."""
@@ -148,7 +170,7 @@ urlpatterns = [
 ]
 ```
 
-**3.2 `app/templates/base.html`** (sin `<script>` ni `style` en línea: los bloquea la CSP):
+**4.2 `app/templates/base.html`** (sin `<script>` ni `style` en línea: los bloquea la CSP):
 
 ```django
 {% load static %}
@@ -205,7 +227,7 @@ urlpatterns = [
 </html>
 ```
 
-**3.3 `app/templates/registration/login.html`:**
+**4.3 `app/templates/registration/login.html`:**
 
 ```django
 {% extends "base.html" %}
@@ -247,7 +269,7 @@ urlpatterns = [
 {% endblock %}
 ```
 
-**3.4 `app/templates/registration/bloqueado.html`:**
+**4.4 `app/templates/registration/bloqueado.html`:**
 
 ```django
 {% extends "base.html" %}
@@ -262,7 +284,7 @@ urlpatterns = [
 
 > **Formato de las plantillas:** están escritas como las deja djLint (HB-02, `[tool.djlint]` en `pyproject.toml`): 2 espacios de sangría y un atributo por línea cuando la etiqueta no cabe en 120 caracteres. Después de pegar o editar una plantilla, ejecuta `docker compose exec web djlint . --reformat` y luego `djlint . --lint`; el *job* `lint` del CI falla si una plantilla no tiene ese formato.
 
-### Paso 4. Los 2 grupos y sus permisos (≈ 45 min)
+### Paso 5. Los 2 grupos y sus permisos (≈ 45 min)
 
 ```bash
 dj makemigrations accounts --empty --name grupos
@@ -344,9 +366,9 @@ class Migration(migrations.Migration):
 ./scripts/migrate.sh
 ```
 
-### Paso 5. Usuarios en el panel: solo el Administrador (≈ 1 h)
+### Paso 6. Usuarios en el panel: solo el Administrador (≈ 1 h)
 
-**5.1 `app/apps/accounts/forms.py`:**
+**6.1 `app/apps/accounts/forms.py`:**
 
 ```python
 """Formularios de usuario del panel: un solo grupo por usuario (readme, sección 3.2, D1).
@@ -395,7 +417,7 @@ class UsuarioChangeForm(GrupoUnicoMixin, UserChangeForm):
         fields = "__all__"
 ```
 
-**5.2 `app/apps/accounts/admin.py`:**
+**6.2 `app/apps/accounts/admin.py`:**
 
 ```python
 """Usuarios y grupos en /admin/ (readme, sección 5, "Habilitadores").
@@ -465,11 +487,11 @@ class GrupoAdmin(GroupAdmin):
 
 > Si `AdminUserCreationForm` no existe en tu versión de Django, usa `UserCreationForm` y quita `usable_password` de `add_fieldsets` (Django < 5.1).
 
-### Paso 6. Tests (≈ 1.5 h)
+### Paso 7. Tests en verde (≈ 15 min)
 
-Escribe los de la sección 3 y ejecútalos con `dtest apps/accounts -q`.
+Ejecuta los de la sección 3 con `dtest apps/accounts -q`: todos deben pasar.
 
-### Paso 7. Verificación final y *pull request* (≈ 30 min)
+### Paso 8. Verificación final y *pull request* (≈ 30 min)
 
 Ejecuta la sección 5 completa, marca la lista de la sección 6 y abre el PR.
 
@@ -721,9 +743,9 @@ dj axes_reset                       # desbloquea las cuentas (solo desarrollo)
 |---|---|---|
 | `djlint . --check` dice `files would be updated` | La plantilla no tiene el formato de djLint | `docker compose exec web djlint . --reformat`, revisa el diff y vuelve a commitear |
 | `AxesBackendRequestParameterRequired` en un test | El test usa `client.login()`, que no pasa la petición a `authenticate` | En los tests usa `client.force_login(usuario)` o un `POST` al login |
-| `403 CSRF` al cerrar sesión | El formulario de `base.html` no tiene `{% csrf_token %}` | Paso 3.2 |
+| `403 CSRF` al cerrar sesión | El formulario de `base.html` no tiene `{% csrf_token %}` | Paso 4.2 |
 | `405 Method Not Allowed` al cerrar sesión con un enlace | Desde Django 5, `LogoutView` solo acepta `POST` | Usa el formulario de `base.html` |
 | El panel no muestra el catálogo a un usuario de grupo | El usuario no tiene `is_staff` o no tiene grupo | Edítalo como Administrador (el formulario los corrige) |
 | `IntegrityError: uq_usuario_un_grupo` al cargar el mock | El mock ya estaba cargado | Recrea la base: `docker compose down -v`, `up -d`, `./scripts/migrate.sh` |
-| La página de login sin estilos | Falta `collectstatic` o la descarga de Bootstrap trajo una página de error | Paso 1 (`head -c 40`) y `dj collectstatic --noinput` |
+| La página de login sin estilos | Falta `collectstatic` o la descarga de Bootstrap trajo una página de error | Paso 2 (`head -c 40`) y `dj collectstatic --noinput` |
 | La cuenta quedó bloqueada en desarrollo | 5 intentos fallidos | `dj axes_reset` |

@@ -43,7 +43,7 @@ dtest() { docker compose exec -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PAS
 dpsql() { docker compose exec db psql -U app_owner -d "$POSTGRES_DB" "$@"; }    # psql como app_owner
 ```
 
-> Los tests corren como `app_owner` porque `pytest` necesita crear la base de tests. Los que deben comportarse como la aplicación cambian a `app_user` con `SET LOCAL ROLE` (helper `ejecutar_sql` del paso 6).
+> Los tests corren como `app_owner` porque `pytest` necesita crear la base de tests. Los que deben comportarse como la aplicación cambian a `app_user` con `SET LOCAL ROLE` (helper `ejecutar_sql` del paso 2).
 
 ---
 
@@ -83,7 +83,7 @@ AI4Devs-finalproject-vmrr/
 
 ## 2. Tareas paso a paso
 
-Haz un commit al terminar cada paso.
+Haz un commit al terminar cada paso. El orden sigue TDD (`CLAUDE.md`): primero las dependencias y el arnés de pytest, después los tests en rojo y al final la implementación.
 
 ### Paso 1. Dependencias (≈ 10 min)
 
@@ -99,9 +99,109 @@ gunicorn==23.0.0
 psycopg[binary]==3.2.9
 ```
 
-### Paso 2. Conexión desde variables `DB_*` (≈ 30 min)
+```bash
+docker compose up -d --build web   # instala Argon2 y psycopg en la imagen
+```
 
-**2.1 En `app/config/settings/base.py`**, reemplaza el comentario de `DATABASES` por:
+### Paso 2. Configuración de pytest, `conftest.py` y helper de SQL (≈ 20 min)
+
+**2.1 Agrega a `app/pyproject.toml`:**
+
+```toml
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings.local"
+pythonpath = ["."]  # para que los tests puedan hacer "from pruebas import ejecutar_sql"
+testpaths = ["apps", "config", "e2e"]
+# Un marcador mal escrito (@pytest.mark.lent) es un error, no un test que corre sin filtro
+addopts = "--strict-markers"
+markers = [
+    "lento: tests de plan de ejecución (EXPLAIN), corren en el CI nocturno",
+    "http: tests de URL + vista + plantilla con el cliente de Django (test_views_*, test_admin*); corren en el CI de cada PR",
+    "integracion: flujo completo Vista → Servicio → BD → v_conciliacion_existencia (test_integracion.py); corre en el CI de cada PR",
+    "infra: configuración e infraestructura (test_proxy.py, test_conexion.py); corre en el CI de cada PR",
+    "e2e: pruebas de extremo a extremo con Playwright (llegan en TK-03)",
+]
+
+# Cobertura (readme, sección 2.6): la misma medida en local y en el CI
+[tool.coverage.run]
+source = ["apps"]
+branch = true
+omit = ["*/migrations/*", "*/tests/*"]  # el 80 % se mide sobre código de la aplicación
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+```
+
+> Con esta configuración, `pytest --cov` mide lo mismo en tu equipo y en el CI: solo el código de `apps/`, con ramas (`branch = true`) y sin contar migraciones ni tests.
+
+**2.2 `app/conftest.py`:**
+
+```python
+"""Fixtures compartidos de pytest (readme, secciones 2.6 y 6).
+
+TK-01 agrega aquí datos_demo, demo y como_app_user. Este archivo existe desde HB-03:
+su presencia activa el job "tests" del CI (.github/workflows/ci.yml).
+"""
+```
+
+**2.3 `app/pruebas.py`** (TK-01 le agrega `saldo`):
+
+```python
+"""Utilidades compartidas por los tests."""
+
+from django.db import connection, transaction
+
+
+def ejecutar_sql(sql: str, params=None, *, rol: str | None = None) -> list[tuple]:
+    """Ejecuta SQL dentro de un savepoint, opcionalmente como otro rol.
+
+    Si la sentencia falla, solo se revierte el savepoint y el test puede seguir.
+    Ejemplo: ejecutar_sql("SELECT current_user", rol="app_user") -> [("app_user",)]
+    """
+    with transaction.atomic(), connection.cursor() as cursor:
+        if rol:
+            cursor.execute(f"SET LOCAL ROLE {rol}")
+        cursor.execute(sql, params)
+        filas = cursor.fetchall() if cursor.description else []
+        if rol:
+            cursor.execute("RESET ROLE")
+        return filas
+```
+
+### Paso 3. Tests en rojo (≈ 35 min)
+
+Crea las carpetas de la app y de los tests:
+
+```bash
+mkdir -p app/apps/accounts/migrations app/apps/accounts/tests app/config/tests
+touch app/apps/__init__.py app/apps/accounts/__init__.py \
+      app/apps/accounts/migrations/__init__.py app/apps/accounts/tests/__init__.py \
+      app/config/tests/__init__.py
+```
+
+Escribe los tests de la sección 3 y ejecútalos **antes** de implementar:
+
+```bash
+dtest -q
+```
+
+Ninguno de los 12 tests debe pasar. Los que usan la base fallan porque Django sigue con el backend `dummy` de HB-02, y `test_el_proyecto_usa_su_propio_modelo_de_usuario` y `test_contrasena_minima_de_10_caracteres` fallan por su aserción. El commit de este paso queda en rojo a propósito: el PR se abre cuando todo está en verde.
+
+Así avanza el rojo con cada paso:
+
+| Al terminar | Comando | Resultado esperado |
+|---|---|---|
+| Paso 4 | `dtest config/tests -q` | `4 passed` |
+| Paso 6 | `dtest apps/accounts/tests/test_usuario.py -q` | `4 passed` |
+| Paso 6 | `dtest apps/accounts/tests/test_privilegios.py -q` | `2 failed, 2 passed`: faltan los permisos de `app_user` |
+| Paso 7 | `dtest apps/accounts/tests/test_privilegios.py -q` | `4 passed` |
+
+> `test_app_owner_es_dueno_de_todas_las_tablas` y `test_app_user_no_puede_crear_tablas` pasan desde el paso 4, porque HB-01 ya lo garantiza. Son tests de regresión.
+
+### Paso 4. Conexión desde variables `DB_*` (≈ 30 min)
+
+**4.1 En `app/config/settings/base.py`**, reemplaza el comentario de `DATABASES` por:
 
 ```python
 # Conexión a PostgreSQL (readme, secciones 2.4 y 2.5). Los valores vienen del entorno:
@@ -122,7 +222,7 @@ DATABASES = {
 
 > Por qué variables separadas y no una sola `DATABASE_URL`: los tests y `migrate.sh` cambian **solo** el usuario y la contraseña (`-e DB_USER=app_owner -e DB_PASSWORD=...`), y una contraseña con caracteres especiales no necesita codificarse para una URL. El CI ya define estas mismas variables.
 
-**2.2 En `docker-compose.yml`**, agrega al `environment` de `web`:
+**4.2 En `docker-compose.yml`**, agrega al `environment` de `web`:
 
 ```yaml
       # Conexión a PostgreSQL: la aplicación NUNCA usa app_owner
@@ -133,7 +233,13 @@ DATABASES = {
       DB_PASSWORD: ${DB_APP_PASSWORD:?Falta DB_APP_PASSWORD en .env}
 ```
 
-### Paso 3. `scripts/migrate.sh` (≈ 15 min)
+**4.3 Aplica el entorno nuevo:**
+
+```bash
+docker compose up -d web
+```
+
+### Paso 5. `scripts/migrate.sh` (≈ 15 min)
 
 ```sh
 #!/bin/sh
@@ -154,18 +260,9 @@ git update-index --chmod=+x scripts/migrate.sh      # permiso de ejecución (HB-
 
 > Nunca uses `dj migrate`: correría como `app_user`, que no puede crear tablas, y fallaría con `permission denied for schema public`.
 
-### Paso 4. App `accounts` y modelo `Usuario` (≈ 45 min)
+### Paso 6. App `accounts` y modelo `Usuario` (≈ 45 min)
 
-**4.1 Crea las carpetas y archivos vacíos:**
-
-```bash
-mkdir -p app/apps/accounts/migrations app/apps/accounts/tests app/config/tests
-touch app/apps/__init__.py app/apps/accounts/__init__.py \
-      app/apps/accounts/migrations/__init__.py app/apps/accounts/tests/__init__.py \
-      app/config/tests/__init__.py
-```
-
-**4.2 `app/apps/accounts/apps.py`:**
+**6.1 `app/apps/accounts/apps.py`:**
 
 ```python
 from django.apps import AppConfig
@@ -177,7 +274,7 @@ class AccountsConfig(AppConfig):
     verbose_name = "Usuarios"
 ```
 
-**4.3 `app/apps/accounts/models.py`:**
+**6.2 `app/apps/accounts/models.py`:**
 
 ```python
 """Usuarios del sistema (readme, sección 3.2, D1).
@@ -196,7 +293,7 @@ class Usuario(AbstractUser):
         verbose_name_plural = "usuarios"
 ```
 
-**4.4 En `app/config/settings/base.py`:**
+**6.3 En `app/config/settings/base.py`:**
 
 ```python
 INSTALLED_APPS = [
@@ -233,16 +330,15 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 ```
 
-**4.5 Reconstruye `web` y genera la migración:**
+**6.4 Genera la migración:**
 
 ```bash
-docker compose up -d --build web
 dj makemigrations accounts         # crea 0001_initial.py
 dj sqlmigrate accounts 0001 | grep -E 'CREATE TABLE "usuario'
 # CREATE TABLE "usuario" ...  CREATE TABLE "usuario_groups" ...  CREATE TABLE "usuario_user_permissions" ...
 ```
 
-### Paso 5. Migración de privilegios de `app_user` (≈ 30 min)
+### Paso 7. Migración de privilegios de `app_user` (≈ 30 min)
 
 ```bash
 dj makemigrations accounts --empty --name privilegios
@@ -294,82 +390,14 @@ dj createsuperuser                 # como app_user: la aplicación ya puede escr
 
 > Los permisos por defecto (`ALTER DEFAULT PRIVILEGES`) solo cubren las tablas que cree **`app_owner`**. Por eso todas las migraciones corren con `migrate.sh`.
 
-### Paso 6. Configuración de pytest, `conftest.py` y helper de SQL (≈ 20 min)
-
-**6.1 Agrega a `app/pyproject.toml`:**
-
-```toml
-[tool.pytest.ini_options]
-DJANGO_SETTINGS_MODULE = "config.settings.local"
-pythonpath = ["."]  # para que los tests puedan hacer "from pruebas import ejecutar_sql"
-testpaths = ["apps", "config", "e2e"]
-# Un marcador mal escrito (@pytest.mark.lent) es un error, no un test que corre sin filtro
-addopts = "--strict-markers"
-markers = [
-    "lento: tests de plan de ejecución (EXPLAIN), corren en el CI nocturno",
-    "http: tests de URL + vista + plantilla con el cliente de Django (test_views_*, test_admin*); corren en el CI de cada PR",
-    "integracion: flujo completo Vista → Servicio → BD → v_conciliacion_existencia (test_integracion.py); corre en el CI de cada PR",
-    "infra: configuración e infraestructura (test_proxy.py, test_conexion.py); corre en el CI de cada PR",
-    "e2e: pruebas de extremo a extremo con Playwright (llegan en TK-03)",
-]
-
-# Cobertura (readme, sección 2.6): la misma medida en local y en el CI
-[tool.coverage.run]
-source = ["apps"]
-branch = true
-omit = ["*/migrations/*", "*/tests/*"]  # el 80 % se mide sobre código de la aplicación
-
-[tool.coverage.report]
-show_missing = true
-skip_covered = true
-```
-
-> Con esta configuración, `pytest --cov` mide lo mismo en tu equipo y en el CI: solo el código de `apps/`, con ramas (`branch = true`) y sin contar migraciones ni tests.
-
-**6.2 `app/conftest.py`:**
-
-```python
-"""Fixtures compartidos de pytest (readme, secciones 2.6 y 6).
-
-TK-01 agrega aquí datos_demo, demo y como_app_user. Este archivo existe desde HB-03:
-su presencia activa el job "tests" del CI (.github/workflows/ci.yml).
-"""
-```
-
-**6.3 `app/pruebas.py`** (TK-01 le agrega `saldo`):
-
-```python
-"""Utilidades compartidas por los tests."""
-
-from django.db import connection, transaction
-
-
-def ejecutar_sql(sql: str, params=None, *, rol: str | None = None) -> list[tuple]:
-    """Ejecuta SQL dentro de un savepoint, opcionalmente como otro rol.
-
-    Si la sentencia falla, solo se revierte el savepoint y el test puede seguir.
-    Ejemplo: ejecutar_sql("SELECT current_user", rol="app_user") -> [("app_user",)]
-    """
-    with transaction.atomic(), connection.cursor() as cursor:
-        if rol:
-            cursor.execute(f"SET LOCAL ROLE {rol}")
-        cursor.execute(sql, params)
-        filas = cursor.fetchall() if cursor.description else []
-        if rol:
-            cursor.execute("RESET ROLE")
-        return filas
-```
-
-### Paso 7. Tests (≈ 45 min)
-
-Escribe los de la sección 3 y ejecútalos:
+### Paso 8. Tests en verde (≈ 10 min)
 
 ```bash
 dtest -q
 dtest -q --cov=apps --cov-fail-under=80    # lo mismo que exige el CI
 ```
 
-### Paso 8. Verificación final y *pull request* (≈ 30 min)
+### Paso 9. Verificación final y *pull request* (≈ 30 min)
 
 Ejecuta la sección 5 completa. En el PR, el *job* `tests` corre por primera vez en el CI (lo activa `app/conftest.py`).
 
@@ -571,12 +599,12 @@ dj createsuperuser
 
 | Síntoma | Causa probable | Solución |
 |---|---|---|
-| `KeyError: 'DB_NAME'` | Falta el `environment` del paso 2.2, o `DB_NAME` en el CI | Revisa `docker-compose.yml` |
+| `KeyError: 'DB_NAME'` | Falta el `environment` del paso 4.2, o `DB_NAME` en el CI | Revisa `docker-compose.yml` |
 | `permission denied for schema public` al migrar | Corriste `dj migrate` (como `app_user`) | Usa `./scripts/migrate.sh` |
 | `password authentication failed for user "app_user"` | La contraseña de `.env` no es la del volumen | `docker compose down -v && docker compose up -d` (desarrollo) |
-| `ValueError: Dependency on app with no migrations: accounts` | Falta `makemigrations accounts` | Paso 4.5 |
+| `ValueError: Dependency on app with no migrations: accounts` | Falta `makemigrations accounts` | Paso 6.4 |
 | `InconsistentMigrationHistory: admin.0001_initial is applied before its dependency accounts.0001_initial` | La base ya tenía migraciones del usuario por defecto de Django | `docker compose down -v`, `up -d` y `./scripts/migrate.sh` (requisitos previos) |
 | `permission denied to create database` al correr `dtest` | `app_owner` sin `CREATEDB` | `DB_OWNER_CREATEDB=true` en `.env` y recrea el volumen |
 | `permission denied for table ...` en la aplicación | Una tabla se creó sin pasar por `migrate.sh` o antes de `0002_privilegios` | Agrega la dependencia de `0002_privilegios` y vuelve a ejecutar `./scripts/migrate.sh` |
 | `test_los_tests_corren_como_app_owner` falla con `app_user` | Corriste `pytest` sin el atajo `dtest` | Usa `dtest` (cambia `DB_USER` a `app_owner`) |
-| `ModuleNotFoundError: No module named 'pruebas'` | Falta `pythonpath = ["."]` | Paso 6.1 |
+| `ModuleNotFoundError: No module named 'pruebas'` | Falta `pythonpath = ["."]` | Paso 2.1 |

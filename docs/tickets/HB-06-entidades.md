@@ -63,7 +63,34 @@ AI4Devs-finalproject-vmrr/
 
 ## 2. Tareas paso a paso
 
-### Paso 1. Nombre del Hogar desde el entorno (≈ 10 min)
+El orden sigue TDD (`CLAUDE.md`): primero los tests en rojo, después la implementación.
+
+### Paso 1. Tests en rojo (≈ 45 min)
+
+Crea solo lo necesario para que pytest encuentre los tests:
+
+```bash
+mkdir -p app/apps/entidades/tests
+touch app/apps/entidades/__init__.py app/apps/entidades/tests/__init__.py
+```
+
+Escribe los tests de la sección 3 y ejecútalos **antes** de implementar:
+
+```bash
+dtest apps/entidades -q
+# ModuleNotFoundError: No module named 'apps.entidades.models'
+```
+
+> El error de importación es el rojo inicial: indica que el módulo aún no existe. El rojo útil llega después, cuando el módulo ya existe y fallan las reglas.
+
+Así avanza `dtest apps/entidades -q` con cada paso:
+
+| Al terminar | Resultado esperado |
+|---|---|
+| Esqueleto del servicio (inicio del paso 5) | Pasan los tests de esquema. Fallan con `NotImplementedError` los que dan de alta un residente |
+| Paso 5 (servicio) | Todos pasan |
+
+### Paso 2. Nombre del Hogar desde el entorno (≈ 10 min)
 
 El Hogar es una entidad fija que crea la migración. Su nombre cambia por instalación (el real en el servidor del hogar, "Hogar Gerontológico Demo" en desarrollo y en la demo), así que viene del entorno:
 
@@ -84,7 +111,7 @@ y en el `environment` de `web`: `HOGAR_NOMBRE: ${HOGAR_NOMBRE:-Hogar Gerontológ
 
 > "Hogar Gerontológico Demo" es el nombre que esperan los tests de TK-03 con el dataset mock.
 
-### Paso 2. La app y los modelos (≈ 1.5 h)
+### Paso 3. La app y los modelos (≈ 1.5 h)
 
 ```bash
 mkdir -p app/apps/entidades/migrations app/apps/entidades/tests
@@ -249,9 +276,9 @@ class Residente(models.Model):
         return self.nombre_completo
 ```
 
-### Paso 3. Migraciones (≈ 45 min)
+### Paso 4. Migraciones (≈ 45 min)
 
-**3.1 Migración generada:**
+**4.1 Migración generada:**
 
 ```bash
 dj makemigrations entidades            # crea 0001_initial.py
@@ -265,7 +292,7 @@ dependencies = [
 ]
 ```
 
-**3.2 FK compuesta** (`dj makemigrations entidades --empty --name fk_compuesta`):
+**4.2 FK compuesta** (`dj makemigrations entidades --empty --name fk_compuesta`):
 
 ```python
 """FK compuesta residente -> entidad (readme, sección 3.1).
@@ -289,7 +316,7 @@ class Migration(migrations.Migration):
     ]
 ```
 
-**3.3 El Hogar** (`dj makemigrations entidades --empty --name hogar`):
+**4.3 El Hogar** (`dj makemigrations entidades --empty --name hogar`):
 
 ```python
 """Dato semilla: la entidad HOGAR, única (readme, sección 3.1, "Datos semilla")."""
@@ -320,9 +347,20 @@ dpsql -c "SELECT id, tipo, nombre FROM entidad"     # 1 | HOGAR | Hogar Gerontol
 
 > El Hogar queda con `id = 1` en una base nueva. El dataset mock y algunas pruebas de TK-01 lo dan por hecho.
 
-### Paso 4. Servicio de alta de residentes (≈ 30 min)
+### Paso 5. Servicio de alta de residentes (≈ 30 min)
 
-`app/apps/entidades/services.py`:
+Primero crea el esqueleto en `app/apps/entidades/services.py`, para ver el rojo real del servicio:
+
+```python
+def registrar_residente(residente):
+    raise NotImplementedError
+```
+
+```bash
+dtest apps/entidades -q      # fallan con NotImplementedError los que dan de alta un residente
+```
+
+Después reemplaza `app/apps/entidades/services.py` por la implementación:
 
 ```python
 """Reglas de entidades (readme, sección 3.2, D3). Las usa el panel /admin/ (HB-09)."""
@@ -354,11 +392,11 @@ def registrar_residente(residente: Residente) -> Residente:
     return residente
 ```
 
-### Paso 5. Tests (≈ 1 h)
+### Paso 6. Tests en verde (≈ 15 min)
 
-Escribe los de la sección 3 y ejecútalos con `dtest apps/entidades -q`.
+Ejecuta los de la sección 3 con `dtest apps/entidades -q`: todos deben pasar.
 
-### Paso 6. Verificación final y *pull request* (≈ 30 min)
+### Paso 7. Verificación final y *pull request* (≈ 30 min)
 
 Ejecuta la sección 5 completa, marca la lista de la sección 6 y abre el PR.
 
@@ -579,7 +617,7 @@ print(r.entidad, r.entidad.activa)
 
 | Síntoma | Causa probable | Solución |
 |---|---|---|
-| `function f_unaccent(text) does not exist` al migrar | `0001_initial` no depende de `catalogo.0001_extensiones` | Paso 3.1 |
+| `function f_unaccent(text) does not exist` al migrar | `0001_initial` no depende de `catalogo.0001_extensiones` | Paso 4.1 |
 | `there is no unique constraint matching given keys for referenced table "entidad"` | `uq_entidad_id_tipo` no existe al crear la FK | `0002_fk_compuesta` debe depender de `0001_initial` |
 | `RelatedObjectDoesNotExist: Entidad has no residente` | Se creó una entidad RESIDENTE sin su residente | Da de alta solo con `registrar_residente()` |
 | `insert or update on table "residente" violates foreign key constraint "fk_residente_entidad"` | El residente apunta a una entidad que no es `RESIDENTE` | Usa `registrar_residente()` |

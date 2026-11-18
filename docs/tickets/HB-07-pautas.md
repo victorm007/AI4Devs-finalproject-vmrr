@@ -57,7 +57,34 @@ app/
 
 ## 2. Tareas paso a paso
 
-### Paso 1. La app y el modelo (≈ 1 h)
+El orden sigue TDD (`CLAUDE.md`): primero los tests en rojo, después la implementación.
+
+### Paso 1. Tests en rojo (≈ 35 min)
+
+Crea solo lo necesario para que pytest encuentre los tests:
+
+```bash
+mkdir -p app/apps/pautas/tests
+touch app/apps/pautas/__init__.py app/apps/pautas/tests/__init__.py
+```
+
+Escribe los tests de la sección 3 y ejecútalos **antes** de implementar:
+
+```bash
+dtest apps/pautas -q
+# ModuleNotFoundError: No module named 'apps.pautas.models'
+```
+
+> El error de importación es el rojo inicial: indica que el módulo aún no existe. El rojo útil llega después, cuando el módulo ya existe y fallan las reglas.
+
+Así avanza `dtest apps/pautas -q` con cada paso:
+
+| Al terminar | Resultado esperado |
+|---|---|
+| Paso 2 (modelo) | Fallan solo `test_no_se_registra_pauta_a_un_residente_egresado` y `test_no_se_registra_pauta_de_un_medicamento_dado_de_baja`: aún no existe el *trigger* |
+| Paso 3 (*trigger*) | Todos pasan |
+
+### Paso 2. La app y el modelo (≈ 1 h)
 
 ```bash
 mkdir -p app/apps/pautas/migrations app/apps/pautas/tests
@@ -170,7 +197,7 @@ dj sqlmigrate pautas 0001 | grep -E "EXCLUDE|INDEX|CHECK"
 
 Debes ver `EXCLUDE USING GIST ("residente_id" WITH =, "medicamento_id" WITH =, daterange(... '[]') WITH &&)`, los 3 `CHECK`, los 2 índices y el de `registrado_por_id` y `medicamento_id` que crea Django, pero **ninguno** suelto sobre `residente_id`.
 
-### Paso 2. *Trigger* de validación (≈ 30 min)
+### Paso 3. *Trigger* de validación (≈ 30 min)
 
 ```bash
 dj makemigrations pautas --empty --name trigger
@@ -215,11 +242,11 @@ class Migration(migrations.Migration):
 dpsql -c '\d pauta'
 ```
 
-### Paso 3. Tests (≈ 45 min)
+### Paso 4. Tests en verde (≈ 10 min)
 
-Escribe los de la sección 3 y ejecútalos con `dtest apps/pautas -q`.
+Ejecuta los de la sección 3 con `dtest apps/pautas -q`: todos deben pasar.
 
-### Paso 4. Verificación final y *pull request* (≈ 20 min)
+### Paso 5. Verificación final y *pull request* (≈ 20 min)
 
 Ejecuta la sección 5 completa, marca la lista de la sección 6 y abre el PR.
 

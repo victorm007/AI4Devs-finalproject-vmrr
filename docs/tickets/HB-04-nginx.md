@@ -32,6 +32,7 @@ git switch main && git pull
 git switch -c feature/HB-04-nginx
 set -a && . ./.env && set +a
 dj() { docker compose exec web python manage.py "$@"; }
+dtest() { docker compose exec -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PASSWORD" web pytest "$@"; }
 ```
 
 ---
@@ -59,7 +60,26 @@ AI4Devs-finalproject-vmrr/
 
 ## 2. Tareas paso a paso
 
-### Paso 1. Certificado local (≈ 10 min)
+El orden sigue TDD (`CLAUDE.md`): primero los tests en rojo, después la implementación.
+
+### Paso 1. Tests en rojo (≈ 20 min)
+
+Escribe `app/config/tests/test_proxy.py` (sección 3.1) y ejecútalo **antes** de tocar la configuración:
+
+```bash
+dtest config/tests/test_proxy.py -q
+# 4 failed, 2 passed, 1 skipped
+```
+
+| Tests | Antes de implementar | Por qué |
+|---|---|---|
+| `test_reconoce_https_por_la_cabecera_de_nginx`, `test_las_cookies_solo_viajan_por_https`, `test_acepta_formularios_desde_el_origen_de_nginx`, `test_django_envia_la_politica_csp` | Fallan | Falta la configuración del paso 5 |
+| `test_sin_la_cabecera_la_peticion_no_es_https`, `test_rechaza_formularios_desde_otro_origen` | Pasan | Django ya lo hace por defecto: son tests de regresión |
+| `test_la_csp_de_django_es_la_misma_que_la_de_nginx` | Se omite | El contenedor `web` no ve `nginx/default.conf`: un test omitido no es un rojo, y la comparación real ocurre en el CI |
+
+Las pruebas con `curl` de la sección 3.2 se comprueban en el paso 6, con `nginx` ya levantado.
+
+### Paso 2. Certificado local (≈ 10 min)
 
 ```bash
 mkdir -p nginx/certs && touch nginx/certs/.gitkeep
@@ -75,7 +95,7 @@ nginx/certs/*
 !nginx/certs/.gitkeep
 ```
 
-### Paso 2. Configuración de Nginx (≈ 45 min)
+### Paso 3. Configuración de Nginx (≈ 45 min)
 
 `nginx/default.conf`:
 
@@ -136,7 +156,7 @@ server {
 
 > **Cuidado con `add_header`:** si un `location` declara su propio `add_header`, deja de heredar los del `server`. Por eso `location /static/` usa `expires` (que no es `add_header`) y no declara cabeceras.
 
-### Paso 3. Servicio `nginx` en `docker-compose.yml` (≈ 15 min)
+### Paso 4. Servicio `nginx` en `docker-compose.yml` (≈ 15 min)
 
 ```yaml
   nginx:
@@ -153,9 +173,9 @@ server {
     networks: [frontend]           # sin ruta a db: no está en la red backend
 ```
 
-### Paso 4. Django detrás de Nginx (≈ 30 min)
+### Paso 5. Django detrás de Nginx (≈ 30 min)
 
-**4.1 En `app/config/settings/base.py`**, al final:
+**5.1 En `app/config/settings/base.py`**, al final:
 
 ```python
 # Detrás de nginx (readme, sección 2.4.1). web no publica puertos: solo nginx puede
@@ -176,7 +196,7 @@ CONTENT_SECURITY_POLICY = (
 MIDDLEWARE += ["config.middleware.ContentSecurityPolicyMiddleware"]
 ```
 
-**4.1b `app/config/middleware.py`:**
+**5.1b `app/config/middleware.py`:**
 
 ```python
 """Cabecera Content-Security-Policy desde Django (readme, sección 2.5).
@@ -199,7 +219,7 @@ class ContentSecurityPolicyMiddleware:
         return respuesta
 ```
 
-**4.2 En `app/config/settings/prod.py`**, al final:
+**5.2 En `app/config/settings/prod.py`**, al final:
 
 ```python
 # nginx ya redirige 80 -> 443 y envía HSTS: Django no los repite
@@ -211,7 +231,7 @@ SILENCED_SYSTEM_CHECKS = [
 ]
 ```
 
-**4.3 Agrega a `.env.example`** (y a tu `.env`):
+**5.3 Agrega a `.env.example`** (y a tu `.env`):
 
 ```dotenv
 # Orígenes desde los que Django acepta formularios (HTTPS de nginx). En el VPS: https://<dominio>
@@ -224,7 +244,7 @@ y en el `environment` de `web` (en `docker-compose.yml`):
       CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-https://localhost}
 ```
 
-### Paso 5. Levanta, recopila estáticos y prueba (≈ 30 min)
+### Paso 6. Levanta, recopila estáticos y prueba (≈ 30 min)
 
 ```bash
 docker compose up -d --build
@@ -233,6 +253,18 @@ dj collectstatic --noinput                          # copia los estáticos del a
 ```
 
 Abre <https://localhost/admin/> en el navegador: el candado no muestra advertencias (CA de `mkcert`) y entras con tu Administrador. Abre las herramientas del navegador (F12) → Consola: no debe haber errores de CSP.
+
+Pon los tests en verde y comprueba que el test de regresión de CSRF detecta el fallo:
+
+```bash
+dtest config/tests/test_proxy.py -q     # 6 passed, 1 skipped
+
+# Con el origen malicioso como confiable, el test debe fallar
+docker compose exec -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PASSWORD" \
+    -e CSRF_TRUSTED_ORIGINS=https://sitio-malicioso.example \
+    web pytest config/tests/test_proxy.py -k rechaza -q
+# 1 failed
+```
 
 ---
 
@@ -334,7 +366,7 @@ dtest config/tests -q     # incluye test_conexion.py de HB-03
 | Cabeceras de seguridad también en errores (`always`) | `curl -skI https://localhost/no-existe` las muestra |
 | Sin errores de CSP en el panel `/admin/` | Consola del navegador |
 | Django y nginx envían la misma política CSP, y llega una sola cabecera | `test_la_csp_de_django_es_la_misma_que_la_de_nginx` (CI) y `curl -skI https://localhost/admin/login/ \| grep -ci content-security-policy` responde `1` |
-| `nginx -t` sin errores | Paso 5 |
+| `nginx -t` sin errores | Paso 6 |
 
 ---
 
@@ -384,7 +416,7 @@ docker compose exec -e DJANGO_SETTINGS_MODULE=config.settings.prod web python ma
 - [ ] Todos los comandos de la sección 5 dan el resultado esperado.
 - [ ] Todos los criterios de aceptación del ticket (readme, sección 6) están marcados.
 - [ ] La definición de hecho común y la del ticket se cumplen.
-- [ ] La descripción del PR incluye las cabeceras del paso 2 y la tabla de puertos del paso 4.
+- [ ] La descripción del PR incluye las cabeceras del paso 2 y la tabla de puertos del paso 4 de la sección 5.
 - [ ] Captura del panel `/admin/` en <https://localhost> con el candado y la consola sin errores de CSP.
 
 ## 7. Si te bloqueas
@@ -392,10 +424,10 @@ docker compose exec -e DJANGO_SETTINGS_MODULE=config.settings.prod web python ma
 | Síntoma | Causa probable | Solución |
 |---|---|---|
 | `bind: address already in use` en el puerto 80 o 443 | Otro programa usa el puerto (IIS, Skype, otro contenedor) | Ciérralo, o en desarrollo publica `8443:443` y usa `https://localhost:8443` (agrega ese origen a `CSRF_TRUSTED_ORIGINS`) |
-| `cannot load certificate "/etc/nginx/certs/local.pem"` | Falta el paso 1 o los nombres no coinciden | Paso 1, con los nombres exactos |
-| `403 CSRF verification failed` al entrar al admin | `CSRF_TRUSTED_ORIGINS` no incluye el origen exacto (con puerto, si lo hay) | Paso 4.3 |
-| El panel carga sin estilos | Falta `collectstatic` o el volumen `static` no está montado en nginx | Paso 5 y `docker compose exec nginx ls /static/admin` |
+| `cannot load certificate "/etc/nginx/certs/local.pem"` | Falta el paso 2 o los nombres no coinciden | Paso 2, con los nombres exactos |
+| `403 CSRF verification failed` al entrar al admin | `CSRF_TRUSTED_ORIGINS` no incluye el origen exacto (con puerto, si lo hay) | Paso 5.3 |
+| El panel carga sin estilos | Falta `collectstatic` o el volumen `static` no está montado en nginx | Paso 6 y `docker compose exec nginx ls /static/admin` |
 | `Permission denied` en `collectstatic` | El volumen `static` se creó antes con otro dueño | `docker compose exec -u root web chown -R django /app/staticfiles` |
-| Bucle de redirecciones | `SECURE_SSL_REDIRECT=True` sin `X-Forwarded-Proto` | Usa la configuración de los pasos 2 y 4 tal cual |
+| Bucle de redirecciones | `SECURE_SSL_REDIRECT=True` sin `X-Forwarded-Proto` | Usa la configuración de los pasos 3 y 5 tal cual |
 | `502 Bad Gateway` | `web` no está corriendo o falló al arrancar | `docker compose logs web` |
-| El navegador marca el certificado como no confiable | Falta `mkcert -install` en ese equipo o navegador | Paso 1 (Firefox puede pedir reiniciarlo) |
+| El navegador marca el certificado como no confiable | Falta `mkcert -install` en ese equipo o navegador | Paso 2 (Firefox puede pedir reiniciarlo) |

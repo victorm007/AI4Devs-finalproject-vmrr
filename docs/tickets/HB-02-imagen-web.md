@@ -69,6 +69,19 @@ AI4Devs-finalproject-vmrr/
 
 Haz un commit al terminar cada paso.
 
+### Antes del paso 1: verificación primero (≈ 5 min)
+
+> **Excepción al TDD de `CLAUDE.md`:** este ticket es configuración declarativa y pytest no se configura hasta HB-03. La fase en rojo son los comandos con resultado esperado de la sección 3.
+
+Lee la tabla de la sección 3 y confirma el punto de partida:
+
+```bash
+docker compose exec web python manage.py check      # falla: todavía no existe el servicio web
+SECRET_KEY= docker compose config --quiet; echo "salida: $?"   # salida: 0, Compose aún no exige SECRET_KEY
+```
+
+El segundo comando es el rojo que importa: al terminar el paso 5 debe fallar con `Falta SECRET_KEY en .env`. Al terminar el paso 6, las 9 pruebas de la tabla deben dar su resultado esperado.
+
 ### Paso 1. Dependencias con versión fija (≈ 20 min)
 
 El proyecto fija **todas** sus dependencias (readme, sección 2.5). Consulta la última versión estable de cada una con un contenedor desechable:

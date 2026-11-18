@@ -16,7 +16,7 @@
 |---|---|---|
 | Habilitadores y "Controles" | readme, sección 5 | Qué se hace en el panel, quién, y las 5 reglas que debe respetar |
 | D2 y D3 | readme, sección 3.2 | Campos y reglas de medicamentos y residentes |
-| Servicio de alta de residentes | guía de HB-06, paso 4 | `registrar_residente()` |
+| Servicio de alta de residentes | guía de HB-06, paso 5 | `registrar_residente()` |
 | `ModelAdmin` | <https://docs.djangoproject.com/en/5.2/ref/contrib/admin/> | `inlines`, `autocomplete_fields`, `get_search_results` |
 
 ### 0.2 Requisitos previos
@@ -51,7 +51,26 @@ app/
 
 ## 2. Tareas paso a paso
 
-### Paso 1. Reglas comunes del panel (≈ 30 min)
+El orden sigue TDD (`CLAUDE.md`): primero los tests en rojo, después la implementación.
+
+### Paso 1. Tests en rojo (≈ 1 h)
+
+Escribe los tests de la sección 3 y ejecútalos **antes** de implementar:
+
+```bash
+dtest apps/catalogo/tests/test_admin.py apps/entidades/tests/test_admin.py -q
+```
+
+Solo debe pasar `test_el_hogar_no_se_edita_en_el_panel`, porque `Entidad` nunca se registra en el panel: es un test de regresión.
+
+Así avanza el rojo con cada paso:
+
+| Al terminar | Comando | Resultado esperado |
+|---|---|---|
+| Paso 3 (catálogo) | `dtest apps/catalogo/tests/test_admin.py -q` | Todos pasan |
+| Paso 4 (residentes) | `dtest apps/entidades/tests/test_admin.py -q` | Todos pasan |
+
+### Paso 2. Reglas comunes del panel (≈ 30 min)
 
 `app/apps/panel.py`:
 
@@ -92,7 +111,7 @@ class BusquedaSinAcentosMixin:
         return queryset.filter(condicion).distinct(), True
 ```
 
-### Paso 2. Catálogo en el panel (≈ 45 min)
+### Paso 3. Catálogo en el panel (≈ 45 min)
 
 `app/apps/catalogo/admin.py`:
 
@@ -154,7 +173,7 @@ class MedicamentoAdmin(SinBorrarMixin, BusquedaSinAcentosMixin, admin.ModelAdmin
 
 > **Pendiente para TK-01:** desmarcar `activo` en un medicamento con existencias debe dar un mensaje ("No se puede dar de baja: hay existencias de este medicamento"). Esa validación necesita la tabla `existencia`, así que la agrega TK-01 junto con el *trigger* `tg_medicamento_baja`.
 
-### Paso 3. Residentes en el panel (≈ 30 min)
+### Paso 4. Residentes en el panel (≈ 30 min)
 
 `app/apps/entidades/admin.py`:
 
@@ -199,7 +218,7 @@ class ResidenteAdmin(SinBorrarMixin, BusquedaSinAcentosMixin, admin.ModelAdmin):
         return residente.nombre_completo
 ```
 
-### Paso 4. Títulos del panel (≈ 5 min)
+### Paso 5. Títulos del panel (≈ 5 min)
 
 En `app/config/urls.py`, después de los imports:
 
@@ -209,7 +228,7 @@ admin.site.site_title = "Medicamentos del Hogar"
 admin.site.index_title = "Catálogo, residentes y usuarios"
 ```
 
-### Paso 5. Prueba manual (≈ 20 min)
+### Paso 6. Prueba manual (≈ 20 min)
 
 ```bash
 docker compose up -d && dj collectstatic --noinput
@@ -222,9 +241,9 @@ En <https://localhost/admin/>, como un usuario de **Lectura y escritura** creado
 4. Da de alta un residente, ábrelo y cámbialo a "Egresado" sin fecha de baja: aparece el mensaje de la fecha.
 5. Verifica que en ninguna lista aparece la acción "Eliminar".
 
-### Paso 6. Tests, verificación y *pull request* (≈ 1.5 h)
+### Paso 7. Tests en verde, verificación y *pull request* (≈ 30 min)
 
-Escribe los tests de la sección 3, ejecuta la sección 5 y abre el PR.
+Comprueba que los tests de la sección 3 pasan, ejecuta la sección 5 y abre el PR.
 
 ---
 
@@ -378,7 +397,9 @@ def test_el_alta_crea_la_entidad_y_el_residente_activo(maria):
 
 
 def test_el_alta_no_pide_el_estado(operador):
-    html = operador.get(f"{URL}add/").content.decode()
+    respuesta = operador.get(f"{URL}add/")
+    assert respuesta.status_code == 200  # sin esto, un 404 también pasaría el test
+    html = respuesta.content.decode()
     assert 'name="estado"' not in html and 'name="fecha_baja"' not in html
 
 
@@ -408,7 +429,7 @@ def test_nadie_borra_residentes(operador, maria):
 
 | Criterio | Cómo se comprueba |
 |---|---|
-| Las 5 reglas de "Controles" (sección 5) se cumplen | Tests y prueba manual (paso 5) |
+| Las 5 reglas de "Controles" (sección 5) se cumplen | Tests y prueba manual (paso 6) |
 | Las reglas de la base aparecen como mensaje, nunca como `500` | `test_el_duplicado...` y `test_egresar_sin_fecha...` |
 | La lista de medicamentos no hace consultas N+1 | `list_select_related = ("presentacion",)`; revisión del PR |
 | Sin lógica de negocio en el panel: el alta pasa por `services.py` | Revisión del PR |
@@ -430,7 +451,7 @@ dtest -q --cov=apps --cov-fail-under=80
 
 # 3. Prueba completa con el mock de usuarios (desarrollo)
 #    El mock completo se carga después de TK-01; aquí basta crear un usuario de cada grupo
-#    desde el panel como Administrador y repetir el paso 5 con cada uno.
+#    desde el panel como Administrador y repetir el paso 6 con cada uno.
 ```
 
 ---
@@ -446,7 +467,7 @@ dtest -q --cov=apps --cov-fail-under=80
 
 | Síntoma | Causa probable | Solución |
 |---|---|---|
-| `admin.E039: An admin for model "PrincipioActivo" has to be registered to be referenced by ...autocomplete_fields` | `PrincipioActivoAdmin` no está registrado o no tiene `search_fields` | Paso 2 |
+| `admin.E039: An admin for model "PrincipioActivo" has to be registered to be referenced by ...autocomplete_fields` | `PrincipioActivoAdmin` no está registrado o no tiene `search_fields` | Paso 3 |
 | `ManagementForm data is missing or has been tampered with` en un test | Faltan los campos `TOTAL_FORMS`/`INITIAL_FORMS` del *inline* | Usa `formulario()` de la sección 3.1 |
 | Un usuario de grupo no ve "Medicamentos" | Le falta `is_staff` o el grupo | HB-08 |
 | `IntegrityError` (`500`) al egresar un residente | La restricción no tiene `violation_error_message` o el formulario no la valida | Revisa `ck_residente_baja` en HB-06 |

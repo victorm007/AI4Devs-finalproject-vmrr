@@ -55,6 +55,18 @@ AI4Devs-finalproject-vmrr/
 
 Haz un commit al terminar cada paso (mensajes en español: `feat(infra): agrega servicio de PostgreSQL`).
 
+### Antes del paso 1: verificación primero (≈ 5 min)
+
+> **Excepción al TDD de `CLAUDE.md`:** este ticket es configuración declarativa y todavía no existe pytest (llega en HB-03). La fase en rojo son los comandos con resultado esperado de la sección 3.
+
+Lee la tabla de la sección 3 y confirma el punto de partida:
+
+```bash
+docker compose ps db     # falla: todavía no existe docker-compose.yml
+```
+
+Al terminar el paso 4, las 8 pruebas de la tabla deben dar su resultado esperado.
+
 ### Paso 1. Variables de entorno (≈ 15 min)
 
 **1.1 Crea `.env.example`** en la raíz:
