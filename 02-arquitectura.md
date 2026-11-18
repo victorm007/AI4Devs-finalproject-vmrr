@@ -390,6 +390,42 @@ Registré el marcador `integracion` junto a `lento`, `http` y `e2e` en los `pypr
 
 ---
 
+## Prompt 15 — Usuario
+
+Sí, agrégalos y también el marcador.
+
+---
+
+## Respuesta 15 — Claude
+
+Agregué la categoría **Infraestructura y configuración** y su marcador `infra`. Antes de esto, la pregunta fue en qué categoría iban las pruebas de los tickets HB: HB-01 y HB-02 no tienen tests de pytest (solo comandos con resultado esperado en el PR), HB-03 tiene `test_conexion.py`, que no figuraba en ninguna capa, y HB-04 tiene `app/config/tests/test_proxy.py`, fuera de `apps/`.
+
+- **Tabla de capas** (apartado 2.6 del `readme.md` y `CLAUDE.md`): nueva fila con `app/config/tests/test_proxy.py` y `apps/accounts/tests/test_conexion.py`, marcador `infra`. La regla de ubicación ahora dice que los tests de la configuración del proyecto van en `app/config/tests/`.
+- **Marcador `infra`:** registrado junto a los otros en los `pyproject.toml` de HB-03 y TK-01, y aplicado con `pytestmark` en `test_conexion.py` (HB-03) y `test_proxy.py` (HB-04). No lleva `http`, aunque use el cliente de Django, porque prueba configuración y no las vistas de una app. El CI no cambia.
+- **Comandos sin marcador:** las verificaciones de HB-01 y HB-02 y los `curl` de HB-04 se documentan como comandos con resultado esperado del PR, no como tests de pytest.
+
+Sincronicé el anexo de este archivo y el de `06-tickets-trabajo.md` (descripción de HB-03). No hice commit.
+
+---
+
+## Prompt 16 — Usuario
+
+Acepto la propuesta.
+
+---
+
+## Respuesta 16 — Claude
+
+Moví `test_conexion.py` (HB-03) de `apps/accounts/tests/` a `app/config/tests/`, para que toda la capa `infra` quede en una sola carpeta y no se mezcle con los tests de `accounts` en el ciclo TDD (`dtest apps/accounts` ya no la ejecuta). `test_privilegios.py` sigue en `accounts`, porque TK-01 lo extiende con los privilegios de `movimiento`.
+
+- **HB-03:** el árbol de archivos, el paso 4.1 (ahora crea `app/config/tests/` y su `__init__.py`) y la sección 3.1 apuntan a `app/config/tests/test_conexion.py`, con una nota de por qué va ahí y cómo correrlo (`dtest config/tests -q` o `dtest -m infra`).
+- **HB-04:** ya no crea `app/config/tests/__init__.py` (lo creó HB-03); `dtest config/tests -q` corre ahora ambos archivos.
+- **Documentación:** la fila de infraestructura de la tabla de capas del apartado 2.6 del `readme.md`, su anexo en este archivo y la línea de `CLAUDE.md` listan los 2 archivos en `app/config/tests/`.
+
+No hice commit.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 2)
 
 ### 2.1. Diagrama de arquitectura
@@ -940,18 +976,19 @@ C4Container
 
 ### 2.6. Tests
 
-**Herramientas:** solo `pytest`, con `pytest-django` y el dataset mock de la sección 3.4 como *fixture* (`datos_demo`), ejecutados en CI contra PostgreSQL real. Playwright (Python, con `pytest-playwright`) para el flujo de extremo a extremo. Las pruebas son funciones con *fixtures* y marcadores de pytest; no se usan clases `TestCase` de Django ni de `unittest`: las transacciones reales se piden con `@pytest.mark.django_db(transaction=True, serialized_rollback=True)` y el número de consultas se comprueba con `django_assert_num_queries`. Los marcadores `lento`, `http`, `integracion` y `e2e` se declaran con `--strict-markers`.
+**Herramientas:** solo `pytest`, con `pytest-django` y el dataset mock de la sección 3.4 como *fixture* (`datos_demo`), ejecutados en CI contra PostgreSQL real. Playwright (Python, con `pytest-playwright`) para el flujo de extremo a extremo. Las pruebas son funciones con *fixtures* y marcadores de pytest; no se usan clases `TestCase` de Django ni de `unittest`: las transacciones reales se piden con `@pytest.mark.django_db(transaction=True, serialized_rollback=True)` y el número de consultas se comprueba con `django_assert_num_queries`. Los marcadores `lento`, `http`, `integracion`, `infra` y `e2e` se declaran con `--strict-markers`.
 
-**Capas y nombres:** los tests de cada app van planos en `app/apps/<app>/tests/`, sin subcarpetas por tipo; la capa se reconoce por el nombre del archivo y, en la HTTP y la e2e, por su marcador.
+**Capas y nombres:** los tests de cada app van planos en `app/apps/<app>/tests/`, sin subcarpetas por tipo, y los de la configuración del proyecto en `app/config/tests/`; la capa se reconoce por el nombre del archivo y, en las demás, por su marcador.
 
 | Capa | Archivos | Marcador |
 |---|---|---|
 | Servicio y base de datos (sin HTTP) | `test_models.py`, `test_forms.py`, `test_services.py`, `test_selectors.py`, `test_templatetags.py`, `test_esquema.py`, `test_privilegios.py`, `test_concurrencia.py` | `lento` solo en los planes de ejecución (`EXPLAIN`) |
 | HTTP (URL + vista + plantilla, con el cliente de pruebas de Django) | `test_views_*.py`, `test_admin*.py` | `http` |
 | Flujo completo (Vista → Servicio → Base de datos → `v_conciliacion_existencia`) | `test_integracion.py` | `integracion` |
+| Infraestructura y configuración (HTTPS por cabecera, CSRF, CSP, conexión y usuarios de BD) | `app/config/tests/test_conexion.py` (HB-03), `app/config/tests/test_proxy.py` (HB-04) | `infra` |
 | Extremo a extremo (Playwright) | `app/e2e/` | `e2e` |
 
-Todas las capas corren contra PostgreSQL real, incluida la de servicio y base de datos, que por eso no se llama "unitaria". Toda prueba E2E es funcional, porque verifica un criterio de aceptación tal como lo vive el usuario; lo contrario no es cierto: las de `test_views_*`, `test_admin*`, `test_integracion.py` y las de contrato de la API también son funcionales y no usan navegador. `-m http` corre solo la capa HTTP.
+Todas las capas corren contra PostgreSQL real, incluida la de servicio y base de datos, que por eso no se llama "unitaria". Toda prueba E2E es funcional, porque verifica un criterio de aceptación tal como lo vive el usuario; lo contrario no es cierto: las de `test_views_*`, `test_admin*`, `test_integracion.py` y las de contrato de la API también son funcionales y no usan navegador. `-m http` corre solo la capa HTTP y `-m infra`, solo la de infraestructura y configuración, que no lleva `http` porque prueba configuración y no las vistas de una app. Las verificaciones de HB-01 y HB-02 y los `curl` de HB-04 son comandos con resultado esperado que van en el PR: no son tests de pytest y no llevan marcador.
 
 **Permisos reales también en pantalla:** el *fixture* `como_app_user` hace `SET LOCAL ROLE app_user` y falla si el test no tiene transacción envolvente (con `transaction=True`, cada hilo hace `SET ROLE app_user`). En los e2e, el servidor de pruebas corre como `app_user` y Django envía la misma CSP que nginx, así un script o un estilo en línea falla también en `live_server`.
 

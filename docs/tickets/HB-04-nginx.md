@@ -51,7 +51,7 @@ AI4Devs-finalproject-vmrr/
     ├── config/settings/base.py    # MODIFICAR: Django detrás de nginx y política CSP
     ├── config/settings/prod.py    # MODIFICAR: ajustes que solo aplican en producción
     └── config/tests/
-        ├── __init__.py            # NUEVO (vacío)
+        ├── __init__.py            # ya existe: lo creó HB-03 (con test_conexion.py)
         └── test_proxy.py          # NUEVO
 ```
 
@@ -250,6 +250,7 @@ import pytest
 from django.conf import settings
 from django.test import Client, RequestFactory
 
+pytestmark = pytest.mark.infra
 NGINX_CONF = Path(settings.BASE_DIR).parent / "nginx" / "default.conf"
 
 
@@ -308,8 +309,7 @@ def test_la_csp_de_django_es_la_misma_que_la_de_nginx():
 ```
 
 ```bash
-touch app/config/tests/__init__.py
-dtest config/tests -q
+dtest config/tests -q     # incluye test_conexion.py de HB-03
 ```
 
 ### 3.2 Pruebas con `curl` (van en el PR)

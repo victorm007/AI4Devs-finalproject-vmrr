@@ -854,7 +854,7 @@ def saldo(entidad, medicamento):
     return Existencia.objects.get(entidad=entidad, medicamento=medicamento).saldo
 ```
 
-`pyproject.toml` ya tiene desde HB-03 la configuración de pytest (marcadores `lento`, `http`, `integracion` y `e2e` con `--strict-markers`, y `app/` en la ruta de importación) y la de cobertura (sin migraciones ni tests, con ramas). Compruébalo:
+`pyproject.toml` ya tiene desde HB-03 la configuración de pytest (marcadores `lento`, `http`, `integracion`, `infra` y `e2e` con `--strict-markers`, y `app/` en la ruta de importación) y la de cobertura (sin migraciones ni tests, con ramas). Compruébalo:
 
 ```toml
 [tool.pytest.ini_options]
@@ -864,6 +864,7 @@ markers = [
     "lento: tests de plan de ejecución (EXPLAIN), corren en el CI nocturno",
     "http: tests de URL + vista + plantilla con el cliente de Django (test_views_*, test_admin*); corren en el CI de cada PR",
     "integracion: flujo completo Vista → Servicio → BD → v_conciliacion_existencia (test_integracion.py); corre en el CI de cada PR",
+    "infra: configuración e infraestructura (test_proxy.py, test_conexion.py); corre en el CI de cada PR",
     "e2e: pruebas de extremo a extremo con Playwright (TK-03)",
 ]
 ```

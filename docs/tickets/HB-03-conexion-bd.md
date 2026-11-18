@@ -60,6 +60,9 @@ AI4Devs-finalproject-vmrr/
     ├── conftest.py                         # NUEVO: su existencia activa el job "tests" del CI
     ├── pruebas.py                          # NUEVO: helper ejecutar_sql para los tests
     ├── config/settings/base.py             # MODIFICAR: DATABASES, AUTH_USER_MODEL, contraseñas
+    ├── config/tests/
+    │   ├── __init__.py                     # NUEVO (vacío; HB-04 agrega test_proxy.py)
+    │   └── test_conexion.py                # NUEVO: la conexión y los 2 usuarios de BD (marcador infra)
     └── apps/
         ├── __init__.py                     # NUEVO (vacío)
         └── accounts/
@@ -72,7 +75,6 @@ AI4Devs-finalproject-vmrr/
             │   └── 0002_privilegios.py     # NUEVO: permisos de app_user
             └── tests/
                 ├── __init__.py             # NUEVO (vacío)
-                ├── test_conexion.py        # NUEVO
                 ├── test_privilegios.py     # NUEVO (TK-01 le agrega los de movimiento)
                 └── test_usuario.py         # NUEVO
 ```
@@ -157,9 +159,10 @@ git update-index --chmod=+x scripts/migrate.sh      # permiso de ejecución (HB-
 **4.1 Crea las carpetas y archivos vacíos:**
 
 ```bash
-mkdir -p app/apps/accounts/migrations app/apps/accounts/tests
+mkdir -p app/apps/accounts/migrations app/apps/accounts/tests app/config/tests
 touch app/apps/__init__.py app/apps/accounts/__init__.py \
-      app/apps/accounts/migrations/__init__.py app/apps/accounts/tests/__init__.py
+      app/apps/accounts/migrations/__init__.py app/apps/accounts/tests/__init__.py \
+      app/config/tests/__init__.py
 ```
 
 **4.2 `app/apps/accounts/apps.py`:**
@@ -306,6 +309,7 @@ markers = [
     "lento: tests de plan de ejecución (EXPLAIN), corren en el CI nocturno",
     "http: tests de URL + vista + plantilla con el cliente de Django (test_views_*, test_admin*); corren en el CI de cada PR",
     "integracion: flujo completo Vista → Servicio → BD → v_conciliacion_existencia (test_integracion.py); corre en el CI de cada PR",
+    "infra: configuración e infraestructura (test_proxy.py, test_conexion.py); corre en el CI de cada PR",
     "e2e: pruebas de extremo a extremo con Playwright (llegan en TK-03)",
 ]
 
@@ -373,7 +377,9 @@ Ejecuta la sección 5 completa. En el PR, el *job* `tests` corre por primera vez
 
 ## 3. Tests requeridos
 
-### 3.1 `apps/accounts/tests/test_conexion.py`
+### 3.1 `app/config/tests/test_conexion.py`
+
+Va en `config/tests/` y no en `apps/accounts/tests/`: prueba la configuración de la conexión y los roles de BD, no el comportamiento de `accounts`. Se corre sola con `dtest config/tests -q` o `dtest -m infra`.
 
 ```python
 """La aplicación usa PostgreSQL 17 con los 2 usuarios de HB-01 (readme, sección 2.5)."""
@@ -383,7 +389,7 @@ from django.db import connection
 
 from pruebas import ejecutar_sql
 
-pytestmark = pytest.mark.django_db
+pytestmark = [pytest.mark.django_db, pytest.mark.infra]
 
 
 def test_la_base_es_postgresql_17():
