@@ -42,7 +42,7 @@ Fija las **piezas de contrato**, los nombres que los tests y la implementación 
 
 ## 2. Plan, y DETENTE
 
-**Si falta el cambio de OpenSpec, créalo tú antes de esta parada:** `openspec new change <id-en-minúsculas>-<slug>`, escribe sus artefactos con `openspec instructions <artefacto> --change <cambio>`, respeta las reglas de `openspec/config.yaml` y valídalo con `openspec validate <cambio> --strict`. Es lo único que se escribe antes de la aprobación.
+**Si falta el cambio de OpenSpec, créalo antes de esta parada con la skill `/openspec-propose`**, con el nombre `<id-en-minúsculas>-<slug>`, y valídalo con `openspec validate <cambio> --strict`. Es lo único que se escribe antes de la aprobación. Ignora la invitación final de esa skill a aplicar el cambio: después de la aprobación se sigue con el paso 3, nunca con `/openspec-apply-change`.
 
 Presenta:
 
@@ -81,7 +81,7 @@ git add -- <archivos del plan>
 sha256sum <archivos del plan> | tee <tmp>/<ticket>/congelados.sha256
 ```
 
-En HB-01 y HB-02 se congela solo `verificacion.sh`, sin `git add`. Muestra la huella en el chat.
+En HB-01 y HB-02 se congela solo `verificacion.sh`, sin `git add`. Muestra la huella en el chat y marca en `tasks.md` las tareas de tests y de rojo ya comprobadas.
 
 ## 6. Implementación: subagente `implementer`
 
@@ -105,7 +105,9 @@ Después ejecuta tú la suite: `dtest -m "not e2e and not lento" --cov=apps --co
 1. Ejecuta la sección 5 de la guía y marca la sección 6. `docker compose down -v` solo se ejecuta si el plan aprobado lo declara; si no lo declaró, no lo ejecutes y repórtalo como pendiente. Solo lo ejecutas tú, nunca un subagente.
 2. Ejecuta `python scripts/verificar.py` y `dj makemigrations --check --dry-run`.
 3. Comprueba el umbral de cobertura del ticket y, si cambia la API, `npx @redocly/cli lint docs/api/openapi.yaml`.
-4. Confirma que `tasks.md` y `readme.md` están al día.
-5. Informa: paso → archivos; Scenario → rojo → verde; huella; salida de la sección 5; disputas; desviaciones de la guía; lo que no se pudo comprobar.
+4. Confirma que `readme.md` está al día y que todas las tareas de `tasks.md` están marcadas.
+5. Ejecuta `/openspec-verify-change <cambio>`. Es una revisión adicional: no reemplaza la huella ni la suite. Si reporta un hallazgo crítico, vuelve al paso 6 con `implementer` y repite el paso 7.
+6. Ejecuta `/openspec-archive-change <cambio>` y elige sincronizar las specs. Solo se archiva si no quedan disputas, hallazgos críticos ni comprobaciones pendientes; si quedan, deja el cambio sin archivar y repórtalo.
+7. Informa: paso → archivos; Scenario → rojo → verde; huella; salida de la sección 5; resultado de la verificación y del archivado; disputas; desviaciones de la guía; lo que no se pudo comprobar.
 
 Esta skill **no hace commit, push ni PR**. Las guías dicen "Haz un commit al terminar cada paso", pero aquí no aplica: esos commits dejarían la historia con commits rotos, con tests en rojo o pasos a medias (ancla de `CLAUDE.md`). Los tests congelados quedan en staging y los commits siguen la sección Git.
