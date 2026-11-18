@@ -358,6 +358,38 @@ Además, el estado del repositorio de `CLAUDE.md` menciona ahora los ADR de `doc
 
 ---
 
+## Prompt 13 — Usuario
+
+Gracias, hagamos por ahora 1 (que entiendo son las capas) y 2. Documenta que las pruebas E2E son funcionales pero no lo contrario.
+
+---
+
+## Respuesta 13 — Claude
+
+Antes de este prompt, la conversación comparó tres estructuras para los tests (plana por app, `unit/` + `integration/` dentro de cada app, y por tipo en la raíz). Concluí que, con 8 apps y solo `inventario` con muchos archivos, convenía mantener `tests/` plano por app: el tipo ya está en el nombre del archivo, el CI no distingue unitario de integración y "integración" ya significa en el proyecto el flujo Vista → Servicio → BD → conciliación. Por eso se adoptaron solo dos cosas: documentar las capas y añadir un marcador, sin mover rutas.
+
+**1. Capas y nombres.** Agregué la convención a `CLAUDE.md` (Testing Rules) y al apartado 2.6 del `readme.md` (con una tabla): servicio y BD (`test_models`, `test_forms`, `test_services`, `test_selectors`, `test_templatetags`, `test_esquema`, `test_privilegios`, `test_concurrencia`), HTTP (`test_views_*`, `test_admin*`), flujo completo (`test_integracion`) y e2e (`app/e2e/`). Aclara que la capa de servicio y BD también corre contra PostgreSQL real, por eso no se llama "unitaria".
+
+**2. Marcador `http`.** Lo registré junto a `lento` y `e2e` en los `pyproject.toml` de las guías HB-03 y TK-01, y lo apliqué con `pytestmark` en los tests HTTP de las guías (HB-08 login y administración de usuarios, HB-09 catálogo y residentes, TK-03 vista de existencias). `test_integracion.py` no lleva `http`. El CI no cambia: `-m "not e2e and not lento"` sigue incluyendo `http`.
+
+**E2E y funcional.** Toda prueba E2E es funcional (verifica un criterio de aceptación como lo vive el usuario), pero no toda prueba funcional es E2E: `test_views_*`, `test_admin*`, `test_integracion.py` y los contratos de la API también lo son, sin navegador. El marcador `e2e` es solo para Playwright.
+
+Sincronicé el anexo de este archivo y el de `06-tickets-trabajo.md`. No hice commit.
+
+---
+
+## Prompt 14 — Usuario
+
+Agrega un marcador para las pruebas de Flujo completo como `integracion`.
+
+---
+
+## Respuesta 14 — Claude
+
+Registré el marcador `integracion` junto a `lento`, `http` y `e2e` en los `pyproject.toml` de las guías HB-03 y TK-01 (con `--strict-markers`), y lo apliqué con `pytestmark = pytest.mark.integracion` en `test_integracion.py` de `docs/tickets/integracion.md`. La tabla de capas del apartado 2.6 del `readme.md` y de `CLAUDE.md` ahora muestra `integracion` en la fila de flujo completo (antes decía "ninguno"), y la descripción de HB-03 lista los 4 marcadores. Sigue sin llevar `http`, así que `-m integracion` corre solo esa prueba y `-m http` solo la capa de vistas. El CI no cambia: `-m "not e2e and not lento"` sigue incluyéndolo. Sincronicé el anexo de este archivo y el de `06-tickets-trabajo.md`. No hice commit.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 2)
 
 ### 2.1. Diagrama de arquitectura
@@ -908,7 +940,18 @@ C4Container
 
 ### 2.6. Tests
 
-**Herramientas:** solo `pytest`, con `pytest-django` y el dataset mock de la sección 3.4 como *fixture* (`datos_demo`), ejecutados en CI contra PostgreSQL real. Playwright (Python, con `pytest-playwright`) para el flujo de extremo a extremo. Las pruebas son funciones con *fixtures* y marcadores de pytest; no se usan clases `TestCase` de Django ni de `unittest`: las transacciones reales se piden con `@pytest.mark.django_db(transaction=True, serialized_rollback=True)` y el número de consultas se comprueba con `django_assert_num_queries`. Los marcadores `lento` y `e2e` se declaran con `--strict-markers`.
+**Herramientas:** solo `pytest`, con `pytest-django` y el dataset mock de la sección 3.4 como *fixture* (`datos_demo`), ejecutados en CI contra PostgreSQL real. Playwright (Python, con `pytest-playwright`) para el flujo de extremo a extremo. Las pruebas son funciones con *fixtures* y marcadores de pytest; no se usan clases `TestCase` de Django ni de `unittest`: las transacciones reales se piden con `@pytest.mark.django_db(transaction=True, serialized_rollback=True)` y el número de consultas se comprueba con `django_assert_num_queries`. Los marcadores `lento`, `http`, `integracion` y `e2e` se declaran con `--strict-markers`.
+
+**Capas y nombres:** los tests de cada app van planos en `app/apps/<app>/tests/`, sin subcarpetas por tipo; la capa se reconoce por el nombre del archivo y, en la HTTP y la e2e, por su marcador.
+
+| Capa | Archivos | Marcador |
+|---|---|---|
+| Servicio y base de datos (sin HTTP) | `test_models.py`, `test_forms.py`, `test_services.py`, `test_selectors.py`, `test_templatetags.py`, `test_esquema.py`, `test_privilegios.py`, `test_concurrencia.py` | `lento` solo en los planes de ejecución (`EXPLAIN`) |
+| HTTP (URL + vista + plantilla, con el cliente de pruebas de Django) | `test_views_*.py`, `test_admin*.py` | `http` |
+| Flujo completo (Vista → Servicio → Base de datos → `v_conciliacion_existencia`) | `test_integracion.py` | `integracion` |
+| Extremo a extremo (Playwright) | `app/e2e/` | `e2e` |
+
+Todas las capas corren contra PostgreSQL real, incluida la de servicio y base de datos, que por eso no se llama "unitaria". Toda prueba E2E es funcional, porque verifica un criterio de aceptación tal como lo vive el usuario; lo contrario no es cierto: las de `test_views_*`, `test_admin*`, `test_integracion.py` y las de contrato de la API también son funcionales y no usan navegador. `-m http` corre solo la capa HTTP.
 
 **Permisos reales también en pantalla:** el *fixture* `como_app_user` hace `SET LOCAL ROLE app_user` y falla si el test no tiene transacción envolvente (con `transaction=True`, cada hilo hace `SET ROLE app_user`). En los e2e, el servidor de pruebas corre como `app_user` y Django envía la misma CSP que nginx, así un script o un estilo en línea falla también en `live_server`.
 

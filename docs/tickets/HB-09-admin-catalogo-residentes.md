@@ -243,7 +243,7 @@ from django.contrib.auth.models import Group
 from apps.catalogo.models import Medicamento, Presentacion, PrincipioActivo
 from apps.entidades.models import Entidad
 
-pytestmark = pytest.mark.django_db
+pytestmark = [pytest.mark.django_db, pytest.mark.http]
 URL = "/admin/catalogo/medicamento/"
 EN_LINEA = "medicamentoprincipioactivo_set"
 
@@ -350,7 +350,7 @@ from django.contrib.auth.models import Group
 
 from apps.entidades.models import Entidad, Residente
 
-pytestmark = pytest.mark.django_db
+pytestmark = [pytest.mark.django_db, pytest.mark.http]
 URL = "/admin/entidades/residente/"
 ALTA = {
     "primer_nombre": "María", "segundo_nombre": "Guadalupe", "primer_apellido": "Hernández",

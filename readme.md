@@ -701,7 +701,18 @@ C4Container
 
 > Describe brevemente algunos de los tests realizados
 
-**Herramientas:** solo `pytest`, con `pytest-django` y el dataset mock de la sección 3.4 como *fixture* (`datos_demo`), ejecutados en CI contra PostgreSQL real. Playwright (Python, con `pytest-playwright`) para el flujo de extremo a extremo. Las pruebas son funciones con *fixtures* y marcadores de pytest; no se usan clases `TestCase` de Django ni de `unittest`: las transacciones reales se piden con `@pytest.mark.django_db(transaction=True, serialized_rollback=True)` y el número de consultas se comprueba con `django_assert_num_queries`. Los marcadores `lento` y `e2e` se declaran con `--strict-markers`.
+**Herramientas:** solo `pytest`, con `pytest-django` y el dataset mock de la sección 3.4 como *fixture* (`datos_demo`), ejecutados en CI contra PostgreSQL real. Playwright (Python, con `pytest-playwright`) para el flujo de extremo a extremo. Las pruebas son funciones con *fixtures* y marcadores de pytest; no se usan clases `TestCase` de Django ni de `unittest`: las transacciones reales se piden con `@pytest.mark.django_db(transaction=True, serialized_rollback=True)` y el número de consultas se comprueba con `django_assert_num_queries`. Los marcadores `lento`, `http`, `integracion` y `e2e` se declaran con `--strict-markers`.
+
+**Capas y nombres:** los tests de cada app van planos en `app/apps/<app>/tests/`, sin subcarpetas por tipo; la capa se reconoce por el nombre del archivo y, en la HTTP y la e2e, por su marcador.
+
+| Capa | Archivos | Marcador |
+|---|---|---|
+| Servicio y base de datos (sin HTTP) | `test_models.py`, `test_forms.py`, `test_services.py`, `test_selectors.py`, `test_templatetags.py`, `test_esquema.py`, `test_privilegios.py`, `test_concurrencia.py` | `lento` solo en los planes de ejecución (`EXPLAIN`) |
+| HTTP (URL + vista + plantilla, con el cliente de pruebas de Django) | `test_views_*.py`, `test_admin*.py` | `http` |
+| Flujo completo (Vista → Servicio → Base de datos → `v_conciliacion_existencia`) | `test_integracion.py` | `integracion` |
+| Extremo a extremo (Playwright) | `app/e2e/` | `e2e` |
+
+Todas las capas corren contra PostgreSQL real, incluida la de servicio y base de datos, que por eso no se llama "unitaria". Toda prueba E2E es funcional, porque verifica un criterio de aceptación tal como lo vive el usuario; lo contrario no es cierto: las de `test_views_*`, `test_admin*`, `test_integracion.py` y las de contrato de la API también son funcionales y no usan navegador. `-m http` corre solo la capa HTTP.
 
 **Permisos reales también en pantalla:** el *fixture* `como_app_user` hace `SET LOCAL ROLE app_user` y falla si el test no tiene transacción envolvente (con `transaction=True`, cada hilo hace `SET ROLE app_user`). En los e2e, el servidor de pruebas corre como `app_user` y Django envía la misma CSP que nginx, así un script o un estilo en línea falla también en `live_server`.
 
@@ -2940,7 +2951,7 @@ Dejan lista la base sobre la que se construyen TK-01 a TK-07: contenedores, cone
 | Depende de | HB-02 |
 | Guía | [`docs/tickets/HB-03-conexion-bd.md`](docs/tickets/HB-03-conexion-bd.md) |
 
-**Descripción técnica.** Configura `DATABASES` desde `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` y `DB_PASSWORD`. En Compose, `web` se conecta como `app_user`. Crea `scripts/migrate.sh`, que ejecuta `migrate` como `app_owner`. Agrega `psycopg[binary]` y `Django[argon2]`. Crea la app `accounts` con el modelo `Usuario(AbstractUser)` (tabla `usuario`, sección 3.2, D1) y `AUTH_USER_MODEL = "accounts.Usuario"` **antes del primer `migrate`**. Configura Argon2 como *hasher* principal (PBKDF2 se conserva para el mock) y los validadores de contraseña (mínimo 10 caracteres). Crea la migración `accounts/0002_privilegios.py`: `app_user` recibe `SELECT`, `INSERT`, `UPDATE` y `DELETE` sobre todas las tablas, también las futuras (`ALTER DEFAULT PRIVILEGES`). Configura pytest en `pyproject.toml` (marcadores `lento` y `e2e` con `--strict-markers`) y la cobertura (`[tool.coverage]`: solo `apps/`, con ramas, sin migraciones ni tests), y crea `conftest.py`, que activa el *job* `tests` del CI, y `pruebas.py`, con el helper `ejecutar_sql`.
+**Descripción técnica.** Configura `DATABASES` desde `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` y `DB_PASSWORD`. En Compose, `web` se conecta como `app_user`. Crea `scripts/migrate.sh`, que ejecuta `migrate` como `app_owner`. Agrega `psycopg[binary]` y `Django[argon2]`. Crea la app `accounts` con el modelo `Usuario(AbstractUser)` (tabla `usuario`, sección 3.2, D1) y `AUTH_USER_MODEL = "accounts.Usuario"` **antes del primer `migrate`**. Configura Argon2 como *hasher* principal (PBKDF2 se conserva para el mock) y los validadores de contraseña (mínimo 10 caracteres). Crea la migración `accounts/0002_privilegios.py`: `app_user` recibe `SELECT`, `INSERT`, `UPDATE` y `DELETE` sobre todas las tablas, también las futuras (`ALTER DEFAULT PRIVILEGES`). Configura pytest en `pyproject.toml` (marcadores `lento`, `http`, `integracion` y `e2e` con `--strict-markers`) y la cobertura (`[tool.coverage]`: solo `apps/`, con ramas, sin migraciones ni tests), y crea `conftest.py`, que activa el *job* `tests` del CI, y `pruebas.py`, con el helper `ejecutar_sql`.
 
 **Criterios de aceptación**
 - [ ] En una base nueva, `./scripts/migrate.sh` aplica `accounts.0001_initial` y `0002_privilegios` sin errores.

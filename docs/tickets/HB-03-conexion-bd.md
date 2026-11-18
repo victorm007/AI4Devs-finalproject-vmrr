@@ -304,6 +304,8 @@ testpaths = ["apps", "config", "e2e"]
 addopts = "--strict-markers"
 markers = [
     "lento: tests de plan de ejecución (EXPLAIN), corren en el CI nocturno",
+    "http: tests de URL + vista + plantilla con el cliente de Django (test_views_*, test_admin*); corren en el CI de cada PR",
+    "integracion: flujo completo Vista → Servicio → BD → v_conciliacion_existencia (test_integracion.py); corre en el CI de cada PR",
     "e2e: pruebas de extremo a extremo con Playwright (llegan en TK-03)",
 ]
 

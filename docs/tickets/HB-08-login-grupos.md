@@ -533,7 +533,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.urls import reverse
 
-pytestmark = pytest.mark.django_db
+pytestmark = [pytest.mark.django_db, pytest.mark.http]
 CLAVE = "Prueba-operador-2026"
 
 
@@ -608,7 +608,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 
-pytestmark = pytest.mark.django_db
+pytestmark = [pytest.mark.django_db, pytest.mark.http]
 URL_ALTA = "/admin/accounts/usuario/add/"
 
 

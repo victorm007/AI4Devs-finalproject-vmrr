@@ -611,6 +611,7 @@ from django.urls import reverse
 
 from apps.accounts.models import Usuario
 
+pytestmark = pytest.mark.http
 URL = reverse("inventario:existencias")
 HTMX = {"HX-Request": "true"}
 
