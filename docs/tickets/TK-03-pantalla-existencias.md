@@ -19,7 +19,7 @@
 | HU-02: reglas y criterios de aceptación | readme, sección 5 |
 | Consulta 1 (búsqueda sin acentos) y sus índices | readme, sección 3.3 |
 | TK-03 | readme, sección 6 |
-| Guía de TK-01, pasos 0.4 (atajos) y 9 (fixtures) | [`TK-01-esquema-inventario.md`](TK-01-esquema-inventario.md) |
+| Guía de TK-01, pasos 0.4 (atajos) y 3 (fixtures) | [`TK-01-esquema-inventario.md`](TK-01-esquema-inventario.md) |
 | HTMX: `hx-get`, `hx-trigger`, `hx-target`, `hx-swap-oob` | <https://htmx.org/docs/> (20 min) |
 
 ### 0.2 Requisitos previos
@@ -70,6 +70,7 @@ app/
 ├── config/urls.py                                 # MODIFICAR: incluye inventario y redirige "/"
 ├── static/js/vendor/htmx.min.js                   # NUEVO: HTMX servido localmente (CSP)
 ├── templates/base.html                            # MODIFICAR: script de HTMX y menú "Existencias"
+├── apps/accounts/tests/test_login.py              # MODIFICAR (de HB-08): la página de inicio cambia
 └── apps/inventario/
     ├── selectors.py                               # NUEVO: buscar_existencias
     ├── forms.py                                   # NUEVO: FiltroExistenciasForm
@@ -93,7 +94,7 @@ app/e2e/
 
 ## 2. Tareas paso a paso
 
-Haz un commit al terminar cada paso.
+Haz un commit al terminar cada paso. El orden sigue TDD (`CLAUDE.md`): primero las dependencias y los tests en rojo, después la implementación.
 
 ### Paso 1. HTMX y `django-htmx` (≈ 30 min)
 
@@ -116,18 +117,45 @@ En `config/settings/base.py`:
 ```python
 INSTALLED_APPS += ["django_htmx"]
 MIDDLEWARE += ["django_htmx.middleware.HtmxMiddleware"]   # agrega request.htmx
-LOGIN_REDIRECT_URL = "inventario:existencias"             # página de inicio tras el login
 ```
 
-En `templates/base.html`, antes de `</head>`, y la entrada del menú:
+En `templates/base.html`, antes de `</head>`:
 
 ```django
 <script src="{% static 'js/vendor/htmx.min.js' %}" defer></script>
-...
-<a class="nav-link" href="{% url 'inventario:existencias' %}">Existencias</a>
 ```
 
-### Paso 2. El selector `buscar_existencias` (≈ 1 h)
+### Paso 2. Tests en rojo (≈ 1 h 40 min)
+
+Prepara Playwright como indica la sección 3.4 y usa la imagen nueva con `docker compose up -d --build web`. Escribe los tests de la sección 3 y ejecútalos **antes** de implementar:
+
+```bash
+dtest apps/inventario/tests/test_selectors.py -q
+# ModuleNotFoundError: No module named 'apps.inventario.selectors'
+dtest apps/inventario/tests/test_templatetags.py -q
+# ModuleNotFoundError: No module named 'apps.inventario.templatetags'
+dtest apps/inventario/tests/test_views_existencias.py -q
+# NoReverseMatch: 'inventario' is not a registered namespace
+dtest apps/accounts/tests/test_login.py -q
+# 1 failed: test_login_correcto_lleva_a_existencias
+docker compose exec -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PASSWORD" \
+    -e DJANGO_ALLOW_ASYNC_UNSAFE=true web pytest -m e2e e2e/ -q
+# 4 errors: el login todavía no lleva a /existencias/
+```
+
+El commit de este paso queda en rojo a propósito: el PR se abre cuando todo está en verde.
+
+Así avanza el rojo con cada paso:
+
+| Al terminar | Comando | Resultado esperado |
+|---|---|---|
+| Paso 3 (selector) | `dtest apps/inventario/tests/test_selectors.py -q` | Todos pasan |
+| Paso 5 (vista y URLs) | `dtest apps/inventario/tests/test_views_existencias.py -q` | Pasan `test_sin_sesion_redirige_al_login`, `test_sin_sesion_en_htmx_redirige_la_pagina_entera` y `test_inicio_redirige_a_existencias`. Los demás fallan con `TemplateDoesNotExist` |
+| Paso 5 (vista y URLs) | `dtest apps/accounts/tests/test_login.py -q` | Todos pasan |
+| Paso 6 (filtro `dosis`) | `dtest apps/inventario/tests/test_templatetags.py -q` | Todos pasan |
+| Paso 7 (plantillas) | `dtest apps/inventario/tests/test_views_existencias.py -q` | Todos pasan |
+
+### Paso 3. El selector `buscar_existencias` (≈ 1 h)
 
 `app/apps/inventario/selectors.py`:
 
@@ -215,7 +243,7 @@ def buscar_existencias(*, entidad=None, medicamento=None, principio_activo=None,
 > dj shell -c "from apps.inventario.selectors import buscar_existencias as b; print([(str(e.entidad), e.medicamento.nombre_comercial, e.saldo) for e in b(q='losartan')])"
 > ```
 
-### Paso 3. El formulario de filtros (≈ 45 min)
+### Paso 4. El formulario de filtros (≈ 45 min)
 
 `app/apps/inventario/forms.py`:
 
@@ -269,7 +297,7 @@ class FiltroExistenciasForm(forms.Form):
 
 > Los nombres de los campos coinciden con los argumentos de `buscar_existencias`. Por eso la vista puede hacer `buscar_existencias(**form.cleaned_data)`.
 
-### Paso 4. La vista y las URLs (≈ 45 min)
+### Paso 5. La vista y las URLs (≈ 45 min)
 
 `app/apps/inventario/views.py`:
 
@@ -343,13 +371,25 @@ En `app/config/urls.py`:
 from django.views.generic import RedirectView
 
 urlpatterns = [
-    path("", RedirectView.as_view(pattern_name="inventario:existencias"), name="inicio"),
+    path("", RedirectView.as_view(pattern_name="inventario:existencias"), name="inicio"),  # reemplaza la de HB-08
     path("", include("apps.inventario.urls")),
     # ... las rutas existentes (admin, accounts, api)
 ]
 ```
 
-### Paso 5. El filtro `dosis` (≈ 15 min)
+Con la ruta ya creada, cambia la página de inicio en `config/settings/base.py`:
+
+```python
+LOGIN_REDIRECT_URL = "inventario:existencias"             # página de inicio tras el login
+```
+
+y agrega la entrada del menú en `templates/base.html`:
+
+```django
+<a class="nav-link" href="{% url 'inventario:existencias' %}">Existencias</a>
+```
+
+### Paso 6. El filtro `dosis` (≈ 15 min)
 
 `app/apps/inventario/templatetags/inventario_extras.py` (y un `__init__.py` vacío en la carpeta):
 
@@ -371,7 +411,7 @@ def dosis(valor) -> str:
 
 > `floatformat` no sirve aquí: `0.50|floatformat:"-2"` muestra `0.50`, no `0.5`.
 
-### Paso 6. Plantillas (≈ 1.5 h)
+### Paso 7. Plantillas (≈ 1.5 h)
 
 `templates/inventario/existencias.html`:
 
@@ -524,11 +564,17 @@ def dosis(valor) -> str:
 
 Revisa la pantalla a mano: `https://localhost/existencias/`, con el modo de dispositivo de Chrome (F12 → icono de celular → 390 × 844).
 
-### Paso 7. Tests (≈ 2 h)
+### Paso 8. Tests en verde (≈ 20 min)
 
-Ver la sección 3.
+```bash
+dtest apps/inventario apps/accounts -q
+docker compose exec -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PASSWORD" \
+    -e DJANGO_ALLOW_ASYNC_UNSAFE=true web pytest -m e2e e2e/ -q
+```
 
-### Paso 8. Verificación final y *pull request* (≈ 1 h)
+Todos deben pasar.
+
+### Paso 9. Verificación final y *pull request* (≈ 1 h)
 
 Ejecuta los comandos de la sección 5, toma las capturas y completa la lista de la sección 6.
 
@@ -779,6 +825,22 @@ def servidor_como_app_user():
 
 > **CSP:** `live_server` no pasa por nginx, pero Django envía la misma política CSP (HB-04, `ContentSecurityPolicyMiddleware`). Por eso el *fixture* `pagina` sí detecta en la consola un `<script>` o un estilo en línea.
 
+### 3.5 `apps/accounts/tests/test_login.py`: la página de inicio cambia (modifica)
+
+HB-08 probó el inicio de entonces. Con este ticket el login lleva a existencias, y la raíz pasa por esa pantalla antes de pedir sesión. Reemplaza `test_login_correcto_lleva_al_panel` y `test_la_raiz_lleva_al_login` por:
+
+```python
+def test_login_correcto_lleva_a_existencias(client, operador):
+    respuesta = entrar(client, "prueba.operador", CLAVE)
+    assert respuesta.status_code == 302
+    assert respuesta.url == reverse("inventario:existencias")
+
+
+def test_la_raiz_lleva_al_login(client):
+    respuesta = client.get("/", follow=True)
+    assert respuesta.redirect_chain[-1][0].startswith(reverse("login"))
+```
+
 ---
 
 ## 4. Criterios de calidad
@@ -811,7 +873,7 @@ docker compose exec -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PASSWORD" \
     -e DJANGO_ALLOW_ASYNC_UNSAFE=true web pytest -m e2e e2e/ -q
 # DJANGO_ALLOW_ASYNC_UNSAFE es necesario porque Playwright y el servidor de pruebas comparten proceso
 
-# 3. Con el mock cargado (TK-01, paso 8): sesión con curl (04-api.md, sección 2)
+# 3. Con el mock cargado (TK-01, paso 10): sesión con curl (04-api.md, sección 2)
 BASE=https://localhost; JAR=/tmp/hogar.cookies; CURL="curl -s -k"
 login() { rm -f "$JAR"; $CURL -c "$JAR" "$BASE/accounts/login/" -o /dev/null
   local csrf; csrf=$(awk '$6 == "csrftoken" { print $7 }' "$JAR")
@@ -860,8 +922,8 @@ $CURL -b "$JAR" -H "HX-Request: true" -o /dev/null -w "%{time_total}\n" "$BASE/e
 | `'WSGIRequest' object has no attribute 'htmx'` | Falta el middleware de `django-htmx` | Paso 1 |
 | Al escribir no pasa nada | HTMX no cargó (404 en `htmx.min.js`) o la CSP lo bloqueó | Consola del navegador; ejecuta `collectstatic` y revisa la ruta del `<script>` |
 | La página completa aparece dentro de la tabla | La vista no distingue la petición HTMX | `get_template_names` y la cabecera `HX-Request` |
-| El aviso "al menos 3 caracteres" no desaparece | Falta el `<div id="aviso" hx-swap-oob="true">` en `_resultados.html` | Paso 6 |
-| La búsqueda "losartan" no encuentra "Losartán" | La expresión del ORM no es `f_unaccent(lower(...))` o no se normalizó `q` | Paso 2: `_sin_acentos` y `normalizar` |
+| El aviso "al menos 3 caracteres" no desaparece | Falta el `<div id="aviso" hx-swap-oob="true">` en `_resultados.html` | Paso 7 |
+| La búsqueda "losartan" no encuentra "Losartán" | La expresión del ORM no es `f_unaccent(lower(...))` o no se normalizó `q` | Paso 3: `_sin_acentos` y `normalizar` |
 | `TemplateSyntaxError: Invalid block tag 'querystring'` | Django menor a 5.1 | El proyecto usa Django 5.2 LTS |
 | `SynchronousOnlyOperation` en los tests de Playwright | Falta `DJANGO_ALLOW_ASYNC_UNSAFE=true` | Comando 2 de la sección 5 |
 | El login de Playwright falla con el usuario demo | `PASSWORD_HASHERS` de los tests no incluye PBKDF2 | Las contraseñas del mock son PBKDF2 (sección 3.4): mantén `PBKDF2PasswordHasher` en la lista |

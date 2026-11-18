@@ -63,7 +63,7 @@ dtest() { docker compose exec -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PAS
 dpsql() { docker compose exec db psql -U app_owner -d "$POSTGRES_DB" "$@"; }    # psql como app_owner
 ```
 
-> Los tests corren como `app_owner` porque `pytest` necesita crear la base de tests. Los tests que deben comportarse como la aplicación cambian a `app_user` con `SET LOCAL ROLE` (paso 9).
+> Los tests corren como `app_owner` porque `pytest` necesita crear la base de tests. Los tests que deben comportarse como la aplicación cambian a `app_user` con `SET LOCAL ROLE` (paso 3).
 
 ---
 
@@ -99,7 +99,7 @@ AI4Devs-finalproject-vmrr/
 
 ## 2. Tareas paso a paso
 
-Haz un commit al terminar cada paso (mensajes en español, en imperativo: `agrega modelos de inventario`).
+Haz un commit al terminar cada paso (mensajes en español, en imperativo: `agrega modelos de inventario`). El orden sigue TDD (`CLAUDE.md`): primero los *fixtures* y los tests en rojo, después la implementación.
 
 ### Paso 1. Comprueba la base de habilitación y crea el `Makefile` (≈ 45 min)
 
@@ -180,9 +180,174 @@ make openapi     # 0 errores y 2 advertencias intencionales
 
 ### Paso 2. Privilegios de `app_user` (ya hechos en HB-03)
 
-La migración `accounts/0002_privilegios.py` existe desde HB-03: da a `app_user` los 4 permisos sobre todas las tablas que cree `app_owner`, también las de este ticket. Lo único propio de TK-01 es retirar `UPDATE`, `DELETE` y `TRUNCATE` sobre `movimiento` (paso 6), y para eso las tablas nuevas deben depender de `0002_privilegios` (paso 4).
+La migración `accounts/0002_privilegios.py` existe desde HB-03: da a `app_user` los 4 permisos sobre todas las tablas que cree `app_owner`, también las de este ticket. Lo único propio de TK-01 es retirar `UPDATE`, `DELETE` y `TRUNCATE` sobre `movimiento` (paso 9), y para eso las tablas nuevas deben depender de `0002_privilegios` (paso 6).
 
-### Paso 3. Modelos de `inventario` (≈ 1.5 h)
+### Paso 3. Fixtures de pytest para el mock y para SQL directo (≈ 45 min)
+
+Agrega a `app/conftest.py`. Estos fixtures son un **punto de integración**: TK-02 y TK-03 los usan tal cual, así que no cambies sus nombres ni lo que devuelven sin avisar.
+
+```python
+import json
+from pathlib import Path
+
+import pytest
+from django.conf import settings
+from django.db import connection
+
+RUTA_MOCK = Path(settings.BASE_DIR) / "fixtures" / "mock"
+
+
+def _sql_del_mock() -> str:
+    """Adapta cargar_mock.sql (escrito para psql) para ejecutarlo desde Django.
+
+    - Quita los metacomandos de psql (líneas que empiezan con "\\").
+    - Quita BEGIN/COMMIT: cada test ya corre dentro de una transacción.
+    - Escapa los "%" y convierte :'mock_json' en un parámetro.
+    """
+    lineas = (RUTA_MOCK / "cargar_mock.sql").read_text(encoding="utf-8").splitlines()
+    lineas = [
+        linea for linea in lineas
+        if not linea.startswith("\\") and linea.strip() not in ("BEGIN;", "COMMIT;")
+    ]
+    sql = "\n".join(lineas).replace("%", "%%")
+    return sql.replace(":'mock_json'", "%(mock_json)s")
+
+
+@pytest.fixture
+def datos_demo(db):
+    """Carga el dataset mock de la sección 3.4 con sus validaciones."""
+    json_texto = (RUTA_MOCK / "demo.json").read_text(encoding="utf-8")
+    json.loads(json_texto)  # falla rápido si el JSON está roto
+    with connection.cursor() as cursor:
+        cursor.execute(_sql_del_mock(), {"mock_json": json_texto})
+
+
+@pytest.fixture
+def demo(datos_demo):
+    """Accesos cómodos a los datos del mock: demo.carmen, demo.med["Eutirox"]...
+
+    Lo usan los tests de TK-02 y TK-03: por eso vive aquí y no en esos tickets.
+    """
+    from types import SimpleNamespace
+
+    from apps.accounts.models import Usuario
+    from apps.catalogo.models import Medicamento
+    from apps.entidades.models import Entidad
+    from apps.inventario.models import MotivoBaja
+
+    return SimpleNamespace(
+        hogar=Entidad.objects.get(tipo="HOGAR"),
+        maria=Entidad.objects.get(pk=101),
+        jose=Entidad.objects.get(pk=102),
+        carmen=Entidad.objects.get(pk=103),
+        operador=Usuario.objects.get(username="operador.demo"),
+        med={m.nombre_comercial: m for m in Medicamento.objects.all()},
+        motivo={m.clave: m for m in MotivoBaja.objects.all()},
+    )
+
+
+@pytest.fixture
+def como_app_user(demo):
+    """El resto del test corre como app_user, igual que la aplicación en producción.
+
+    SET LOCAL solo dura hasta el fin de la transacción del test. En un test con
+    transaction=True no hay transacción envolvente y PostgreSQL ignoraría el SET LOCAL
+    con un simple aviso: el test correría como app_owner sin que nadie lo notara.
+    Por eso falla aquí; en esos tests, cada hilo hace SET ROLE app_user (guía de TK-02).
+    """
+    if not connection.in_atomic_block:
+        pytest.fail(
+            "como_app_user necesita la transacción del test: no lo uses con "
+            "transaction=True; ahí cada hilo hace SET ROLE app_user (guía de TK-02)."
+        )
+    with connection.cursor() as cursor:
+        cursor.execute("SET LOCAL ROLE app_user")
+        cursor.execute("SELECT current_user")
+        assert cursor.fetchone()[0] == "app_user"
+    return demo
+```
+
+`app/pruebas.py` ya existe desde HB-03 con `ejecutar_sql`. Agrégale `saldo`; el archivo completo queda así (va en un módulo propio porque importar desde `conftest.py` es mala práctica en pytest):
+
+```python
+"""Utilidades compartidas por los tests."""
+
+from django.db import connection, transaction
+
+
+def ejecutar_sql(sql: str, params=None, *, rol: str | None = None) -> list[tuple]:
+    """Ejecuta SQL dentro de un savepoint, opcionalmente como otro rol.
+
+    Si la sentencia falla, solo se revierte el savepoint y el test puede seguir.
+    """
+    with transaction.atomic(), connection.cursor() as cursor:
+        if rol:
+            cursor.execute(f"SET LOCAL ROLE {rol}")
+        cursor.execute(sql, params)
+        filas = cursor.fetchall() if cursor.description else []
+        if rol:
+            cursor.execute("RESET ROLE")
+        return filas
+
+
+def saldo(entidad, medicamento):
+    """Saldo actual de una entidad y un medicamento (lo usan los tests de TK-02 y TK-03)."""
+    from apps.inventario.models import Existencia
+
+    return Existencia.objects.get(entidad=entidad, medicamento=medicamento).saldo
+```
+
+`pyproject.toml` ya tiene desde HB-03 la configuración de pytest (marcadores `lento`, `http`, `integracion`, `infra` y `e2e` con `--strict-markers`, y `app/` en la ruta de importación) y la de cobertura (sin migraciones ni tests, con ramas). Compruébalo:
+
+```toml
+[tool.pytest.ini_options]
+pythonpath = ["."]
+addopts = "--strict-markers"
+markers = [
+    "lento: tests de plan de ejecución (EXPLAIN), corren en el CI nocturno",
+    "http: tests de URL + vista + plantilla con el cliente de Django (test_views_*, test_admin*); corren en el CI de cada PR",
+    "integracion: flujo completo Vista → Servicio → BD → v_conciliacion_existencia (test_integracion.py); corre en el CI de cada PR",
+    "infra: configuración e infraestructura (test_proxy.py, test_conexion.py); corre en el CI de cada PR",
+    "e2e: pruebas de extremo a extremo con Playwright (TK-03)",
+]
+```
+
+### Paso 4. Tests en rojo (≈ 1 h 45 min)
+
+Crea los paquetes de las 2 apps:
+
+```bash
+mkdir -p app/apps/inventario/migrations app/apps/inventario/tests \
+         app/apps/conteos/migrations app/apps/conteos/tests
+touch app/apps/inventario/__init__.py app/apps/inventario/migrations/__init__.py \
+      app/apps/inventario/tests/__init__.py app/apps/conteos/__init__.py \
+      app/apps/conteos/migrations/__init__.py app/apps/conteos/tests/__init__.py
+```
+
+Agrega `"apps.inventario"` y `"apps.conteos"` a `INSTALLED_APPS`, debajo de `"apps.pautas"`, en `app/config/settings/base.py`.
+
+Escribe los tests de la sección 3 y ejecútalos **antes** de implementar:
+
+```bash
+dtest apps/inventario apps/conteos -q
+# ModuleNotFoundError: No module named 'apps.conteos.models'
+
+dtest apps/accounts/tests/test_privilegios.py apps/catalogo/tests/test_admin.py -q
+# Fallan los 8 casos nuevos; los de HB-03 y HB-09 siguen pasando
+```
+
+El commit de este paso queda en rojo a propósito: el PR se abre cuando todo está en verde.
+
+Así avanza el rojo con cada paso:
+
+| Al terminar | Comando | Resultado esperado |
+|---|---|---|
+| Paso 8 (conteos) | `dtest apps/inventario apps/conteos apps/accounts/tests/test_privilegios.py -q` | El mock ya carga. Siguen en rojo los *triggers* de `movimiento`, `v_conciliacion_existencia` y el `REVOKE` |
+| Paso 9 (SQL) | El mismo comando | Todos pasan |
+| Paso 9 (SQL) | `dtest apps/catalogo/tests/test_admin.py -k medicamento_con_existencias -q` | `1 failed`: falta el mensaje del formulario |
+| Paso 9b (panel) | El mismo comando | `1 passed` |
+
+### Paso 5. Modelos de `inventario` (≈ 1.5 h)
 
 Crea `app/apps/inventario/models.py`. Lee los comentarios: explican cada decisión.
 
@@ -342,7 +507,7 @@ class Movimiento(models.Model):
 > - Los nombres de índice no pueden pasar de **30 caracteres** (error `models.E034`). Usa los nombres de la sección 3.3 tal cual.
 > - Si `ruff` no tiene activas las reglas `DJ`, los `# noqa: DJ001` sobran: quítalos.
 
-### Paso 4. Genera y revisa la migración inicial (≈ 30 min)
+### Paso 6. Genera y revisa la migración inicial (≈ 30 min)
 
 ```bash
 dj makemigrations inventario          # crea 0001_initial.py
@@ -365,7 +530,7 @@ dj sqlmigrate inventario 0001 | less
 
 Debes ver `CREATE TABLE "movimiento"`, los `CHECK` con sus nombres, `uq_movimiento_corrige`, los 4 índices de `movimiento` y **ningún** índice suelto sobre `entidad_origen_id`, `entidad_destino_id` ni `medicamento_id`.
 
-### Paso 5. Migración de datos: motivos de baja (≈ 20 min)
+### Paso 7. Migración de datos: motivos de baja (≈ 20 min)
 
 ```bash
 dj makemigrations inventario --empty --name motivos_baja
@@ -405,7 +570,7 @@ class Migration(migrations.Migration):
     operations = [migrations.RunPython(crear_motivos, borrar_motivos)]
 ```
 
-### Paso 5b. Permisos de los grupos sobre los modelos nuevos (≈ 30 min)
+### Paso 7b. Permisos de los grupos sobre los modelos nuevos (≈ 30 min)
 
 Los grupos `Solo lectura` y `Lectura y escritura` se crearon en HB-08 (`accounts/0003_grupos`), antes de que existieran estos modelos, así que todavía no tienen sus permisos. Sin este paso, la pantalla de TK-03 responde `403` a todos.
 
@@ -413,7 +578,7 @@ Los grupos `Solo lectura` y `Lectura y escritura` se crearon en HB-08 (`accounts
 dj makemigrations inventario --empty --name permisos_grupos
 ```
 
-Contenido de `0003_permisos_grupos.py` (el paso 6 pasa a ser `0004_sql.py`):
+Contenido de `0003_permisos_grupos.py` (el paso 9 crea `0004_sql.py`):
 
 ```python
 from django.contrib.auth.management import create_permissions
@@ -452,7 +617,151 @@ class Migration(migrations.Migration):
 
 > Repite el mismo patrón en `conteos` cuando se haga TK-06 (`view_conteofisico`, `add_conteofisico`...), también con la dependencia de `accounts/0003_grupos`.
 
-### Paso 6. Migración SQL de `inventario`: *triggers*, vista, `fillfactor` y `REVOKE` (≈ 1 h)
+### Paso 8. Modelos y migraciones de `conteos` (≈ 1 h)
+
+`app/apps/conteos/models.py`:
+
+```python
+"""Conteos físicos (readme, sección 3.2, "Conteos físicos"; mecánica en HU-03)."""
+
+from django.conf import settings
+from django.db import models
+from django.db.models import F, Q
+from django.db.models.functions import Now
+
+
+class ConteoFisico(models.Model):
+    class Estado(models.TextChoices):
+        EN_PROCESO = "EN_PROCESO", "En proceso"
+        CERRADO = "CERRADO", "Cerrado"
+
+    entidad = models.ForeignKey(
+        "entidades.Entidad", on_delete=models.PROTECT, related_name="conteos", db_index=False
+    )
+    periodo_inicio = models.DateField()
+    periodo_fin = models.DateField()
+    estado = models.CharField(max_length=10, choices=Estado.choices, db_default="EN_PROCESO")
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="conteos"
+    )
+    creado_en = models.DateTimeField(db_default=Now())
+    cerrado_en = models.DateTimeField(null=True, blank=True)
+    nota = models.TextField(null=True, blank=True)  # noqa: DJ001
+
+    class Meta:
+        db_table = "conteo_fisico"
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(periodo_fin__gte=F("periodo_inicio")), name="ck_conteo_periodo"
+            ),
+            models.CheckConstraint(
+                condition=Q(estado__in=["EN_PROCESO", "CERRADO"]), name="ck_conteo_estado"
+            ),
+            # cerrado_en es obligatoria si y solo si el conteo está CERRADO
+            models.CheckConstraint(
+                condition=Q(estado="CERRADO", cerrado_en__isnull=False)
+                | Q(estado="EN_PROCESO", cerrado_en__isnull=True),
+                name="ck_conteo_cierre",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["entidad", "-periodo_fin"], name="ix_conteo_entidad_periodo"),
+        ]
+
+
+class DetalleConteo(models.Model):
+    conteo = models.ForeignKey(
+        ConteoFisico, on_delete=models.PROTECT, related_name="detalles", db_index=False
+    )
+    medicamento = models.ForeignKey(
+        "catalogo.Medicamento", on_delete=models.PROTECT,
+        related_name="detalles_conteo", db_index=False,
+    )
+    cantidad_fisica = models.DecimalField(max_digits=10, decimal_places=2)
+    cantidad_sistema = models.DecimalField(max_digits=10, decimal_places=2)  # foto del saldo
+    # La calcula PostgreSQL: nunca se escribe a mano
+    diferencia = models.GeneratedField(
+        expression=F("cantidad_fisica") - F("cantidad_sistema"),
+        output_field=models.DecimalField(max_digits=10, decimal_places=2),
+        db_persist=True,
+    )
+
+    class Meta:
+        db_table = "detalle_conteo"
+        constraints = [
+            models.UniqueConstraint(fields=["conteo", "medicamento"], name="uq_detalle_conteo"),
+            models.CheckConstraint(condition=Q(cantidad_fisica__gte=0), name="ck_detalle_fisica"),
+            models.CheckConstraint(condition=Q(cantidad_sistema__gte=0), name="ck_detalle_sistema"),
+        ]
+        indexes = [
+            models.Index(
+                fields=["medicamento", "conteo"],
+                name="ix_detalle_medicamento_conteo",
+                include=["cantidad_fisica", "cantidad_sistema", "diferencia"],
+            ),
+            models.Index(
+                fields=["medicamento"], name="ix_detalle_con_diferencia",
+                condition=~Q(diferencia=0),
+            ),
+        ]
+```
+
+```bash
+dj makemigrations conteos             # 0001_initial.py: agrega ("accounts", "0002_privilegios") a dependencies
+dj makemigrations conteos --empty --name triggers
+```
+
+`0002_triggers.py`: copia de la sección 3.3 las funciones `fn_conteo_cerrado` y `fn_detalle_conteo_cerrado` con sus *triggers*. Cada `RunSQL` lleva su reversa:
+
+```python
+from django.db import migrations
+
+CONTEO_CERRADO = """
+CREATE FUNCTION fn_conteo_cerrado() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF OLD.estado = 'CERRADO' THEN
+        RAISE EXCEPTION 'El conteo % está cerrado y no se puede modificar', OLD.id;
+    END IF;
+    IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER tg_conteo_cerrado BEFORE UPDATE OR DELETE ON conteo_fisico
+    FOR EACH ROW EXECUTE FUNCTION fn_conteo_cerrado();
+"""
+
+DETALLE_CERRADO = """
+CREATE FUNCTION fn_detalle_conteo_cerrado() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    v_conteo bigint;
+BEGIN
+    IF TG_OP = 'DELETE' THEN v_conteo := OLD.conteo_id; ELSE v_conteo := NEW.conteo_id; END IF;
+    IF (SELECT estado FROM conteo_fisico WHERE id = v_conteo) = 'CERRADO' THEN
+        RAISE EXCEPTION 'El conteo % está cerrado', v_conteo;
+    END IF;
+    IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER tg_detalle_conteo_cerrado BEFORE INSERT OR UPDATE OR DELETE ON detalle_conteo
+    FOR EACH ROW EXECUTE FUNCTION fn_detalle_conteo_cerrado();
+"""
+
+
+class Migration(migrations.Migration):
+    dependencies = [("conteos", "0001_initial")]
+    operations = [
+        migrations.RunSQL(
+            CONTEO_CERRADO,
+            "DROP TRIGGER tg_conteo_cerrado ON conteo_fisico; DROP FUNCTION fn_conteo_cerrado();",
+        ),
+        migrations.RunSQL(
+            DETALLE_CERRADO,
+            "DROP TRIGGER tg_detalle_conteo_cerrado ON detalle_conteo;"
+            "DROP FUNCTION fn_detalle_conteo_cerrado();",
+        ),
+    ]
+```
+
+### Paso 9. Migración SQL de `inventario`: *triggers*, vista, `fillfactor` y `REVOKE` (≈ 1 h)
 
 ```bash
 dj makemigrations inventario --empty --name sql
@@ -556,7 +865,7 @@ class Migration(migrations.Migration):
     ]
 ```
 
-### Paso 6b. Baja de un medicamento con existencias en el panel (≈ 20 min)
+### Paso 9b. Baja de un medicamento con existencias en el panel (≈ 20 min)
 
 El *trigger* `tg_medicamento_baja` es la última barrera. Antes, el formulario de `MedicamentoAdmin` (HB-09) debe dar un mensaje, como pide la sección 5 ("Controles"). En `app/apps/catalogo/admin.py`:
 
@@ -585,151 +894,7 @@ class MedicamentoAdminForm(forms.ModelForm):
 
 y en `MedicamentoAdmin`: `form = MedicamentoAdminForm`. Su test va en `apps/catalogo/tests/test_admin.py` (sección 3.4 de esta guía).
 
-### Paso 7. Modelos y migraciones de `conteos` (≈ 1 h)
-
-`app/apps/conteos/models.py`:
-
-```python
-"""Conteos físicos (readme, sección 3.2, "Conteos físicos"; mecánica en HU-03)."""
-
-from django.conf import settings
-from django.db import models
-from django.db.models import F, Q
-from django.db.models.functions import Now
-
-
-class ConteoFisico(models.Model):
-    class Estado(models.TextChoices):
-        EN_PROCESO = "EN_PROCESO", "En proceso"
-        CERRADO = "CERRADO", "Cerrado"
-
-    entidad = models.ForeignKey(
-        "entidades.Entidad", on_delete=models.PROTECT, related_name="conteos", db_index=False
-    )
-    periodo_inicio = models.DateField()
-    periodo_fin = models.DateField()
-    estado = models.CharField(max_length=10, choices=Estado.choices, db_default="EN_PROCESO")
-    usuario = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="conteos"
-    )
-    creado_en = models.DateTimeField(db_default=Now())
-    cerrado_en = models.DateTimeField(null=True, blank=True)
-    nota = models.TextField(null=True, blank=True)  # noqa: DJ001
-
-    class Meta:
-        db_table = "conteo_fisico"
-        constraints = [
-            models.CheckConstraint(
-                condition=Q(periodo_fin__gte=F("periodo_inicio")), name="ck_conteo_periodo"
-            ),
-            models.CheckConstraint(
-                condition=Q(estado__in=["EN_PROCESO", "CERRADO"]), name="ck_conteo_estado"
-            ),
-            # cerrado_en es obligatoria si y solo si el conteo está CERRADO
-            models.CheckConstraint(
-                condition=Q(estado="CERRADO", cerrado_en__isnull=False)
-                | Q(estado="EN_PROCESO", cerrado_en__isnull=True),
-                name="ck_conteo_cierre",
-            ),
-        ]
-        indexes = [
-            models.Index(fields=["entidad", "-periodo_fin"], name="ix_conteo_entidad_periodo"),
-        ]
-
-
-class DetalleConteo(models.Model):
-    conteo = models.ForeignKey(
-        ConteoFisico, on_delete=models.PROTECT, related_name="detalles", db_index=False
-    )
-    medicamento = models.ForeignKey(
-        "catalogo.Medicamento", on_delete=models.PROTECT,
-        related_name="detalles_conteo", db_index=False,
-    )
-    cantidad_fisica = models.DecimalField(max_digits=10, decimal_places=2)
-    cantidad_sistema = models.DecimalField(max_digits=10, decimal_places=2)  # foto del saldo
-    # La calcula PostgreSQL: nunca se escribe a mano
-    diferencia = models.GeneratedField(
-        expression=F("cantidad_fisica") - F("cantidad_sistema"),
-        output_field=models.DecimalField(max_digits=10, decimal_places=2),
-        db_persist=True,
-    )
-
-    class Meta:
-        db_table = "detalle_conteo"
-        constraints = [
-            models.UniqueConstraint(fields=["conteo", "medicamento"], name="uq_detalle_conteo"),
-            models.CheckConstraint(condition=Q(cantidad_fisica__gte=0), name="ck_detalle_fisica"),
-            models.CheckConstraint(condition=Q(cantidad_sistema__gte=0), name="ck_detalle_sistema"),
-        ]
-        indexes = [
-            models.Index(
-                fields=["medicamento", "conteo"],
-                name="ix_detalle_medicamento_conteo",
-                include=["cantidad_fisica", "cantidad_sistema", "diferencia"],
-            ),
-            models.Index(
-                fields=["medicamento"], name="ix_detalle_con_diferencia",
-                condition=~Q(diferencia=0),
-            ),
-        ]
-```
-
-```bash
-dj makemigrations conteos             # 0001_initial.py: agrega ("accounts", "0002_privilegios") a dependencies
-dj makemigrations conteos --empty --name triggers
-```
-
-`0002_triggers.py`: copia de la sección 3.3 las funciones `fn_conteo_cerrado` y `fn_detalle_conteo_cerrado` con sus *triggers*, igual que en el paso 6:
-
-```python
-from django.db import migrations
-
-CONTEO_CERRADO = """
-CREATE FUNCTION fn_conteo_cerrado() RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN
-    IF OLD.estado = 'CERRADO' THEN
-        RAISE EXCEPTION 'El conteo % está cerrado y no se puede modificar', OLD.id;
-    END IF;
-    IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
-    RETURN NEW;
-END $$;
-CREATE TRIGGER tg_conteo_cerrado BEFORE UPDATE OR DELETE ON conteo_fisico
-    FOR EACH ROW EXECUTE FUNCTION fn_conteo_cerrado();
-"""
-
-DETALLE_CERRADO = """
-CREATE FUNCTION fn_detalle_conteo_cerrado() RETURNS trigger LANGUAGE plpgsql AS $$
-DECLARE
-    v_conteo bigint;
-BEGIN
-    IF TG_OP = 'DELETE' THEN v_conteo := OLD.conteo_id; ELSE v_conteo := NEW.conteo_id; END IF;
-    IF (SELECT estado FROM conteo_fisico WHERE id = v_conteo) = 'CERRADO' THEN
-        RAISE EXCEPTION 'El conteo % está cerrado', v_conteo;
-    END IF;
-    IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
-    RETURN NEW;
-END $$;
-CREATE TRIGGER tg_detalle_conteo_cerrado BEFORE INSERT OR UPDATE OR DELETE ON detalle_conteo
-    FOR EACH ROW EXECUTE FUNCTION fn_detalle_conteo_cerrado();
-"""
-
-
-class Migration(migrations.Migration):
-    dependencies = [("conteos", "0001_initial")]
-    operations = [
-        migrations.RunSQL(
-            CONTEO_CERRADO,
-            "DROP TRIGGER tg_conteo_cerrado ON conteo_fisico; DROP FUNCTION fn_conteo_cerrado();",
-        ),
-        migrations.RunSQL(
-            DETALLE_CERRADO,
-            "DROP TRIGGER tg_detalle_conteo_cerrado ON detalle_conteo;"
-            "DROP FUNCTION fn_detalle_conteo_cerrado();",
-        ),
-    ]
-```
-
-### Paso 8. Aplica todo y carga el mock (≈ 20 min)
+### Paso 10. Aplica todo y carga el mock (≈ 20 min)
 
 ```bash
 ./scripts/migrate.sh
@@ -739,141 +904,13 @@ dpsql -v ON_ERROR_STOP=1 -f /tmp/mock/cargar_mock.sql
 
 La última consulta del script muestra el resumen. Debe decir: 2 usuarios, 13 principios activos, 15 medicamentos, 3 residentes, 3 pautas, 28 movimientos, 13 existencias, 2 conteos y 5 detalles de conteo.
 
-### Paso 9. Fixtures de pytest para el mock y para SQL directo (≈ 45 min)
+### Paso 11. Tests en verde (≈ 15 min)
 
-Agrega a `app/conftest.py`. Estos fixtures son un **punto de integración**: TK-02 y TK-03 los usan tal cual, así que no cambies sus nombres ni lo que devuelven sin avisar.
-
-```python
-import json
-from pathlib import Path
-
-import pytest
-from django.conf import settings
-from django.db import connection
-
-RUTA_MOCK = Path(settings.BASE_DIR) / "fixtures" / "mock"
-
-
-def _sql_del_mock() -> str:
-    """Adapta cargar_mock.sql (escrito para psql) para ejecutarlo desde Django.
-
-    - Quita los metacomandos de psql (líneas que empiezan con "\\").
-    - Quita BEGIN/COMMIT: cada test ya corre dentro de una transacción.
-    - Escapa los "%" y convierte :'mock_json' en un parámetro.
-    """
-    lineas = (RUTA_MOCK / "cargar_mock.sql").read_text(encoding="utf-8").splitlines()
-    lineas = [
-        linea for linea in lineas
-        if not linea.startswith("\\") and linea.strip() not in ("BEGIN;", "COMMIT;")
-    ]
-    sql = "\n".join(lineas).replace("%", "%%")
-    return sql.replace(":'mock_json'", "%(mock_json)s")
-
-
-@pytest.fixture
-def datos_demo(db):
-    """Carga el dataset mock de la sección 3.4 con sus validaciones."""
-    json_texto = (RUTA_MOCK / "demo.json").read_text(encoding="utf-8")
-    json.loads(json_texto)  # falla rápido si el JSON está roto
-    with connection.cursor() as cursor:
-        cursor.execute(_sql_del_mock(), {"mock_json": json_texto})
-
-
-@pytest.fixture
-def demo(datos_demo):
-    """Accesos cómodos a los datos del mock: demo.carmen, demo.med["Eutirox"]...
-
-    Lo usan los tests de TK-02 y TK-03: por eso vive aquí y no en esos tickets.
-    """
-    from types import SimpleNamespace
-
-    from apps.accounts.models import Usuario
-    from apps.catalogo.models import Medicamento
-    from apps.entidades.models import Entidad
-    from apps.inventario.models import MotivoBaja
-
-    return SimpleNamespace(
-        hogar=Entidad.objects.get(tipo="HOGAR"),
-        maria=Entidad.objects.get(pk=101),
-        jose=Entidad.objects.get(pk=102),
-        carmen=Entidad.objects.get(pk=103),
-        operador=Usuario.objects.get(username="operador.demo"),
-        med={m.nombre_comercial: m for m in Medicamento.objects.all()},
-        motivo={m.clave: m for m in MotivoBaja.objects.all()},
-    )
-
-
-@pytest.fixture
-def como_app_user(demo):
-    """El resto del test corre como app_user, igual que la aplicación en producción.
-
-    SET LOCAL solo dura hasta el fin de la transacción del test. En un test con
-    transaction=True no hay transacción envolvente y PostgreSQL ignoraría el SET LOCAL
-    con un simple aviso: el test correría como app_owner sin que nadie lo notara.
-    Por eso falla aquí; en esos tests, cada hilo hace SET ROLE app_user (guía de TK-02).
-    """
-    if not connection.in_atomic_block:
-        pytest.fail(
-            "como_app_user necesita la transacción del test: no lo uses con "
-            "transaction=True; ahí cada hilo hace SET ROLE app_user (guía de TK-02)."
-        )
-    with connection.cursor() as cursor:
-        cursor.execute("SET LOCAL ROLE app_user")
-        cursor.execute("SELECT current_user")
-        assert cursor.fetchone()[0] == "app_user"
-    return demo
+```bash
+dtest apps/inventario apps/conteos apps/accounts apps/catalogo -q     # todos deben pasar
 ```
 
-`app/pruebas.py` ya existe desde HB-03 con `ejecutar_sql`. Agrégale `saldo`; el archivo completo queda así (va en un módulo propio porque importar desde `conftest.py` es mala práctica en pytest):
-
-```python
-"""Utilidades compartidas por los tests."""
-
-from django.db import connection, transaction
-
-
-def ejecutar_sql(sql: str, params=None, *, rol: str | None = None) -> list[tuple]:
-    """Ejecuta SQL dentro de un savepoint, opcionalmente como otro rol.
-
-    Si la sentencia falla, solo se revierte el savepoint y el test puede seguir.
-    """
-    with transaction.atomic(), connection.cursor() as cursor:
-        if rol:
-            cursor.execute(f"SET LOCAL ROLE {rol}")
-        cursor.execute(sql, params)
-        filas = cursor.fetchall() if cursor.description else []
-        if rol:
-            cursor.execute("RESET ROLE")
-        return filas
-
-
-def saldo(entidad, medicamento):
-    """Saldo actual de una entidad y un medicamento (lo usan los tests de TK-02 y TK-03)."""
-    from apps.inventario.models import Existencia
-
-    return Existencia.objects.get(entidad=entidad, medicamento=medicamento).saldo
-```
-
-`pyproject.toml` ya tiene desde HB-03 la configuración de pytest (marcadores `lento`, `http`, `integracion`, `infra` y `e2e` con `--strict-markers`, y `app/` en la ruta de importación) y la de cobertura (sin migraciones ni tests, con ramas). Compruébalo:
-
-```toml
-[tool.pytest.ini_options]
-pythonpath = ["."]
-addopts = "--strict-markers"
-markers = [
-    "lento: tests de plan de ejecución (EXPLAIN), corren en el CI nocturno",
-    "http: tests de URL + vista + plantilla con el cliente de Django (test_views_*, test_admin*); corren en el CI de cada PR",
-    "integracion: flujo completo Vista → Servicio → BD → v_conciliacion_existencia (test_integracion.py); corre en el CI de cada PR",
-    "infra: configuración e infraestructura (test_proxy.py, test_conexion.py); corre en el CI de cada PR",
-    "e2e: pruebas de extremo a extremo con Playwright (TK-03)",
-]
-```
-
-### Paso 10. Tests (≈ 2 h)
-
-Ver la sección 3 de esta guía. Escríbelos y ejecútalos hasta que pasen todos.
-
-### Paso 11. Verificación final y *pull request* (≈ 1 h)
+### Paso 12. Verificación final y *pull request* (≈ 1 h)
 
 Ejecuta **todos** los comandos de la sección 5, marca la lista del PR (sección 6) y abre el PR hacia `main`.
 
@@ -1152,7 +1189,7 @@ docker compose down -v && docker compose up -d && ./scripts/migrate.sh   # deja 
 | `sh: 01_roles.sh: not found` o `\r: not found` al levantar `db` | El script tiene fines de línea CRLF (Windows) | Guía de HB-01, paso 2.2, y `docker compose down -v` |
 | El script de roles no se ejecutó | El volumen `pgdata` ya existía | `docker compose down -v` (desarrollo) o ejecútalo a mano: `docker compose exec db sh /docker-entrypoint-initdb.d/01_roles.sh` |
 | `permission denied to create database` al correr `pytest` | `app_owner` sin `CREATEDB` | `DB_OWNER_CREATEDB=true` en `.env` y recrea el volumen |
-| `permission denied for table ...` en la aplicación | Una tabla se creó antes de la migración de privilegios | Revisa la dependencia agregada en el paso 4 y vuelve a ejecutar `./scripts/migrate.sh` |
+| `permission denied for table ...` en la aplicación | Una tabla se creó antes de la migración de privilegios | Revisa la dependencia agregada en el paso 6 y vuelve a ejecutar `./scripts/migrate.sh` |
 | `models.E034: The index name ... cannot be longer than 30 characters` | Nombre de índice largo | Usa los nombres de la sección 3.3 |
 | `TypeError: ... unexpected keyword argument 'condition'` | Django menor a 5.1 | Verifica `requirements.txt`: Django 5.2 LTS |
 | `function f_unaccent does not exist` al cargar el mock | Falta la migración de HB-05 que crea la función | Requisitos previos, paso 0.2 |

@@ -21,7 +21,7 @@
 | D1 — Usuarios y grupos | readme, sección 3.2 | Los 2 grupos, sus permisos y la regla de un solo grupo |
 | Habilitadores en `/admin/` y "Controles" | readme, sección 5 | Quién gestiona qué y la regla "sin borrado" |
 | Contraseñas, sesiones y fuerza bruta | readme, sección 2.5 | Argon2, expiración de 30 min y `django-axes` |
-| Patrón de permisos en una migración | guía de TK-01, paso 5b | `create_permissions` dentro de `RunPython` |
+| Patrón de permisos en una migración | guía de TK-01, paso 7b | `create_permissions` dentro de `RunPython` |
 | `django-axes` | <https://django-axes.readthedocs.io/en/latest/2_installation.html> | Instalación y `AUTHENTICATION_BACKENDS` |
 
 ### 0.2 Requisitos previos

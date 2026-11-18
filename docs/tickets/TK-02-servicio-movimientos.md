@@ -20,7 +20,7 @@
 | D4 Existencias y D5 Movimientos (reglas por tipo, corrección) | readme, sección 3.2 |
 | Códigos de error de la API | readme, sección 4.4 |
 | TK-02 | readme, sección 6 |
-| Guía de TK-01, pasos 0.4 (atajos) y 9 (fixtures) | [`TK-01-esquema-inventario.md`](TK-01-esquema-inventario.md) |
+| Guía de TK-01, pasos 0.4 (atajos) y 3 (fixtures) | [`TK-01-esquema-inventario.md`](TK-01-esquema-inventario.md) |
 
 ### 0.2 Requisitos previos
 
@@ -72,9 +72,57 @@ No modifiques `models.py`: si crees que hace falta, pregunta antes en el PR o al
 
 ## 2. Tareas paso a paso
 
-Haz un commit al terminar cada paso.
+Haz un commit al terminar cada paso. El orden sigue TDD (`CLAUDE.md`): primero los tests en rojo, después la implementación.
 
-### Paso 1. Excepciones de dominio (≈ 30 min)
+### Paso 1. Comprueba los fixtures que ya trae TK-01 (≈ 10 min)
+
+No crees fixtures nuevos: TK-01 ya dejó los que necesitas, y TK-03 usa los mismos.
+
+| Fixture o helper | Dónde | Para qué |
+|---|---|---|
+| `datos_demo` | `app/conftest.py` | Carga el mock de la sección 3.4 |
+| `demo` | `app/conftest.py` | `demo.carmen`, `demo.med["Eutirox"]`, `demo.motivo["CONSUMO"]`, `demo.operador`... |
+| `como_app_user` | `app/conftest.py` | El test corre como `app_user`, igual que la aplicación |
+| `ejecutar_sql`, `saldo` | `app/pruebas.py` | SQL directo en un savepoint y saldo actual de una entidad |
+
+```bash
+dtest --fixtures apps/inventario | grep -E "datos_demo|demo|como_app_user"   # deben aparecer los 3
+```
+
+Si te falta alguno, TK-01 no está completo en `main`: avisa antes de seguir.
+
+### Paso 2. Tests de reglas de negocio en rojo (≈ 1 h 45 min)
+
+Escribe `test_services.py` (sección 3.1), incluidos los 4 casos que esa sección pide completar, y ejecútalo **antes** de implementar:
+
+```bash
+dtest apps/inventario/tests/test_services.py -q
+# ImportError: cannot import name 'services' from 'apps.inventario'
+```
+
+### Paso 3. Tests de concurrencia en rojo (≈ 1 h 15 min)
+
+Escribe `test_concurrencia.py` (sección 3.2). Son los más delicados: léelos completos antes de escribirlos.
+
+```bash
+dtest apps/inventario/tests/test_concurrencia.py -q
+# ImportError: cannot import name 'services' from 'apps.inventario'
+```
+
+El commit de este paso queda en rojo a propósito: el PR se abre cuando todo está en verde.
+
+Así avanza el rojo con cada paso:
+
+| Al terminar | Comando | Resultado esperado |
+|---|---|---|
+| Paso 5 (funciones privadas) | `dtest apps/inventario/tests/test_services.py -q` | Todos fallan con `AttributeError`: aún no existen las funciones públicas |
+| Paso 5 (funciones privadas) | `dtest apps/inventario/tests/test_concurrencia.py -q` | Pasa solo `test_bloquear_fuera_de_una_transaccion_falla` |
+| `registrar_entrada` (paso 6) | `dtest apps/inventario/tests/test_services.py -k test_entrada -q` | Todos pasan |
+| `transferir` (paso 6) | `dtest apps/inventario/tests/test_services.py -k test_transferencia -q` | Todos pasan |
+| `dar_de_baja` (paso 6) | `dtest apps/inventario/tests/test_services.py -k "test_baja or test_cantidades or test_media_tableta" -q` | Todos pasan |
+| `corregir` (paso 6) | `dtest apps/inventario/tests/test_services.py apps/inventario/tests/test_concurrencia.py -q` | Todos pasan |
+
+### Paso 4. Excepciones de dominio (≈ 30 min)
 
 `app/apps/inventario/exceptions.py`:
 
@@ -154,7 +202,7 @@ class MovimientoEsCorreccion(ErrorInventario):
 
 > El mensaje "hay 1 dosis disponible" es exactamente el del criterio de aceptación de HU-01.
 
-### Paso 2. Funciones privadas de `services.py` (≈ 1 h)
+### Paso 5. Funciones privadas de `services.py` (≈ 1 h)
 
 Crea `app/apps/inventario/services.py` con el encabezado y los *helpers*. Las funciones que empiezan con `_` son privadas: solo se usan dentro de este archivo.
 
@@ -262,9 +310,9 @@ def _crear_movimiento(**campos) -> Movimiento:
     return movimiento
 ```
 
-### Paso 3. Las 4 funciones públicas (≈ 2 h)
+### Paso 6. Las 4 funciones públicas (≈ 2 h)
 
-Agrégalas al final de `services.py`:
+Agrégalas al final de `services.py` **una por una**, en este orden, y ejecuta su fila de la tabla del paso 3 antes de pasar a la siguiente:
 
 ```python
 @transaction.atomic
@@ -390,32 +438,23 @@ def corregir(*, usuario, movimiento: Movimiento, nota: str | None = None) -> Mov
 
 > **Por qué la corrección no bloquea el movimiento original:** no se puede usar `FOR UPDATE` sobre `movimiento` (paso 0.4). Si 2 usuarios corrigen a la vez, la restricción `uq_movimiento_corrige` deja pasar solo a uno; el otro recibe `MovimientoYaCorregido` y su transacción completa, incluido el cambio de saldo, se revierte.
 
-### Paso 4. Comprueba los fixtures que ya trae TK-01 (≈ 10 min)
-
-No crees fixtures nuevos: TK-01 ya dejó los que necesitas, y TK-03 usa los mismos.
-
-| Fixture o helper | Dónde | Para qué |
-|---|---|---|
-| `datos_demo` | `app/conftest.py` | Carga el mock de la sección 3.4 |
-| `demo` | `app/conftest.py` | `demo.carmen`, `demo.med["Eutirox"]`, `demo.motivo["CONSUMO"]`, `demo.operador`... |
-| `como_app_user` | `app/conftest.py` | El test corre como `app_user`, igual que la aplicación |
-| `ejecutar_sql`, `saldo` | `app/pruebas.py` | SQL directo en un savepoint y saldo actual de una entidad |
+### Paso 7. Tests en verde (≈ 30 min)
 
 ```bash
-dtest --fixtures apps/inventario | grep -E "datos_demo|demo|como_app_user"   # deben aparecer los 3
+dtest apps/inventario -q     # todos deben pasar
 ```
 
-Si te falta alguno, TK-01 no está completo en `main`: avisa antes de seguir.
+Si la cobertura de la sección 5 señala una rama sin probar, escribe primero su test en rojo.
 
-### Paso 5. Tests de reglas de negocio (≈ 2 h)
+El rojo del paso 3 solo prueba que las funciones no existían. Comprueba además que el test de carrera detecta el fallo: quita temporalmente `.select_for_update()` de `_bloquear_saldos` y ejecuta:
 
-Ver la sección 3.1. Empieza por un test, haz que pase y sigue con el siguiente (*TDD*): es más fácil encontrar el error.
+```bash
+dtest apps/inventario/tests/test_concurrencia.py -k dos_bajas -q     # debe fallar: los 2 hilos descuentan
+```
 
-### Paso 6. Tests de concurrencia (≈ 1.5 h)
+Si pasa, repítelo, porque la carrera depende del momento en que corre cada hilo. Después vuelve a poner `.select_for_update()` y confirma que el test pasa.
 
-Ver la sección 3.2. Son los más delicados: léelos completos antes de escribirlos.
-
-### Paso 7. Verificación final y *pull request* (≈ 1 h)
+### Paso 8. Verificación final y *pull request* (≈ 1 h)
 
 Ejecuta los comandos de la sección 5 y completa la lista de la sección 6.
 
@@ -732,7 +771,7 @@ git grep -nE "(Movimiento|Existencia)\.objects\.(create|bulk_create|update|get_o
 # 5. Los tests de concurrencia no son intermitentes
 for i in $(seq 1 20); do dtest apps/inventario/tests/test_concurrencia.py -q -p no:randomly || break; done
 
-# 6. Prueba manual en la base de desarrollo con el mock cargado (TK-01, paso 8)
+# 6. Prueba manual en la base de desarrollo con el mock cargado (TK-01, paso 10)
 dj shell
 ```
 
@@ -773,5 +812,5 @@ Después de probar a mano, vuelve a dejar la base como estaba: `docker compose d
 | Un test de concurrencia se queda colgado | *Deadlock* o un hilo esperando a la barrera | Revisa el `order_by("entidad_id")`; el tiempo límite hace que el test falle en lugar de colgarse |
 | `ExistenciaInsuficiente` en el test de transferencias cruzadas | Algún hilo de vuelta (Carmen → Hogar) llegó antes que los de ida | No debería pasar: Carmen empieza con 14. Si cambiaste las cantidades, que el origen tenga saldo para todas |
 | Después de un test de concurrencia, otros tests fallan con "Falta la entidad HOGAR" | Falta `serialized_rollback=True` | Usa el `pytestmark` de la sección 3.2 |
-| `mov.fecha_hora` es un objeto `DatabaseDefault` | Falta el `refresh_from_db` en `_crear_movimiento` | Paso 2 |
+| `mov.fecha_hora` es un objeto `DatabaseDefault` | Falta el `refresh_from_db` en `_crear_movimiento` | Paso 5 |
 | `Decimal('0.1') + 0.2` da error de tipos | Mezclaste `float` con `Decimal` | Pasa las cantidades como texto o `Decimal`, nunca como `float` |
