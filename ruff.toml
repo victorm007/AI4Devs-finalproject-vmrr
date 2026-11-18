@@ -1,0 +1,9 @@
+# ruff para las herramientas del repositorio: scripts/, .claude/hooks/ y tests/ (readme, sección 2.3).
+# El código de la aplicación usa su propia configuración, app/pyproject.toml (HB-02),
+# que ruff encuentra primero para todo lo que está dentro de app/.
+line-length = 120
+target-version = "py312"
+extend-exclude = ["app"]
+
+[lint]
+select = ["E4", "E7", "E9", "F", "I", "B", "UP"]

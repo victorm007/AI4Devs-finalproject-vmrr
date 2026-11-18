@@ -342,14 +342,10 @@ staticfiles/
 test-results/
 ```
 
-**4.3 `.gitignore`** de la raíz: agrega al final
+**4.3 `.gitignore`** de la raíz: ya ignora las cachés de Python (`__pycache__/`, `*.pyc`, `.pytest_cache/` y `.ruff_cache/`, que generan las herramientas de `scripts/` y `tests/`). Agrega al final lo que generan la aplicación y sus pruebas:
 
 ```text
-# Python y pruebas
-__pycache__/
-*.pyc
-.pytest_cache/
-.ruff_cache/
+# Aplicación y pruebas
 .coverage
 coverage.xml
 app/staticfiles/

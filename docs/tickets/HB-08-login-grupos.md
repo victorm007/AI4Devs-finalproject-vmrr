@@ -98,7 +98,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
-    # ... las de Django, sin cambios
+    # ... las de Django y la de CSP (config.middleware.ContentSecurityPolicyMiddleware, HB-04), sin cambios
     "axes.middleware.AxesMiddleware",  # al final: responde 429 si la cuenta está bloqueada
 ]
 

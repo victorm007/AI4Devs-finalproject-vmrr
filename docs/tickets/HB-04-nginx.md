@@ -47,7 +47,8 @@ AI4Devs-finalproject-vmrr/
 │   ├── default.conf               # NUEVO: proxy inverso, HTTPS y cabeceras de seguridad
 │   └── certs/.gitkeep             # NUEVO: la carpeta se versiona; los certificados no
 └── app/
-    ├── config/settings/base.py    # MODIFICAR: Django detrás de nginx
+    ├── config/middleware.py       # NUEVO: cabecera CSP desde Django (la misma que nginx)
+    ├── config/settings/base.py    # MODIFICAR: Django detrás de nginx y política CSP
     ├── config/settings/prod.py    # MODIFICAR: ajustes que solo aplican en producción
     └── config/tests/
         ├── __init__.py            # NUEVO (vacío)
@@ -124,10 +125,11 @@ server {
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_redirect off;
-        # Django también envía estas 3 cabeceras: se ocultan para que solo quede la de nginx
+        # Django también envía estas 4 cabeceras: se ocultan para que solo quede la de nginx
         proxy_hide_header X-Frame-Options;
         proxy_hide_header X-Content-Type-Options;
         proxy_hide_header Referrer-Policy;
+        proxy_hide_header Content-Security-Policy;
     }
 }
 ```
@@ -163,6 +165,38 @@ CSRF_TRUSTED_ORIGINS = lista_del_entorno("CSRF_TRUSTED_ORIGINS", "https://localh
 # Todos los entornos usan HTTPS (mkcert en local): las cookies solo viajan cifradas
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
+
+# Política CSP: la misma cadena que add_header Content-Security-Policy de nginx/default.conf
+# (un test lo comprueba). Django la envía siempre para que las pruebas que no pasan por nginx
+# (live_server de Playwright, TK-03) la apliquen igual que el navegador real.
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+    "font-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
+)
+MIDDLEWARE += ["config.middleware.ContentSecurityPolicyMiddleware"]
+```
+
+**4.1b `app/config/middleware.py`:**
+
+```python
+"""Cabecera Content-Security-Policy desde Django (readme, sección 2.5).
+
+Detrás de nginx, nginx oculta esta cabecera (proxy_hide_header) y envía la suya, que es
+idéntica. Sin nginx (live_server de las pruebas de Playwright), es la única: así los e2e
+detectan un script o un estilo en línea igual que el navegador en producción.
+"""
+
+from django.conf import settings
+
+
+class ContentSecurityPolicyMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        respuesta = self.get_response(request)
+        respuesta.headers.setdefault("Content-Security-Policy", settings.CONTENT_SECURITY_POLICY)
+        return respuesta
 ```
 
 **4.2 En `app/config/settings/prod.py`**, al final:
@@ -207,11 +241,16 @@ Abre <https://localhost/admin/> en el navegador: el candado no muestra advertenc
 ### 3.1 `app/config/tests/test_proxy.py`
 
 ```python
-"""Django detrás de nginx (readme, sección 2.4.1): HTTPS por cabecera y CSRF."""
+"""Django detrás de nginx (readme, sección 2.4.1): HTTPS por cabecera, CSRF y CSP."""
+
+import re
+from pathlib import Path
 
 import pytest
 from django.conf import settings
 from django.test import Client, RequestFactory
+
+NGINX_CONF = Path(settings.BASE_DIR).parent / "nginx" / "default.conf"
 
 
 def test_reconoce_https_por_la_cabecera_de_nginx():
@@ -252,6 +291,20 @@ def test_rechaza_formularios_desde_otro_origen():
         HTTP_ORIGIN="https://sitio-malicioso.example",
     )
     assert respuesta.status_code == 403
+
+
+@pytest.mark.django_db
+def test_django_envia_la_politica_csp():
+    respuesta = Client().get("/admin/login/", secure=True)
+    assert respuesta.headers["Content-Security-Policy"] == settings.CONTENT_SECURITY_POLICY
+
+
+def test_la_csp_de_django_es_la_misma_que_la_de_nginx():
+    # En el contenedor web solo existe app/: el test corre en el CI, que tiene el repositorio completo
+    if not NGINX_CONF.exists():
+        pytest.skip("nginx/default.conf no está al alcance (contenedor web); lo comprueba el CI")
+    politica = re.search(r'add_header Content-Security-Policy "([^"]+)"', NGINX_CONF.read_text())
+    assert politica and politica.group(1) == settings.CONTENT_SECURITY_POLICY
 ```
 
 ```bash
@@ -280,6 +333,7 @@ dtest config/tests -q
 | Certificados fuera del repositorio | `git status` no muestra `*.pem` |
 | Cabeceras de seguridad también en errores (`always`) | `curl -skI https://localhost/no-existe` las muestra |
 | Sin errores de CSP en el panel `/admin/` | Consola del navegador |
+| Django y nginx envían la misma política CSP, y llega una sola cabecera | `test_la_csp_de_django_es_la_misma_que_la_de_nginx` (CI) y `curl -skI https://localhost/admin/login/ \| grep -ci content-security-policy` responde `1` |
 | `nginx -t` sin errores | Paso 5 |
 
 ---

@@ -22,6 +22,11 @@ Dónde busca ruff y djLint (--modo):
   docker  solo el contenedor `web`.
   local   solo las del equipo (el CI las instala desde requirements-dev.txt).
 
+Con --herramientas revisa, en lugar de app/, las herramientas del repositorio
+(scripts/, .claude/hooks/ y tests/) con ruff y la configuración de ruff.toml de la
+raíz. Usa siempre el ruff del equipo, porque el contenedor `web` solo ve app/. Lo
+corre el job `herramientas` del CI, junto con `pytest tests`.
+
 Códigos de salida:
   0  sin errores, o nada que verificar (todavía no existe app/manage.py)
   1  hay errores de lint o de formato
@@ -44,6 +49,8 @@ APP = RAIZ / "app"
 EXCLUIDOS = ("staticfiles", "static/vendor", "htmlcov", "test-results", ".venv", "venv", "node_modules")
 
 SIN_HERRAMIENTAS = 3
+# Herramientas del repositorio (fuera de app/), con la configuración de ruff.toml
+RUTAS_HERRAMIENTAS = ("scripts", ".claude/hooks", "tests")
 
 
 def _excluido(relativa: str) -> bool:
@@ -106,6 +113,38 @@ def _relativas(archivos: list[str]) -> tuple[list[str], list[str]]:
     return py, html
 
 
+def verificar_herramientas(corregir: bool) -> int:
+    """ruff sobre scripts/, .claude/hooks/ y tests/, con el ruff del equipo y ruff.toml."""
+    if not shutil.which("ruff"):
+        print(
+            "No encuentro ruff en el equipo para revisar las herramientas del repositorio "
+            "(el contenedor web solo ve app/). Lo revisa el job herramientas del CI.",
+            file=sys.stderr,
+        )
+        return SIN_HERRAMIENTAS
+    rutas = [r for r in RUTAS_HERRAMIENTAS if (RAIZ / r).exists()]
+    if corregir:
+        correr([], RAIZ, ["ruff", "format", *rutas])
+        correr([], RAIZ, ["ruff", "check", "--fix", *rutas])
+    fallidos = []
+    for nombre, comando in (
+        ("ruff check", ["ruff", "check", *rutas]),
+        ("ruff format --check", ["ruff", "format", "--check", *rutas]),
+    ):
+        codigo, salida = correr([], RAIZ, comando)
+        print(f"- {nombre} ({', '.join(rutas)}): {'bien' if codigo == 0 else 'FALLA'}")
+        if codigo != 0:
+            fallidos.append(nombre)
+            print(salida)
+    if fallidos:
+        print(
+            "\nLas herramientas tienen errores. El formato se corrige con: python scripts/verificar.py --herramientas --corregir"
+        )
+        return 1
+    print("\nHerramientas del repositorio sin errores de lint ni de formato.")
+    return 0
+
+
 def main() -> int:
     for flujo in (sys.stdout, sys.stderr):  # djLint imprime emojis; la consola de Windows no es UTF-8
         if hasattr(flujo, "reconfigure"):
@@ -114,7 +153,13 @@ def main() -> int:
     parser.add_argument("archivos", nargs="*", help="solo estos archivos (dentro de app/)")
     parser.add_argument("--corregir", action="store_true", help="formatea antes de verificar")
     parser.add_argument("--modo", choices=("auto", "docker", "local"), default="auto")
+    parser.add_argument(
+        "--herramientas", action="store_true", help="revisa scripts/, .claude/hooks/ y tests/ en lugar de app/"
+    )
     opciones = parser.parse_args()
+
+    if opciones.herramientas:
+        return verificar_herramientas(opciones.corregir)
 
     if not (APP / "manage.py").exists():
         print("Todavía no existe app/manage.py (HB-02): nada que verificar.")

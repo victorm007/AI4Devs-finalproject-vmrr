@@ -299,10 +299,26 @@ dj createsuperuser                 # como app_user: la aplicación ya puede escr
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings.local"
 pythonpath = ["."]  # para que los tests puedan hacer "from pruebas import ejecutar_sql"
+testpaths = ["apps", "config", "e2e"]
+# Un marcador mal escrito (@pytest.mark.lent) es un error, no un test que corre sin filtro
+addopts = "--strict-markers"
 markers = [
     "lento: tests de plan de ejecución (EXPLAIN), corren en el CI nocturno",
+    "e2e: pruebas de extremo a extremo con Playwright (llegan en TK-03)",
 ]
+
+# Cobertura (readme, sección 2.6): la misma medida en local y en el CI
+[tool.coverage.run]
+source = ["apps"]
+branch = true
+omit = ["*/migrations/*", "*/tests/*"]  # el 80 % se mide sobre código de la aplicación
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
 ```
+
+> Con esta configuración, `pytest --cov` mide lo mismo en tu equipo y en el CI: solo el código de `apps/`, con ramas (`branch = true`) y sin contar migraciones ni tests.
 
 **6.2 `app/conftest.py`:**
 

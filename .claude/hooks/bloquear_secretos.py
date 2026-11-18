@@ -54,21 +54,31 @@ RE_ASIGNACION = re.compile(
     r"""["']?\s*[:=]\s*(["']?)([^\s"'#,;]{8,})"""
 )
 RE_URL_CRED = re.compile(r"""\b[a-z][a-z0-9+.-]*://[^/\s:@"']+:([^@\s/"']+)@""", re.I)
-RE_HASH = re.compile(r"\b(?:pbkdf2_sha256|pbkdf2_sha1|argon2|bcrypt_sha256)\$\S{20,}|\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}")
+RE_HASH = re.compile(
+    r"\b(?:pbkdf2_sha256|pbkdf2_sha1|argon2|bcrypt_sha256)\$\S{20,}|\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}"
+)
 
 # Datos personales (formatos de México, donde opera el hogar).
 RE_CORREO = re.compile(r"\b[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})\b")
 PERSONALES = [
-    ("curp", re.compile(r"\b[A-Z][AEIOUX][A-Z]{2}\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])[HM][A-Z]{2}[B-DF-HJ-NP-TV-Z]{3}[A-Z0-9]\d\b")),
+    (
+        "curp",
+        re.compile(
+            r"\b[A-Z][AEIOUX][A-Z]{2}\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])[HM][A-Z]{2}[B-DF-HJ-NP-TV-Z]{3}[A-Z0-9]\d\b"
+        ),
+    ),
     ("rfc", re.compile(r"\b[A-ZÑ&]{3,4}\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])[A-Z0-9]{2}[A0-9]\b")),
-    ("telefono", re.compile(r"(?i)(?:\b(?:tel[eé]fono|tel|celular|cel|m[oó]vil|whatsapp|phone)\b\s*[:=.]?\s*[\"']?\+?(?:[\d\s().-]){10,}|\+52[\s.-]?\d(?:[\s.-]?\d){9})")),
+    (
+        "telefono",
+        re.compile(
+            r"(?i)(?:\b(?:tel[eé]fono|tel|celular|cel|m[oó]vil|whatsapp|phone)\b\s*[:=.]?\s*[\"']?\+?(?:[\d\s().-]){10,}|\+52[\s.-]?\d(?:[\s.-]?\d){9})"
+        ),
+    ),
     ("nss", re.compile(r"(?i)\b(?:nss|seguro social|imss)\b\D{0,15}\d{11}\b")),
 ]
 RE_TARJETA = re.compile(r"\b[3-6]\d{3}([ -]?)\d{4}\1\d{4}\1\d{1,7}\b")
 
-DOMINIOS_EJEMPLO = re.compile(
-    r"(?i)(?:^|\.)(?:example\.(?:com|org|net)|example|test|invalid|localhost|local)$"
-)
+DOMINIOS_EJEMPLO = re.compile(r"(?i)(?:^|\.)(?:example\.(?:com|org|net)|example|test|invalid|localhost|local)$")
 CORREOS_PERMITIDOS = re.compile(
     r"(?i)^(?:noreply@anthropic\.com|noreply@github\.com|[^@]+@users\.noreply\.github\.com)$"
 )
@@ -92,7 +102,7 @@ def _permitidos() -> list[str]:
         lineas = PERMITIDOS_TXT.read_text(encoding="utf-8").splitlines()
     except OSError:
         return []
-    return [l.strip() for l in lineas if l.strip() and not l.lstrip().startswith("#")]
+    return [linea.strip() for linea in lineas if linea.strip() and not linea.lstrip().startswith("#")]
 
 
 PERMITIDOS = _permitidos()

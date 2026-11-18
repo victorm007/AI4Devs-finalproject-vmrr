@@ -805,9 +805,22 @@ def demo(datos_demo):
 
 @pytest.fixture
 def como_app_user(demo):
-    """El resto del test corre como app_user, igual que la aplicación en producción."""
+    """El resto del test corre como app_user, igual que la aplicación en producción.
+
+    SET LOCAL solo dura hasta el fin de la transacción del test. En un test con
+    transaction=True no hay transacción envolvente y PostgreSQL ignoraría el SET LOCAL
+    con un simple aviso: el test correría como app_owner sin que nadie lo notara.
+    Por eso falla aquí; en esos tests, cada hilo hace SET ROLE app_user (guía de TK-02).
+    """
+    if not connection.in_atomic_block:
+        pytest.fail(
+            "como_app_user necesita la transacción del test: no lo uses con "
+            "transaction=True; ahí cada hilo hace SET ROLE app_user (guía de TK-02)."
+        )
     with connection.cursor() as cursor:
         cursor.execute("SET LOCAL ROLE app_user")
+        cursor.execute("SELECT current_user")
+        assert cursor.fetchone()[0] == "app_user"
     return demo
 ```
 
@@ -841,12 +854,16 @@ def saldo(entidad, medicamento):
     return Existencia.objects.get(entidad=entidad, medicamento=medicamento).saldo
 ```
 
-`pyproject.toml` ya registra el marcador `lento` y agrega `app/` a la ruta de importación desde HB-03. Compruébalo:
+`pyproject.toml` ya tiene desde HB-03 la configuración de pytest (marcadores `lento` y `e2e` con `--strict-markers`, y `app/` en la ruta de importación) y la de cobertura (sin migraciones ni tests, con ramas). Compruébalo:
 
 ```toml
 [tool.pytest.ini_options]
 pythonpath = ["."]
-markers = ["lento: tests de plan de ejecución, corren en el CI nocturno"]
+addopts = "--strict-markers"
+markers = [
+    "lento: tests de plan de ejecución (EXPLAIN), corren en el CI nocturno",
+    "e2e: pruebas de extremo a extremo con Playwright (TK-03)",
+]
 ```
 
 ### Paso 10. Tests (≈ 2 h)
@@ -1128,6 +1145,7 @@ docker compose down -v && docker compose up -d && ./scripts/migrate.sh   # deja 
 
 | Síntoma | Causa probable | Solución |
 |---|---|---|
+| `como_app_user necesita la transacción del test` | El test usa `transaction=True` (sin transacción envolvente, `SET LOCAL` no tendría efecto) | Quita `como_app_user` de ese test: en los tests con hilos, cada hilo hace `SET ROLE app_user` (guía de TK-02) |
 | `sh: 01_roles.sh: not found` o `\r: not found` al levantar `db` | El script tiene fines de línea CRLF (Windows) | Guía de HB-01, paso 2.2, y `docker compose down -v` |
 | El script de roles no se ejecutó | El volumen `pgdata` ya existía | `docker compose down -v` (desarrollo) o ejecútalo a mano: `docker compose exec db sh /docker-entrypoint-initdb.d/01_roles.sh` |
 | `permission denied to create database` al correr `pytest` | `app_owner` sin `CREATEDB` | `DB_OWNER_CREATEDB=true` en `.env` y recrea el volumen |

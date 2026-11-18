@@ -342,6 +342,36 @@ Los anexos de `02`, `03` y `06` quedaron sincronizados.
 
 ---
 
+## Prompt 12 — Usuario
+
+¿En nuestro arnés de pruebas y en las convenciones tenemos huecos?
+
+(Tras la respuesta, con 8 huecos y 3 menores:) Sí, arréglalos.
+
+---
+
+## Respuesta 12 — Claude
+
+Encontré 8 huecos, y 3 hacían que un test pasara sin comprobar lo que decía. Los arreglé todos, más 2 de los menores:
+
+| # | Hueco | Arreglo |
+|---|---|---|
+| 1 | El chequeo de CSP de los e2e no podía fallar: la CSP solo la ponía nginx, y `live_server` no pasa por nginx | La política vive en `CONTENT_SECURITY_POLICY` y la envía un *middleware* de Django (HB-04); nginx oculta la de Django y deja una sola cabecera; un test del CI compara las 2 |
+| 2 | `como_app_user` hacía `SET LOCAL` aunque no hubiera transacción, y PostgreSQL lo ignoraba: el test corría como `app_owner` sin aviso | El *fixture* falla si no hay transacción envolvente y comprueba `current_user` (TK-01) |
+| 3 | Los e2e corrían como `app_owner` | `app/e2e/conftest.py` hace `SET ROLE app_user` en las conexiones del servidor de pruebas (TK-03) |
+| 4 | `CLAUDE.md` pedía `transaction=True` sin `serialized_rollback=True`, y el vaciado final borraría los datos semilla | Forma completa en `CLAUDE.md` y en el readme (2.6 y TK-02) |
+| 5 y 6 | La cobertura contaba migraciones y tests, y el CI medía ramas pero los comandos locales no | `[tool.coverage]` en `pyproject.toml` (HB-03): solo `apps/`, con ramas, sin migraciones ni tests; el CI ya no pasa `--cov-branch` |
+| 7 | Sin arnés de contrato: `jsonschema` no estaba en ninguna lista y el CI no hacía el lint de `openapi.yaml` | TK-05 agrega `jsonschema` y un *helper* en `pruebas.py`; nuevo *job* `contrato` con Redocly CLI 2.79.0, que probé: 0 errores |
+| 8 | Los hooks y scripts no tenían lint ni tests | `ruff.toml` en la raíz, `verificar.py --herramientas`, 46 tests en `tests/` y nuevo *job* `herramientas`; el hook de commits también los revisa si hay ruff en el equipo |
+
+**Menores arreglados:** `--strict-markers` y `testpaths`, con `e2e` registrado desde HB-03, y `timeout-minutes` en todos los *jobs* del CI. Queda pendiente, por decisión anterior, automatizar la reversibilidad de las migraciones y los umbrales propios de cada ticket.
+
+**Comprobaciones:** los 46 tests de las herramientas pasan, el lint nuevo detectó (y corregí) un error de sintaxis que yo mismo había introducido en el hook, y el hook de commits niega una herramienta mal formateada con ruff disponible y la deja pasar sin él. Para que el lint pase, corregí el hook de secretos (una variable `l` y el formato de sus expresiones regulares, sin cambiar su comportamiento: el escaneo del repositorio sigue en 0 hallazgos).
+
+`contrato` y `herramientas` no son *checks* obligatorios (readme 7.3, regla 7). Actualicé `CLAUDE.md`, el readme (2.3, 2.4, 2.5, 2.6, 4.7, 6 y 7.3), las guías HB-02, HB-03, HB-04, HB-08, TK-01 y TK-03, el CI y `.gitignore`.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 6)
 
 ## 6. Tickets de Trabajo
@@ -437,7 +467,7 @@ flowchart LR
 | `app/conftest.py`, `app/pruebas.py` | Agrega los *fixtures* y `saldo` | Solo los usa | Solo los usa | Los crea HB-03 (`conftest.py` vacío y `ejecutar_sql`). Después, solo TK-01 los modifica. Un *fixture* nuevo se pide en el PR de TK-01 o en uno propio |
 | `apps/inventario/migrations/` | `0001` a `0004` | — | — | TK-02 y TK-03 no crean migraciones. Si alguno la necesita, se renumera después del *rebase* |
 | `config/settings/base.py` | — | — | `django_htmx`, `LOGIN_REDIRECT_URL` | Lo crea HB-02 y lo completan HB-03 a HB-08 (`DATABASES` es de HB-03). Cambios en bloques distintos |
-| `requirements.txt` / `requirements-dev.txt` | — | — | `django-htmx` / `pytest-playwright` | Los crea HB-02 (`djlint`, `pytest`, `pytest-django`, `pytest-cov` y `ruff`). Una dependencia por línea, en orden alfabético |
+| `requirements.txt` / `requirements-dev.txt` | — | — | `django-htmx` / `pytest-playwright` | Los crea HB-02 (`djlint`, `pytest`, `pytest-django`, `pytest-cov` y `ruff`); TK-05 agrega `jsonschema`. Una dependencia por línea, en orden alfabético |
 | `docker-compose.yml`, `.env.example` | — | — | — | Los crean HB-01 a HB-04 (y HB-06 agrega `HOGAR_NOMBRE`). Los tickets TK no los modifican |
 
 #### Puntos de integración
@@ -597,7 +627,7 @@ No agrega dependencias nuevas.
 
 8. **Admin:** ninguno de estos modelos se registra en `/admin/` (sección 5, "Controles"). Se agrega un test que lo verifica. Además, el formulario de `MedicamentoAdmin` (HB-09) rechaza desmarcar `activo` si el medicamento tiene existencias, con el mensaje de la sección 5. Esa validación necesita la tabla `existencia`, por eso va aquí.
 
-9. **Fixtures de prueba compartidos** (punto de integración 7): `datos_demo` (carga el mock con `cargar_mock.sql` adaptado), `demo` (accesos a entidades, medicamentos, motivos y usuario), `como_app_user` (el test corre con los permisos de la aplicación) y el helper `saldo`, junto a `ejecutar_sql` (de HB-03). TK-02 y TK-03 los usan sin modificarlos.
+9. **Fixtures de prueba compartidos** (punto de integración 7): `datos_demo` (carga el mock con `cargar_mock.sql` adaptado), `demo` (accesos a entidades, medicamentos, motivos y usuario), `como_app_user` (el test corre con los permisos de la aplicación; falla si no hay transacción envolvente, para no correr en silencio como `app_owner`) y el helper `saldo`, junto a `ejecutar_sql` (de HB-03). TK-02 y TK-03 los usan sin modificarlos.
 
 10. **`Makefile` de la raíz:** atajos de desarrollo local (`make up`, `make migrate`, `make test`, `make mock`…) sobre los mismos comandos de la guía, con `make help` como punto de entrada. Se crea en este ticket porque es el primero en que todos sus comandos funcionan (`make mock` necesita las tablas de inventario y `make test` los *fixtures*). El CI no lo usa.
 
@@ -763,7 +793,7 @@ No agrega dependencias nuevas.
 
 **Pruebas**
 - `apps/inventario/tests/test_services.py`: un test por criterio, sobre el mock con los *fixtures* `demo` y `como_app_user` de TK-01.
-- `apps/inventario/tests/test_concurrencia.py`: `@pytest.mark.django_db(transaction=True)` con `threading` y `connection.close()` en cada hilo.
+- `apps/inventario/tests/test_concurrencia.py`: `@pytest.mark.django_db(transaction=True, serialized_rollback=True)` con `threading` y `connection.close()` en cada hilo.
 - Un *fixture* `autouse` que verifica la vista de conciliación al terminar cada test del módulo.
 
 **Definición de hecho**
@@ -875,7 +905,8 @@ No agrega dependencias nuevas.
   - `q` corto con `HX-Reswap: none`.
   - Redirección sin sesión.
   - Mismo número de consultas con 1 y con 20 resultados (`django_assert_num_queries`).
-- `app/e2e/test_existencias.py` (Playwright):
+- `app/e2e/conftest.py`: el servidor de pruebas (`live_server`) corre como `app_user`.
+- `app/e2e/test_existencias.py` (Playwright), sin errores de JavaScript ni violaciones de CSP en la consola:
   - Escribir "losartan" y esperar 3 renglones.
   - Viewport de celular: `document.documentElement.scrollWidth <= window.innerWidth`.
   - Navegación solo con teclado por los filtros.
@@ -974,7 +1005,7 @@ Dejan lista la base sobre la que se construyen TK-01 a TK-07: contenedores, cone
 | Depende de | HB-02 |
 | Guía | [`docs/tickets/HB-03-conexion-bd.md`](docs/tickets/HB-03-conexion-bd.md) |
 
-**Descripción técnica.** Configura `DATABASES` desde `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` y `DB_PASSWORD`. En Compose, `web` se conecta como `app_user`. Crea `scripts/migrate.sh`, que ejecuta `migrate` como `app_owner`. Agrega `psycopg[binary]` y `Django[argon2]`. Crea la app `accounts` con el modelo `Usuario(AbstractUser)` (tabla `usuario`, sección 3.2, D1) y `AUTH_USER_MODEL = "accounts.Usuario"` **antes del primer `migrate`**. Configura Argon2 como *hasher* principal (PBKDF2 se conserva para el mock) y los validadores de contraseña (mínimo 10 caracteres). Crea la migración `accounts/0002_privilegios.py`: `app_user` recibe `SELECT`, `INSERT`, `UPDATE` y `DELETE` sobre todas las tablas, también las futuras (`ALTER DEFAULT PRIVILEGES`). Configura pytest en `pyproject.toml` (con el marcador `lento`) y crea `conftest.py`, que activa el *job* `tests` del CI, y `pruebas.py`, con el helper `ejecutar_sql`.
+**Descripción técnica.** Configura `DATABASES` desde `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` y `DB_PASSWORD`. En Compose, `web` se conecta como `app_user`. Crea `scripts/migrate.sh`, que ejecuta `migrate` como `app_owner`. Agrega `psycopg[binary]` y `Django[argon2]`. Crea la app `accounts` con el modelo `Usuario(AbstractUser)` (tabla `usuario`, sección 3.2, D1) y `AUTH_USER_MODEL = "accounts.Usuario"` **antes del primer `migrate`**. Configura Argon2 como *hasher* principal (PBKDF2 se conserva para el mock) y los validadores de contraseña (mínimo 10 caracteres). Crea la migración `accounts/0002_privilegios.py`: `app_user` recibe `SELECT`, `INSERT`, `UPDATE` y `DELETE` sobre todas las tablas, también las futuras (`ALTER DEFAULT PRIVILEGES`). Configura pytest en `pyproject.toml` (marcadores `lento` y `e2e` con `--strict-markers`) y la cobertura (`[tool.coverage]`: solo `apps/`, con ramas, sin migraciones ni tests), y crea `conftest.py`, que activa el *job* `tests` del CI, y `pruebas.py`, con el helper `ejecutar_sql`.
 
 **Criterios de aceptación**
 - [ ] En una base nueva, `./scripts/migrate.sh` aplica `accounts.0001_initial` y `0002_privilegios` sin errores.
@@ -1002,7 +1033,7 @@ Dejan lista la base sobre la que se construyen TK-01 a TK-07: contenedores, cone
 | Depende de | HB-03 |
 | Guía | [`docs/tickets/HB-04-nginx.md`](docs/tickets/HB-04-nginx.md) |
 
-**Descripción técnica.** Agrega el servicio `nginx` (`nginx:stable-alpine`, red `frontend`, puertos 80 y 443, el único contenedor que publica puertos) con `nginx/default.conf`. Redirige 80 → 443, termina TLS 1.2+ con el certificado de `mkcert` (`nginx/certs/`, fuera del repositorio), sirve `/static/` desde el volumen `static` y reenvía el resto a `web:8000` con `X-Forwarded-For` y `X-Forwarded-Proto`. Aplica las cabeceras de la sección 2.5: HSTS, `X-Frame-Options: DENY`, `X-Content-Type-Options`, `Referrer-Policy` y una `Content-Security-Policy` de solo recursos propios, y oculta las que repite Django. En Django: `SECURE_PROXY_SSL_HEADER`, `CSRF_TRUSTED_ORIGINS` desde el entorno y *cookies* `Secure`. En `prod.py` se silencian los avisos de HSTS y redirección, porque los hace nginx.
+**Descripción técnica.** Agrega el servicio `nginx` (`nginx:stable-alpine`, red `frontend`, puertos 80 y 443, el único contenedor que publica puertos) con `nginx/default.conf`. Redirige 80 → 443, termina TLS 1.2+ con el certificado de `mkcert` (`nginx/certs/`, fuera del repositorio), sirve `/static/` desde el volumen `static` y reenvía el resto a `web:8000` con `X-Forwarded-For` y `X-Forwarded-Proto`. Aplica las cabeceras de la sección 2.5: HSTS, `X-Frame-Options: DENY`, `X-Content-Type-Options`, `Referrer-Policy` y una `Content-Security-Policy` de solo recursos propios, y oculta las que repite Django. Django envía la misma política CSP (`CONTENT_SECURITY_POLICY` y un *middleware*), para que las pruebas sin nginx la apliquen. En Django: `SECURE_PROXY_SSL_HEADER`, `CSRF_TRUSTED_ORIGINS` desde el entorno y *cookies* `Secure`. En `prod.py` se silencian los avisos de HSTS y redirección, porque los hace nginx.
 
 **Criterios de aceptación**
 - [ ] `http://localhost/` responde `301` a `https://localhost/`.
@@ -1011,6 +1042,7 @@ Dejan lista la base sobre la que se construyen TK-01 a TK-07: contenedores, cone
 - [ ] Solo `nginx` publica puertos, y `nginx` no alcanza a `db`.
 - [ ] El Administrador de HB-03 entra al panel por HTTPS sin error de CSRF ni violaciones de CSP en la consola.
 - [ ] Django reconoce HTTPS por la cabecera de nginx y rechaza formularios de otro origen (`403`).
+- [ ] Django envía la misma política CSP que nginx (un test del CI compara las 2), y por HTTPS llega una sola cabecera CSP.
 
 **Definición de hecho**
 - [ ] `nginx -t` sin errores; certificados fuera del repositorio.

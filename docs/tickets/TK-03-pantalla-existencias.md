@@ -85,6 +85,7 @@ app/
         ├── test_views_existencias.py              # NUEVO
         └── test_templatetags.py                   # NUEVO
 app/e2e/
+├── conftest.py                                    # NUEVO: el servidor de pruebas corre como app_user
 └── test_existencias.py                            # NUEVO: Playwright (dentro de app/ para que el contenedor lo vea)
 ```
 
@@ -743,7 +744,39 @@ def test_navegacion_con_teclado(pagina):
         expect(pagina.locator(campo)).to_be_focused()
 ```
 
-Registra el marcador en la configuración de pytest: `markers = [..., "e2e: pruebas de extremo a extremo con Playwright"]`.
+El marcador `e2e` ya está registrado desde HB-03 (`pyproject.toml`, con `--strict-markers`).
+
+**`app/e2e/conftest.py`:** el servidor de pruebas corre como `app_user`, así las pantallas se prueban con los privilegios reales de la aplicación:
+
+```python
+"""Configuración de las pruebas de extremo a extremo (readme, sección 2.6).
+
+El servidor de pruebas (live_server) atiende cada petición en un hilo propio, con su
+propia conexión: esas conexiones hacen SET ROLE app_user. El hilo principal sigue como
+app_owner, porque carga el mock (crea una vista temporal y reajusta secuencias) y, al
+terminar cada test, vacía las tablas y restaura los datos semilla (serialized_rollback).
+"""
+
+import threading
+
+import pytest
+from django.db.backends.signals import connection_created
+
+
+def _como_app_user(sender, connection, **kwargs):
+    if threading.current_thread() is not threading.main_thread():
+        with connection.cursor() as cursor:
+            cursor.execute("SET ROLE app_user")
+
+
+@pytest.fixture(autouse=True, scope="session")
+def servidor_como_app_user():
+    connection_created.connect(_como_app_user, dispatch_uid="e2e_como_app_user")
+    yield
+    connection_created.disconnect(dispatch_uid="e2e_como_app_user")
+```
+
+> **CSP:** `live_server` no pasa por nginx, pero Django envía la misma política CSP (HB-04, `ContentSecurityPolicyMiddleware`). Por eso el *fixture* `pagina` sí detecta en la consola un `<script>` o un estilo en línea.
 
 ---
 

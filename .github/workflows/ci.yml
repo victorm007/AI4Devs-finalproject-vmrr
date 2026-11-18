@@ -13,6 +13,9 @@
 #     e2e            -> app/e2e/        (primera prueba de Playwright)
 #   Así los PR de solo documentación y los primeros tickets de habilitación no fallan
 #   por algo que todavía no existe.
+# - `contrato` (lint de docs/api/openapi.yaml) y `herramientas` (scripts/, .claude/hooks/
+#   y tests/) corren siempre, pero NO son checks obligatorios (readme, 7.3, regla 7).
+# - Cada job tiene timeout-minutes: un test colgado no ocupa el runner horas.
 
 name: CI
 
@@ -58,6 +61,7 @@ jobs:
   detectar:
     name: detectar cambios
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       hay_codigo: ${{ steps.codigo.outputs.existe }}
       hay_tests: ${{ steps.codigo.outputs.tests }}
@@ -95,6 +99,7 @@ jobs:
     needs: detectar
     if: needs.detectar.outputs.hay_codigo == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -116,6 +121,7 @@ jobs:
     needs: detectar
     if: needs.detectar.outputs.hay_tests == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:17-alpine
@@ -150,9 +156,11 @@ jobs:
         env:
           # En el CI nocturno también corren los tests "lento" (planes de ejecución)
           MARCADORES: ${{ github.event_name == 'schedule' && 'not e2e' || 'not e2e and not lento' }}
+        # Ramas, migraciones y tests excluidos: [tool.coverage] de app/pyproject.toml (HB-03),
+        # la misma configuración que en local
         run: >-
           pytest -m "$MARCADORES"
-          --cov=apps --cov-branch --cov-report=term-missing --cov-report=xml
+          --cov=apps --cov-report=term-missing --cov-report=xml
           --cov-fail-under=80
       - name: Guardar el reporte de cobertura
         if: always()
@@ -172,6 +180,7 @@ jobs:
       needs.detectar.outputs.hay_e2e == 'true' &&
       (github.event_name != 'pull_request' || needs.detectar.outputs.frontend == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:17-alpine
@@ -220,6 +229,42 @@ jobs:
     needs: detectar
     if: needs.detectar.outputs.hay_codigo == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t hogar-web:ci app
+
+  # ---------------------------------------------------------------------------
+  # Contrato de la API (readme, 4.7): 0 errores con Redocly. No es un check obligatorio.
+  # ---------------------------------------------------------------------------
+  contrato:
+    name: contrato OpenAPI
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - name: Lint de docs/api/openapi.yaml (versión fijada de Redocly CLI)
+        run: npx --yes @redocly/cli@2.79.0 lint docs/api/openapi.yaml
+
+  # ---------------------------------------------------------------------------
+  # Herramientas del repositorio: hooks de Claude Code y scripts (readme, 2.3).
+  # ruff con ruff.toml y sus tests en tests/. No es un check obligatorio.
+  # ---------------------------------------------------------------------------
+  herramientas:
+    name: herramientas del repositorio
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Instalar ruff y pytest (versiones de app/requirements-dev.txt; antes de HB-02, las fijadas aquí)
+        run: pip install $(grep -ihE '^(ruff|pytest)==' app/requirements-dev.txt 2>/dev/null || echo ruff==0.17.5 pytest==9.2.0)
+      - run: python scripts/verificar.py --herramientas
+      - run: python -m pytest tests -q -p no:cacheprovider

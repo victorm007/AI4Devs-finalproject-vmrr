@@ -6,7 +6,10 @@ app/pyproject.toml), ejecuta scripts/verificar.py, el mismo que corre el job
   - hay errores de lint o de formato, o
   - no se pudo verificar (no hay ruff ni djLint, error o tiempo agotado):
     falla cerrada, igual que el hook de secretos.
-Los commits que no tocan código (documentación, CI, hooks) pasan sin verificar.
+Si el commit incluye herramientas del repositorio (.py de scripts/, .claude/hooks/ o
+tests/), corre además scripts/verificar.py --herramientas. Esas solo se pueden revisar con
+el ruff del equipo: si no está instalado, el commit pasa y las revisa el job
+`herramientas` del CI. Los commits sin código (documentación, CI) pasan sin verificar.
 
 Revisa el árbol de trabajo completo, como el CI revisa el árbol del commit.
 Si dejas cambios sin preparar, el resultado puede no coincidir con lo commiteado.
@@ -27,6 +30,7 @@ sys.dont_write_bytecode = True  # no dejar __pycache__ en .claude/hooks/
 from comandos_git import comandos_git  # noqa: E402  (mismo directorio: solo comandos git reales)
 
 RE_CODIGO = re.compile(r"^app/(?:.+\.(?:py|html)|pyproject\.toml)$")
+RE_HERRAMIENTAS = re.compile(r"^(?:scripts|\.claude/hooks|tests)/.+\.py$|^ruff\.toml$")
 
 RAIZ = Path(os.environ.get("CLAUDE_PROJECT_DIR") or Path(__file__).resolve().parents[2])
 SIN_HERRAMIENTAS = 3
@@ -85,11 +89,26 @@ def main() -> int:
         raiz = Path(_git(commit.cwd, "rev-parse", "--show-toplevel").strip())
         archivos = archivos_del_commit(commit.cwd, agrega, commit.tiene_opcion_corta("a", "--all"))
         codigo = [a for a in archivos if RE_CODIGO.match(a)]
-        if not codigo:
+        herramientas = [a for a in archivos if RE_HERRAMIENTAS.match(a)]
+        if not codigo and not herramientas:
             return 0
         verificador = raiz / "scripts" / "verificar.py"
         if not verificador.exists():
             verificador = RAIZ / "scripts" / "verificar.py"
+        if herramientas:
+            h = subprocess.run(
+                [sys.executable, str(verificador), "--herramientas"], cwd=raiz, capture_output=True, timeout=120
+            )
+            if h.returncode == 1:  # 3 = sin ruff en el equipo: lo revisa el job herramientas del CI
+                salida = (h.stdout + h.stderr).decode("utf-8", errors="replace").strip()
+                negar(
+                    "Bloqueado git commit: las herramientas del repositorio (scripts/, .claude/hooks/, tests/) "
+                    f"tienen errores de lint o de formato.\n{salida[-3000:]}\n"
+                    "Corrige el formato con `python scripts/verificar.py --herramientas --corregir` y reintenta."
+                )
+                return 0
+        if not codigo:
+            return 0
         r = subprocess.run([sys.executable, str(verificador)], cwd=raiz, capture_output=True, timeout=240)
     except Exception as e:  # falla cerrada: sin verificación no hay commit
         negar(f"No se pudo verificar el código antes del commit ({type(e).__name__}: {e}). Bloqueado por precaución.")
