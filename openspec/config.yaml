@@ -26,9 +26,10 @@ context: |
   - Flujo de trabajo y pruebas: CLAUDE.md ("Flujo de Trabajo: TDD y Mock-First",
     "Tickets y pruebas" y "Estrategia de Pruebas Estricta").
 
-  Capabilities: una por app de Django, en estructura plana: accounts, catalogo, entidades,
-  pautas, inventario, conteos, reportes y api (readme.md 2.2). specs/<capability>/spec.md
-  usa exactamente uno de esos nombres.
+  Capabilities, en estructura plana: una por app de Django (accounts, catalogo, entidades,
+  pautas, inventario, conteos, reportes y api; readme.md 2.2) e infraestructura, para lo
+  que no pertenece a una app: contenedores, imagen, red, proxy, configuración por entorno
+  y roles de base de datos. specs/<capability>/spec.md usa exactamente uno de esos nombres.
 
   Vocabulario de dominio estricto (CLAUDE.md): Residente, Entidad, Medicamento, Existencia,
   Movimiento (tipos Entrada, Transferencia y Baja; la corrección no es un tipo), Pauta y
@@ -105,7 +106,7 @@ rules:
     - >-
       Excepción de TDD: HB-01 y HB-02 no tienen pytest. Su tarea "rojo" ejecuta los comandos
       con resultado esperado de la sección 3 de la guía antes de crear los archivos, y la de
-      implementación los deja con ese resultado.
+      implementación los deja con ese resultado. Su último grupo no exige dtest ni cobertura.
     - >-
       Los tests corren contra PostgreSQL 17 real, nunca contra SQLite ni con la
       persistencia simulada. Las pruebas de servicios de inventario corren como app_user

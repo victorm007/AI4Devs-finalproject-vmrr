@@ -60,7 +60,7 @@ Presenta:
 
 Si la guía pone preparación antes del rojo (dependencias, `Makefile`), lanza primero `implementer` limitado a esos pasos.
 
-Copia la sección 3 de la guía a `<tmp>/<ticket>/encargo-tests.md`. Lanza `test-writer` en primer plano con ese archivo, el cambio de OpenSpec, la tabla de cobertura, las piezas de contrato y las rutas permitidas. No le pases la sección 2 de la guía.
+Copia la sección 3 de la guía a `<tmp>/<ticket>/encargo-tests.md`. En HB-01 y HB-02 copia también la sección 5, porque la tabla de la sección 3 remite a sus comandos. Lanza `test-writer` en primer plano con ese archivo, el cambio de OpenSpec, la tabla de cobertura, las piezas de contrato y las rutas permitidas. No le pases la sección 2 de la guía.
 
 Al volver, revisa que cada Scenario tenga su test y ejecuta `python scripts/verificar.py --corregir` **antes de congelar**. Después de congelar ya no se usa `--corregir` sin indicar archivo.
 
@@ -85,7 +85,9 @@ En HB-01 y HB-02 se congela solo `verificacion.sh`, sin `git add`. Muestra la hu
 
 ## 6. Implementación: subagente `implementer`
 
-Lánzalo en primer plano con el plan aprobado, las piezas de contrato, la lista congelada, los cambios ajenos y la tabla de avance de la guía. Trabaja hasta el verde.
+Lánzalo en primer plano con el plan aprobado, las piezas de contrato, la lista congelada, los cambios ajenos y la tabla de avance de la guía. Trabaja hasta el verde; en HB-01 y HB-02, el verde es `verificacion.sh`.
+
+Si `implementer` reporta que necesita recrear el volumen, ejecuta tú `docker compose down -v`, solo si el plan aprobado lo declara.
 
 **Disputas:** llévalas tal cual a quien aprobó el plan. Si se aceptan, `test-writer` corrige el test y se repiten los pasos 4 y 5. Ni tú ni `implementer` cambian un test congelado.
 
@@ -98,16 +100,17 @@ git status --short -- 'app/**/tests/**' 'app/**/conftest.py' 'app/e2e/**' app/pr
 git diff -- app/pyproject.toml              # sin cambios en pytest ni en coverage
 ```
 
-Después ejecuta tú la suite: `dtest -m "not e2e and not lento" --cov=apps --cov-fail-under=80`, más `-m lento` y Playwright si el ticket los usa. Valida los tests de regresión como indique la guía. **Si la huella no cuadra, el ticket no está terminado aunque todo esté en verde.**
+Después ejecuta tú la suite: `dtest -m "not e2e and not lento" --cov=apps --cov-fail-under=80`, más `-m lento` y Playwright si el ticket los usa. En HB-01 y HB-02 la suite es `bash <tmp>/<ticket>/verificacion.sh`, porque todavía no existen `dtest` ni la cobertura. Valida los tests de regresión como indique la guía. **Si la huella no cuadra, el ticket no está terminado aunque todo esté en verde.**
 
 ## 8. Cierre
 
-1. Ejecuta la sección 5 de la guía y marca la sección 6. `docker compose down -v` solo se ejecuta si el plan aprobado lo declara; si no lo declaró, no lo ejecutes y repórtalo como pendiente. Solo lo ejecutas tú, nunca un subagente.
-2. Ejecuta `python scripts/verificar.py` y `dj makemigrations --check --dry-run`.
-3. Comprueba el umbral de cobertura del ticket y, si cambia la API, `npx @redocly/cli lint docs/api/openapi.yaml`.
-4. Confirma que `readme.md` está al día y que todas las tareas de `tasks.md` están marcadas.
-5. Ejecuta `/openspec-verify-change <cambio>`. Es una revisión adicional: no reemplaza la huella ni la suite. Si reporta un hallazgo crítico, vuelve al paso 6 con `implementer` y repite el paso 7.
-6. Ejecuta `/openspec-archive-change <cambio>` y elige sincronizar las specs. Solo se archiva si no quedan disputas, hallazgos críticos ni comprobaciones pendientes; si quedan, deja el cambio sin archivar y repórtalo.
-7. Informa: paso → archivos; Scenario → rojo → verde; huella; salida de la sección 5; resultado de la verificación y del archivado; disputas; desviaciones de la guía; lo que no se pudo comprobar.
+1. Si la guía pide permiso de ejecución para un script, como `db/init/01_roles.sh` en HB-01, ejecuta tú sus comandos `git add` y `git update-index --chmod=+x`, y comprueba `100755` con `git ls-files -s <script>`.
+2. Ejecuta la sección 5 de la guía y marca la sección 6. `docker compose down -v` solo se ejecuta si el plan aprobado lo declara; si no lo declaró, no lo ejecutes y repórtalo como pendiente. Solo lo ejecutas tú, nunca un subagente.
+3. Ejecuta `python scripts/verificar.py` y, desde HB-03, `dj makemigrations --check --dry-run`.
+4. Desde HB-03, comprueba el umbral de cobertura del ticket. Si cambia la API, ejecuta `npx @redocly/cli lint docs/api/openapi.yaml`.
+5. Confirma que `readme.md` está al día y que todas las tareas de `tasks.md` están marcadas.
+6. Ejecuta `/openspec-verify-change <cambio>`. Es una revisión adicional: no reemplaza la huella ni la suite. Si reporta un hallazgo crítico, vuelve al paso 6 con `implementer` y repite el paso 7.
+7. Ejecuta `/openspec-archive-change <cambio>` y elige sincronizar las specs. Solo se archiva si no quedan disputas, hallazgos críticos ni comprobaciones pendientes; si quedan, deja el cambio sin archivar y repórtalo.
+8. Informa: paso → archivos; Scenario → rojo → verde; huella; salida de la sección 5; resultado de la verificación y del archivado; disputas; desviaciones de la guía; lo que no se pudo comprobar.
 
 Esta skill **no hace commit, push ni PR**. Las guías dicen "Haz un commit al terminar cada paso", pero aquí no aplica: esos commits dejarían la historia con commits rotos, con tests en rojo o pasos a medias (ancla de `CLAUDE.md`). Los tests congelados quedan en staging y los commits siguen la sección Git.

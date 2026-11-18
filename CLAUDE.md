@@ -55,7 +55,7 @@ Las decisiones estructurales e irreversibles del sistema están documentadas en 
 ### OpenSpec
 Cada ticket se implementa como un cambio de OpenSpec (`openspec/changes/<id-del-ticket>-...`). `openspec/config.yaml` define sus fuentes (historias en la sección 5 del readme, tickets en la sección 6 y sus guías, arquitectura y convenciones de BD en este archivo, y los ADR) y las reglas de cada artefacto:
 - **`proposal.md`:** bajo el título, la línea `**Historia:** HU-NN · **Ticket:** TK-NN · **Épica:** EP-NN`, con los IDs exactos del readme (los tickets HB no tienen historia: `— (habilitador de EP-NN)`).
-- **`specs/<capability>/spec.md`:** cada criterio de aceptación (Gherkin de la historia y casillas de la ficha del ticket) se convierte en un `#### Scenario:` con viñetas `**GIVEN**` / `**WHEN**` / `**THEN**` / `**AND**`. Los requisitos usan "DEBE (MUST)", porque `openspec validate --strict` exige SHALL o MUST. Las capabilities son las 8 apps.
+- **`specs/<capability>/spec.md`:** cada criterio de aceptación (Gherkin de la historia y casillas de la ficha del ticket) se convierte en un `#### Scenario:` con viñetas `**GIVEN**` / `**WHEN**` / `**THEN**` / `**AND**`. Los requisitos usan "DEBE (MUST)", porque `openspec validate --strict` exige SHALL o MUST. Las capabilities son las 8 apps e `infraestructura` (contenedores, imagen, red, proxy, configuración por entorno y roles de base de datos).
 - **`tasks.md`:** mock-first y TDD: por grupo, primero los tests en rojo con los datos del mock, después la implementación; cada tarea, con su comando de verificación.
 - Los encabezados que lee el validador y las palabras clave GIVEN/WHEN/THEN/AND/SHALL/MUST van en inglés; el resto, en español. Valida con `openspec validate <cambio> --strict`.
 
@@ -201,7 +201,7 @@ CI (`.github/workflows/ci.yml`): el *job* `lint` corre `python scripts/verificar
 
 <!--
 RECORDATORIO (pendiente): regla de capabilities. OpenSpec ya está inicializado (`openspec/config.yaml`) y las
-capabilities son las 8 apps (estructura plana en `openspec/specs/<capability>/`). Se activa cuando exista la primera
+capabilities son las 8 apps e `infraestructura` (estructura plana en `openspec/specs/<capability>/`). Se activa cuando exista la primera
 spec. Borrador para entonces, ya traducido a Django:
 
 - Un cambio que toque rutas, controladores, validadores o transformers de una capability se cierra en el mismo commit

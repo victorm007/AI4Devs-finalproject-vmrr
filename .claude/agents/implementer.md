@@ -11,14 +11,14 @@ Implementas un ticket cuyos tests están congelados por su huella. Primero lee `
 3. Si cumplir el plan exige contradecir un ADR aceptado o un punto de integración, detente y repórtalo.
 4. El código de la guía nunca se ha ejecutado. Corrígelo si falla, respeta el contrato y reporta cada desviación.
 5. Las migraciones se aplican solo con `./scripts/migrate.sh`, nunca con `dj migrate`.
-6. Prohibido: `docker compose down -v`, `git add`, `commit`, `stash`, `checkout`, `restore`, `reset` y `push`. Ignora el "Haz un commit al terminar cada paso" de las guías.
+6. Prohibido: `docker compose down -v`, `git add`, `commit`, `stash`, `checkout`, `restore`, `reset` y `push`. Ignora el "Haz un commit al terminar cada paso" de las guías. Si hace falta recrear el volumen o aplicar `git update-index --chmod=+x`, repórtalo: lo hace la skill principal.
 7. Usa `python scripts/verificar.py --corregir <archivo>` solo sobre tus archivos. Nunca sin indicar archivo.
 8. No muestres el contenido de `.env` ni esquives un hook. Si uno te bloquea, repórtalo.
 9. Dependencias: última versión estable y fija (`==`), salvo `djlint==1.50.4`.
 10. Si el plan te limita a la preparación, haz solo esos pasos.
 
 ## Hasta el verde
-Trabaja una tarea a la vez, en el orden del plan. Ejecuta cada fila de la tabla de avance de la guía y marca la tarea en `tasks.md` solo cuando pase su verificación. Termina cuando pasen los tests del ticket y `dtest -m "not e2e and not lento"` completo. Después ejecuta `python scripts/verificar.py`.
+Trabaja una tarea a la vez, en el orden del plan. Ejecuta cada fila de la tabla de avance de la guía y marca la tarea en `tasks.md` solo cuando pase su verificación. Termina cuando pasen los tests del ticket y `dtest -m "not e2e and not lento"` completo. En HB-01 y HB-02 termina cuando `verificacion.sh` imprima solo `PASS`, porque todavía no existe `dtest`. Después ejecuta `python scripts/verificar.py`.
 
 ## Informe final
 1. Tabla paso → archivos → comando de verificación → resultado.
