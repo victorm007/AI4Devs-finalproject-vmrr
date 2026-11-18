@@ -319,6 +319,29 @@ Configuré `openspec/config.yaml` (OpenSpec 2.1, esquema `spec-driven`), que iny
 
 ---
 
+## Prompt 11 — Usuario
+
+¿Con qué framework vamos a escribir las pruebas? ¿Exclusivamente con pytest?
+
+(Tras la respuesta:) Arregla la inconsistencia en el `CLAUDE.md` y el `readme.md`: usemos la implementación de `@pytest.mark.django_db(transaction=True)`, igual que en las guías, y `django_assert_num_queries`. Usemos pytest, que es claramente mejor para el mantenimiento y la extensibilidad.
+
+---
+
+## Respuesta 11 — Claude
+
+Sí: el diseño usa solo pytest como framework y ejecutor, con pytest-django (base de pruebas, `client`, `transaction=True`, `django_assert_num_queries`), pytest-cov (cobertura), pytest-playwright (extremo a extremo) y jsonschema (contratos de la API, una biblioteca, no un framework). Ninguna guía escribe clases `TestCase`. La inconsistencia estaba en 2 APIs de estilo `unittest` de Django que aún se mencionaban: `TransactionTestCase` y `assertNumQueries`.
+
+**Corregido:**
+- **`CLAUDE.md`:** la regla "Concurrencia obligatoria" pide `@pytest.mark.django_db(transaction=True)` con `threading`, y una regla nueva, "Framework", fija que todo se escribe con pytest: funciones, *fixtures* y marcadores, sin clases `TestCase`.
+- **readme 2.6:** "Herramientas" dice que se usa solo pytest y nombra las 2 formas de pytest-django; la fila de concurrencia de la tabla usa `transaction=True` con hilos.
+- **readme 3.3:** la verificación de índices usa `django_assert_num_queries`.
+- **readme 6 (TK-02):** el test de concurrencia queda solo con `@pytest.mark.django_db(transaction=True)`.
+- **ADR-0018:** decía `assertNumQueries`. Lo corregí como error de documentación: la decisión (verificar los índices con el plan y el número de consultas) no cambia, así que no hace falta un ADR nuevo.
+
+Los anexos de `02`, `03` y `06` quedaron sincronizados.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 6)
 
 ## 6. Tickets de Trabajo
@@ -740,7 +763,7 @@ No agrega dependencias nuevas.
 
 **Pruebas**
 - `apps/inventario/tests/test_services.py`: un test por criterio, sobre el mock con los *fixtures* `demo` y `como_app_user` de TK-01.
-- `apps/inventario/tests/test_concurrencia.py`: `TransactionTestCase` (o `@pytest.mark.django_db(transaction=True)`) con `threading` y `connection.close()` en cada hilo.
+- `apps/inventario/tests/test_concurrencia.py`: `@pytest.mark.django_db(transaction=True)` con `threading` y `connection.close()` en cada hilo.
 - Un *fixture* `autouse` que verifica la vista de conciliación al terminar cada test del módulo.
 
 **Definición de hecho**

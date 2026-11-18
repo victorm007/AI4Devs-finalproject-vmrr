@@ -995,7 +995,7 @@ CREATE TRIGGER tg_detalle_conteo_cerrado BEFORE INSERT OR UPDATE OR DELETE ON de
 - **Búsquedas desde el ORM:** se usa una expresión anotada, `annotate(n=Func(Lower('nombre_comercial'), function='f_unaccent')).filter(n__contains=...)`. Así coincide exactamente con la expresión del índice.
 - **Verificación:**
   - Se cargan datos sintéticos de un año (unos 175,000 movimientos) y se revisa con `EXPLAIN (ANALYZE, BUFFERS)` que cada consulta frecuente use su índice.
-  - Un test de integración lo comprueba con `assertNumQueries` y el plan de ejecución de las consultas clave.
+  - Un test de integración lo comprueba con `django_assert_num_queries` y el plan de ejecución de las consultas clave.
   - En producción, `pg_stat_statements` identifica consultas lentas, y `pg_stat_user_indexes` detecta índices que no se usan para eliminarlos.
 
 ### **3.4. Datos de prueba (mock) para demo y desarrollo**

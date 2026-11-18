@@ -20,7 +20,7 @@ El catálogo y las Entidades son pequeños: unos 300 Medicamentos y 21 Entidades
 - Los índices se declaran en `Meta.indexes` (`GinIndex`, `Index` con `condition` e `include`, `BrinIndex`).
 - **Verificación:**
   - `EXPLAIN (ANALYZE, BUFFERS)` sobre un año de datos sintéticos (unos 175,000 Movimientos).
-  - Un test de integración con `assertNumQueries` y el plan de las consultas clave.
+  - Un test de integración con `django_assert_num_queries` y el plan de las consultas clave.
   - En producción, `pg_stat_statements` para detectar consultas lentas y `pg_stat_user_indexes` para encontrar índices sin uso.
 
 ## Alternativas consideradas
