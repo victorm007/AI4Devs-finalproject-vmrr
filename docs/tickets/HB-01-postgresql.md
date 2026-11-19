@@ -275,9 +275,10 @@ docker compose exec db psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c '\l hogar' 
 docker compose exec db psql -U app_user -d "$POSTGRES_DB" -c 'CREATE TABLE prueba (id int)'
 # ERROR:  permission denied for schema public
 
-# 5. Contraseña real por TCP (dentro del contenedor, autenticación scram-sha-256)
-docker compose exec db psql "postgresql://app_user:${DB_APP_PASSWORD}@localhost/${POSTGRES_DB}" \
-    -tAc 'SELECT current_user'
+# 5. Contraseña real por TCP, por la IP del contenedor (scram-sha-256).
+#    Por localhost no sirve: la imagen oficial usa trust ahí y acepta cualquier contraseña.
+docker compose exec -e PGPASSWORD="$DB_APP_PASSWORD" db sh -c \
+    'psql -h "$(hostname -i)" -U app_user -d "$POSTGRES_DB" -tAc "SELECT current_user"'
 # app_user
 
 # 6. Idempotencia: el script se puede volver a ejecutar sin errores

@@ -1,0 +1,33 @@
+# Servicios del sistema (readme, sección 2.4.1).
+# HB-01 crea db; HB-02 agrega web y HB-04 agrega nginx.
+name: hogar
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Falta POSTGRES_DB en .env}
+      POSTGRES_USER: ${POSTGRES_USER:?Falta POSTGRES_USER en .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD en .env}
+      # Las lee db/init/01_roles.sh para crear los 2 usuarios de la aplicación
+      DB_OWNER_PASSWORD: ${DB_OWNER_PASSWORD:?Falta DB_OWNER_PASSWORD en .env}
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD:?Falta DB_APP_PASSWORD en .env}
+      DB_OWNER_CREATEDB: ${DB_OWNER_CREATEDB:-false}
+    volumes:
+      - pgdata:/var/lib/postgresql/data          # datos persistentes
+      - ./db/init:/docker-entrypoint-initdb.d:ro # scripts de inicio, solo lectura
+    healthcheck:
+      # Por TCP: el servidor temporal de la inicialización solo atiende por socket
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [backend]
+    # Sin "ports": PostgreSQL no se publica al host (readme, sección 2.5, aislamiento de red)
+
+volumes:
+  pgdata:
+
+networks:
+  backend:

@@ -594,6 +594,7 @@ dj createsuperuser
 - [ ] La definición de hecho común y la del ticket se cumplen.
 - [ ] La descripción del PR incluye la salida de `showmigrations`, de `current_user` y del `CREATE TABLE` rechazado.
 - [ ] En el CI, `lint`, `tests` y `build de la imagen` están en verde.
+- [ ] En el *job* `tests`, el paso `Crear app_owner y app_user` terminó sin `connection refused` (sección 7.1).
 
 ## 7. Si te bloqueas
 
@@ -608,3 +609,47 @@ dj createsuperuser
 | `permission denied for table ...` en la aplicación | Una tabla se creó sin pasar por `migrate.sh` o antes de `0002_privilegios` | Agrega la dependencia de `0002_privilegios` y vuelve a ejecutar `./scripts/migrate.sh` |
 | `test_los_tests_corren_como_app_owner` falla con `app_user` | Corriste `pytest` sin el atajo `dtest` | Usa `dtest` (cambia `DB_USER` a `app_owner`) |
 | `ModuleNotFoundError: No module named 'pruebas'` | Falta `pythonpath = ["."]` | Paso 2.1 |
+| `connection refused` en el paso `Crear app_owner y app_user` del CI | El servicio se reportó `healthy` antes de aceptar TCP | Sección 7.1 |
+
+### 7.1 Riesgo conocido: el CI puede ver `healthy` antes de que PostgreSQL acepte TCP
+
+**Estado:** riesgo bajo, no reproducido. `.github/workflows/ci.yml` no se ha cambiado.
+
+**Por qué existe.** Los servicios `postgres` de los *jobs* `tests` y `e2e` usan `--health-cmd "pg_isready -U postgres"`, que pregunta por el *socket* local. Al inicializar un volumen nuevo, la imagen oficial levanta primero un servidor temporal con `listen_addresses=''`: responde por *socket*, pero no por TCP. Después lo detiene y arranca el definitivo. Si el *healthcheck* cae en esa ventana, el servicio queda `healthy` aunque todavía no acepte TCP, y `sh db/init/01_roles.sh`, que se conecta con `PGHOST: localhost`, podría fallar con `connection refused`.
+
+**Por qué aparece en este ticket.** `app/conftest.py` activa por primera vez el *job* `tests`. El *job* `e2e` tiene la misma configuración y se activa en TK-03. El servicio `db` de `docker-compose.yml` no tiene este riesgo, porque desde HB-01 su *healthcheck* usa `pg_isready -h 127.0.0.1`.
+
+**Qué se midió** (2026-11-18, Docker local, `postgres:17-alpine` 17.12, con la configuración del CI y 3 corridas por fila). La ventana va desde que el servidor temporal está listo hasta que lo está el definitivo.
+
+| CPU del contenedor | Ventana sin TCP | `healthy` antes de aceptar TCP |
+|---|---|---|
+| Sin límite | 0.41 a 0.46 s | 0 de 3 |
+| 0.5 | 0.44 a 0.47 s | 0 de 3 |
+| 0.25 | 0.82 a 1.00 s | 0 de 3 |
+| 0.15 | 1.79 a 1.99 s | 0 de 3 |
+| 0.1 | 2.79 a 3.00 s | 0 de 3 |
+
+La ventana existe, pero el fallo no se reprodujo en ninguna de las 15 corridas: el *healthcheck* solo pregunta cada 5 s. Además, en el CI `checkout` y `setup-python` corren antes del script, lo que da más margen. Esta medición no se hizo en un *runner* de GitHub.
+
+**Comprobaciones pendientes**
+
+- [ ] En el primer PR de HB-03, el paso `Crear app_owner y app_user` del *job* `tests` termina sin `connection refused`.
+- [ ] En TK-03, el paso `Crear app_owner y app_user` del *job* `e2e` termina sin `connection refused`.
+- [ ] Si alguno falla, confirma que el error es `connection refused`. Un `password authentication failed` u otro error tiene otra causa y estas soluciones no aplican.
+
+**Soluciones**
+
+1. **Inmediata:** vuelve a ejecutar el *job* con *Re-run failed jobs*. El fallo depende del momento del arranque.
+2. **Definitiva:** si el fallo aparece, cambia el *healthcheck* de los 2 servicios `postgres` en `ci.yml` para que pregunte por TCP. No cambia el nombre de ningún *job*, así que no afecta la protección de `main`. En 9 corridas con CPU limitada (0.25, 0.15 y 0.1), esta variante tampoco reportó `healthy` antes de tiempo y tardó un tiempo similar en quedar sana.
+
+   ```yaml
+   options: >-
+     --health-cmd "pg_isready -h 127.0.0.1 -U postgres -d hogar"
+     --health-interval 5s --health-timeout 5s --health-retries 20
+   ```
+
+3. **Alternativa:** si no se puede cambiar el *healthcheck*, agrega antes de `sh db/init/01_roles.sh` una espera con límite:
+
+   ```bash
+   timeout 60 sh -c 'until pg_isready -h localhost -U postgres; do sleep 1; done'
+   ```
