@@ -26,8 +26,32 @@ services:
     networks: [backend]
     # Sin "ports": PostgreSQL no se publica al host (readme, sección 2.5, aislamiento de red)
 
+  web:
+    build:
+      context: ./app
+      args:
+        INSTALAR_DEV: ${INSTALAR_DEV:-false}
+        APP_UID: ${APP_UID:-1000}
+    restart: unless-stopped
+    environment:
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.prod}
+      SECRET_KEY: ${SECRET_KEY:?Falta SECRET_KEY en .env}
+      DEBUG: ${DEBUG:-False}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost}
+      GUNICORN_CMD_ARGS: ${GUNICORN_CMD_ARGS:-}
+    volumes:
+      - ./app:/app                 # el código del repositorio (makemigrations escribe aquí)
+      - static:/app/staticfiles    # collectstatic escribe; nginx (HB-04) lo lee
+    depends_on:
+      db:
+        condition: service_healthy # nunca arranca antes de que la base responda
+    networks: [frontend, backend]
+    # Sin "ports": el 8000 solo es visible para nginx dentro de la red frontend
+
 volumes:
   pgdata:
+  static:
 
 networks:
   backend:
+  frontend:

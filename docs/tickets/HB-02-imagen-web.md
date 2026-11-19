@@ -345,8 +345,8 @@ CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers
 **4.2 `app/.dockerignore`** (lo que no entra en la imagen):
 
 ```text
-__pycache__/
-*.pyc
+**/__pycache__/
+**/*.pyc
 .pytest_cache/
 .ruff_cache/
 .coverage
@@ -371,7 +371,8 @@ app/test-results/
 
 ```dotenv
 # Django (readme, sección 2.5)
-# Genera la tuya con: docker compose run --rm --no-deps web python -c "from django.core.management.utils import get_random_secret_key as g; print(g())"
+# Genera la tuya, solo con letras y números, con:
+# docker run --rm python:3.12-slim python -c "import secrets, string; print(''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(64)))"
 SECRET_KEY=cambia-esto-por-una-clave-larga-y-aleatoria
 DEBUG=False
 ALLOWED_HOSTS=localhost,127.0.0.1
@@ -384,7 +385,7 @@ INSTALAR_DEV=true
 GUNICORN_CMD_ARGS=--reload
 ```
 
-> La `SECRET_KEY` generada puede traer `$` o `#`. Si los trae, genera otra: `.env` no debe tenerlos (lo lee `make`, TK-01).
+> La `SECRET_KEY` lleva solo letras y números. `get_random_secret_key()` de Django no sirve aquí: produce caracteres como `&`, `(` y `$`, que rompen `. ./.env` y la lectura de `make` (TK-01).
 
 **5.2 En `docker-compose.yml`**, agrega el servicio `web`, el volumen `static` y la red `frontend`:
 
@@ -454,7 +455,7 @@ Este ticket todavía no tiene código de negocio ni base de datos, así que **no
 | 1 | La configuración de Django es válida | `docker compose exec web python manage.py check` | `System check identified no issues (0 silenced).` |
 | 2 | Gunicorn sirve peticiones | Script de la sección 5, paso 3 | `404` (Django responde; aún no hay páginas) |
 | 3 | Corre sin `root` | `docker compose exec web whoami` | `django` |
-| 4 | `web` no publica puertos | `docker compose port web 8000` | Sin salida |
+| 4 | `web` no publica puertos | `docker compose port web 8000` | `:0` (Compose no muestra ningún puerto publicado) |
 | 5 | `web` llega a `db` por la red `backend` | Sección 5, paso 5 | `db:5432 alcanzable` |
 | 6 | Sin `SECRET_KEY`, no arranca | `SECRET_KEY= docker compose config --quiet` | Error: `Falta SECRET_KEY en .env` (la variable del *shell* manda sobre `.env`) |
 | 7 | La imagen de producción no trae herramientas de desarrollo | Sección 5, paso 6 | `WARNING: Package(s) not found: pytest` |
@@ -495,7 +496,7 @@ python scripts/verificar.py
 
 # 2. Usuario del proceso y puertos
 docker compose exec web whoami                       # django
-docker compose port web 8000 || echo "no publicado"  # no publicado
+docker compose port web 8000                         # :0 (ningún puerto publicado)
 
 # 3. Gunicorn responde (Django aún no tiene páginas: 404 es lo correcto)
 docker compose exec -T web python - <<'EOF'
@@ -529,9 +530,15 @@ docker run --rm hogar-web:prueba pip show pytest 2>&1 | tail -1
 SECRET_KEY= docker compose config --quiet
 # error ... Falta SECRET_KEY en .env
 
-# 8. Reconstrucción rápida: cambiar código no reinstala dependencias
-touch app/config/urls.py && docker compose build web 2>&1 | grep "RUN pip install"
-# La línea debe empezar con CACHED
+# 8. Reconstrucción rápida: cambiar código no reinstala dependencias.
+#    Docker calcula la caché por contenido, así que touch no basta: se cambia un .py en una copia.
+copia=$(mktemp -d)
+tar -C app --exclude=./staticfiles --exclude=.ruff_cache --exclude=__pycache__ -cf - . | tar -C "$copia" -xf -
+echo "# prueba de caché $(date +%s)" >> "$copia/config/urls.py"
+docker build --progress=plain -t hogar-web:prueba "$(cygpath -m "$copia" 2>/dev/null || echo "$copia")" 2>&1 \
+    | grep -A1 -E "RUN pip install|COPY --chown"
+# Después de RUN pip install: #N CACHED. Después de COPY --chown: #N DONE
+rm -rf "$copia" && docker rmi hogar-web:prueba
 ```
 
 ---
