@@ -1,6 +1,6 @@
 # ADR-0003 · Despliegue con Docker Compose: `nginx`, `web` y `db`
 
-- **Estado:** Aceptado
+- **Estado:** Supersedido por [ADR-0025](0025-despliegue-docker-compose-nginx-version-fija.md)
 - **Fecha:** 2026-11-16
 - **Capabilities afectadas:** `accounts`, `catalogo`, `entidades`, `pautas`, `inventario`, `conteos`, `reportes`, `api`
 - **Fuentes:** `readme.md` §2.1, §2.2, §2.4, §2.4.1, §2.5 y §6 (HB-01 a HB-04, decisiones de diseño de la habilitación)

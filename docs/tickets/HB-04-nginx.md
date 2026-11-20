@@ -75,7 +75,7 @@ dtest config/tests/test_proxy.py -q
 |---|---|---|
 | `test_reconoce_https_por_la_cabecera_de_nginx`, `test_las_cookies_solo_viajan_por_https`, `test_acepta_formularios_desde_el_origen_de_nginx`, `test_django_envia_la_politica_csp` | Fallan | Falta la configuración del paso 5 |
 | `test_sin_la_cabecera_la_peticion_no_es_https`, `test_rechaza_formularios_desde_otro_origen` | Pasan | Django ya lo hace por defecto: son tests de regresión |
-| `test_la_csp_de_django_es_la_misma_que_la_de_nginx` | Se omite | El contenedor `web` no ve `nginx/default.conf`: un test omitido no es un rojo, y la comparación real ocurre en el CI |
+| `test_la_csp_de_django_es_la_misma_que_la_de_nginx` | Se omite | El contenedor `web` no ve `nginx/default.conf`: un test omitido no es un rojo. La comparación real ocurre en el CI y, en local, montando `nginx/` (sección 5, paso 6) |
 
 Las pruebas con `curl` de la sección 3.2 se comprueban en el paso 6, con `nginx` ya levantado.
 
@@ -160,7 +160,7 @@ server {
 
 ```yaml
   nginx:
-    image: nginx:stable-alpine
+    image: nginx:1.30.7-alpine
     restart: unless-stopped
     ports:
       - "80:80"      # solo redirige a 443
@@ -381,21 +381,31 @@ curl -sI http://localhost/ | grep -iE "^(HTTP|location)"
 # HTTP/1.1 301 Moved Permanently
 # Location: https://localhost/
 curl -skI https://localhost/admin/login/ | grep -iE "^(HTTP|strict|x-frame|content-security|x-content|server)"
+# HTTP/1.1 200 OK         (el curl de Git Bash y el de Windows no traen HTTP/2; ver abajo)
+# Server: nginx
+# Strict-Transport-Security: max-age=31536000
+# X-Frame-Options: DENY
+# X-Content-Type-Options: nosniff
+# Content-Security-Policy: default-src 'self'; ...
+curl -skI https://localhost/admin/login/ | grep -ci content-security-policy
+# 1                       (una sola cabecera CSP)
+
+# HTTP/2 y certificado de confianza. curl --http2 falla en Windows ("the installed
+# libcurl version does not support this"): se usa el curl de un contenedor.
+docker run --rm curlimages/curl:8.23.0 --http2 -skI \
+    --connect-to localhost:443:host.docker.internal:443 https://localhost/admin/login/ | head -1
 # HTTP/2 200
-# server: nginx
-# strict-transport-security: max-age=31536000
-# x-frame-options: DENY
-# x-content-type-options: nosniff
-# content-security-policy: default-src 'self'; ...
+curl -sI --ssl-no-revoke https://localhost/admin/login/ | head -1   # sin -k: valida la CA de mkcert
+# HTTP/1.1 200 OK
 
 # 3. Estáticos servidos por nginx
 curl -skI https://localhost/static/admin/css/base.css | grep -iE "^(HTTP|expires)"
-# HTTP/2 200
-# expires: ...
+# HTTP/1.1 200 OK
+# Expires: ...
 
 # 4. Puertos publicados
 docker compose ps --format "table {{.Service}}\t{{.Ports}}"
-# nginx   0.0.0.0:80->80/tcp, 0.0.0.0:443->443/tcp
+# nginx   0.0.0.0:80->80/tcp, [::]:80->80/tcp, 0.0.0.0:443->443/tcp, [::]:443->443/tcp
 # web     8000/tcp            (sin flecha: no publicado)
 # db      5432/tcp            (sin flecha: no publicado)
 
@@ -405,6 +415,12 @@ docker compose exec nginx sh -c 'nc -z -w 2 db 5432 && echo "alcanza db" || echo
 
 # 6. Tests y configuración de producción
 dtest config/tests -q
+# 10 passed, 1 skipped    (la comparación de CSP se omite: web no ve nginx/)
+# En Git Bash, MSYS_NO_PATHCONV=1 evita que convierta /nginx en una ruta de Windows: sin él,
+# el montaje no llega y el test vuelve a omitirse sin avisar. En Linux no hace falta.
+MSYS_NO_PATHCONV=1 docker compose run --rm -v ./nginx:/nginx:ro \
+    -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PASSWORD" web pytest config/tests -q
+# 11 passed               (con nginx/ montado, también compara la CSP de Django con la de nginx)
 docker compose exec -e DJANGO_SETTINGS_MODULE=config.settings.prod web python manage.py check --deploy
 # Sin advertencias de seguridad salvo, si tu SECRET_KEY de desarrollo es corta, security.W009
 ```

@@ -3,6 +3,10 @@
 .env.*
 !.env.example
 
+# Certificados locales (mkcert): nunca se versionan
+nginx/certs/*
+!nginx/certs/.gitkeep
+
 # IDE
 .idea/
 

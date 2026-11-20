@@ -12,7 +12,7 @@ Esta carpeta formaliza las decisiones de arquitectura significativas que ya est�
 |---|---|---|---|---|
 | [ADR-0001](0001-monolito-modular-mvt-django.md) | Monolito modular MVT con Django 5.2 LTS | Aceptado | 2026-11-16 | Todas |
 | [ADR-0002](0002-renderizado-en-servidor-con-htmx.md) | Renderizado en el servidor con plantillas, Bootstrap 5 y HTMX | Aceptado | 2026-11-16 | `accounts`, `inventario`, `conteos`, `reportes` |
-| [ADR-0003](0003-despliegue-docker-compose-tres-contenedores.md) | Despliegue con Docker Compose: `nginx`, `web` y `db` | Aceptado | 2026-11-16 | Todas |
+| [ADR-0003](0003-despliegue-docker-compose-tres-contenedores.md) | Despliegue con Docker Compose: `nginx`, `web` y `db` | Supersedido por ADR-0025 | 2026-11-16 | Todas |
 | [ADR-0004](0004-configuracion-por-entorno-variables-db.md) | Configuración por entorno y conexión con variables `DB_*` | Aceptado | 2026-11-16 | Todas |
 | [ADR-0005](0005-postgresql-ultima-barrera-de-integridad.md) | PostgreSQL 17 como última barrera de integridad | Aceptado | 2026-11-16 | `accounts`, `catalogo`, `entidades`, `pautas`, `inventario`, `conteos` |
 | [ADR-0006](0006-dos-usuarios-de-base-de-datos.md) | Dos usuarios de base de datos con privilegios mínimos | Aceptado | 2026-11-16 | `accounts`, `inventario`, `conteos` |
@@ -34,6 +34,7 @@ Esta carpeta formaliza las decisiones de arquitectura significativas que ya est�
 | [ADR-0022](0022-autenticacion-sesion-argon2-axes.md) | Autenticación: usuario propio, Argon2, sesiones con expiración y django-axes | Aceptado | 2026-11-16 | `accounts`, `api` |
 | [ADR-0023](0023-pruebas-contra-postgresql-real.md) | Pruebas contra PostgreSQL real, con el dataset mock y los permisos de la aplicación | Aceptado | 2026-11-16 | Todas |
 | [ADR-0024](0024-calidad-estatica-con-verificador-unico.md) | Calidad estática con ruff, djLint y un verificador único | Aceptado | 2026-11-16 | Todas |
+| [ADR-0025](0025-despliegue-docker-compose-nginx-version-fija.md) | Despliegue con Docker Compose: `nginx`, `web` y `db`, con `nginx` en versión fija | Aceptado | 2026-11-20 | Todas |
 
 **Todas** = `accounts`, `catalogo`, `entidades`, `pautas`, `inventario`, `conteos`, `reportes` y `api`: las 8 *capabilities* previstas, una por app de Django (§2.2).
 

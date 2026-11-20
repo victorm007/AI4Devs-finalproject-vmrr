@@ -105,3 +105,20 @@ STATIC_ROOT = BASE_DIR / "staticfiles"  # collectstatic escribe aquí; nginx (HB
 STATICFILES_DIRS = [BASE_DIR / "static"]
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Detrás de nginx (readme, sección 2.4.1). web no publica puertos: solo nginx puede
+# poner X-Forwarded-Proto, así que es seguro confiar en esa cabecera.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+CSRF_TRUSTED_ORIGINS = lista_del_entorno("CSRF_TRUSTED_ORIGINS", "https://localhost")
+# Todos los entornos usan HTTPS (mkcert en local): las cookies solo viajan cifradas
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
+
+# Política CSP: la misma cadena que add_header Content-Security-Policy de nginx/default.conf
+# (un test lo comprueba). Django la envía siempre para que las pruebas que no pasan por nginx
+# (live_server de Playwright, TK-03) la apliquen igual que el navegador real.
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+    "font-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
+)
+MIDDLEWARE += ["config.middleware.ContentSecurityPolicyMiddleware"]
