@@ -39,6 +39,12 @@ services:
       DEBUG: ${DEBUG:-False}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost}
       GUNICORN_CMD_ARGS: ${GUNICORN_CMD_ARGS:-}
+      # Conexión a PostgreSQL: la aplicación NUNCA usa app_owner
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: ${POSTGRES_DB:?Falta POSTGRES_DB en .env}
+      DB_USER: app_user
+      DB_PASSWORD: ${DB_APP_PASSWORD:?Falta DB_APP_PASSWORD en .env}
     volumes:
       - ./app:/app                 # el código del repositorio (makemigrations escribe aquí)
       - static:/app/staticfiles    # collectstatic escribe; nginx (HB-04) lo lee

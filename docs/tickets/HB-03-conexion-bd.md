@@ -465,10 +465,10 @@ def test_app_user_tiene_los_4_permisos_en_las_tablas():
     sin_permiso = ejecutar_sql("""
         SELECT tablename FROM pg_tables
         WHERE schemaname = 'public' AND tablename <> 'movimiento'
-          AND NOT (has_table_privilege('app_user', format('public.%%I', tablename), 'SELECT')
-               AND has_table_privilege('app_user', format('public.%%I', tablename), 'INSERT')
-               AND has_table_privilege('app_user', format('public.%%I', tablename), 'UPDATE')
-               AND has_table_privilege('app_user', format('public.%%I', tablename), 'DELETE'))""")
+          AND NOT (has_table_privilege('app_user', format('public.%I', tablename), 'SELECT')
+               AND has_table_privilege('app_user', format('public.%I', tablename), 'INSERT')
+               AND has_table_privilege('app_user', format('public.%I', tablename), 'UPDATE')
+               AND has_table_privilege('app_user', format('public.%I', tablename), 'DELETE'))""")
     assert sin_permiso == []
 
 
@@ -485,7 +485,7 @@ def test_app_user_no_puede_crear_tablas():
         ejecutar_sql("CREATE TABLE intrusa (id int)", rol="app_user")
 ```
 
-> `%%I` lleva doble `%` porque el SQL pasa por los parámetros de Django: `%%` llega a PostgreSQL como `%`.
+> `%I` lleva un solo `%` porque `ejecutar_sql` llama a `cursor.execute(sql, None)` cuando no hay parámetros, y entonces ni Django ni psycopg interpretan `%`. Con `%%I`, PostgreSQL recibe el texto literal y falla con `relation "public.%i" does not exist`. Solo cuando se pasan parámetros (`ejecutar_sql(sql, [valor])`) un `%` literal se escribe `%%`.
 
 ### 3.3 `apps/accounts/tests/test_usuario.py`
 
@@ -523,8 +523,11 @@ def test_contrasena_minima_de_10_caracteres():
     from django.contrib.auth.password_validation import validate_password
     from django.core.exceptions import ValidationError
 
-    with pytest.raises(ValidationError):
-        validate_password("Corta-1")
+    # Se prueba el límite: con "Corta-1" (7) también pasaría el mínimo de 8 que trae Django
+    with pytest.raises(ValidationError) as error:
+        validate_password("Zorzal-48")  # 9 caracteres
+    assert "password_too_short" in [e.code for e in error.value.error_list]
+    validate_password("Zorzal-482")  # 10 caracteres: se acepta
 ```
 
 ---
@@ -554,7 +557,11 @@ dj check                                   # System check identified no issues
 dj makemigrations --check --dry-run        # No changes detected
 
 # 2. Instalación desde cero
-docker compose down -v && docker compose up -d --build && ./scripts/migrate.sh
+docker compose down -v && docker compose up -d --build
+dj migrate                                 # falla: ... (permission denied for schema public
+# app_user no puede migrar. Sin migraciones pendientes respondería "No migrations to apply",
+# por eso se comprueba en la base nueva, antes de migrate.sh.
+./scripts/migrate.sh
 dj showmigrations accounts
 # accounts
 #  [X] 0001_initial

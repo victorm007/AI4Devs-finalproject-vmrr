@@ -1,4 +1,4 @@
-# Herramientas del proyecto. HB-03 agrega la sección de pytest.
+# Herramientas del proyecto: ruff, djLint, pytest y cobertura.
 [tool.ruff]
 line-length = 100
 target-version = "py312"
@@ -20,3 +20,27 @@ max_line_length = 120
 ignore = "H030,H031"
 # Archivos generados (collectstatic, cobertura, trazas de Playwright) y de terceros
 extend_exclude = "staticfiles,static/vendor,htmlcov,test-results"
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings.local"
+pythonpath = ["."]  # para que los tests puedan hacer "from pruebas import ejecutar_sql"
+testpaths = ["apps", "config", "e2e"]
+# Un marcador mal escrito (@pytest.mark.lent) es un error, no un test que corre sin filtro
+addopts = "--strict-markers"
+markers = [
+    "lento: tests de plan de ejecución (EXPLAIN), corren en el CI nocturno",
+    "http: tests de URL + vista + plantilla con el cliente de Django (test_views_*, test_admin*); corren en el CI de cada PR",
+    "integracion: flujo completo Vista → Servicio → BD → v_conciliacion_existencia (test_integracion.py); corre en el CI de cada PR",
+    "infra: configuración e infraestructura (test_proxy.py, test_conexion.py); corre en el CI de cada PR",
+    "e2e: pruebas de extremo a extremo con Playwright (llegan en TK-03)",
+]
+
+# Cobertura (readme, sección 2.6): la misma medida en local y en el CI
+[tool.coverage.run]
+source = ["apps"]
+branch = true
+omit = ["*/migrations/*", "*/tests/*"]  # el 80 % se mide sobre código de la aplicación
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

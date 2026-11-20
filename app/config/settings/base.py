@@ -26,6 +26,30 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django.contrib.postgres",  # índices GIN/BRIN y restricciones de exclusión (HB-05 y HB-07)
+    # Apps del proyecto (readme, sección 2.3)
+    "apps.accounts",
+]
+
+AUTH_USER_MODEL = "accounts.Usuario"
+
+# Contraseñas (readme, sección 2.5): Argon2 para las nuevas. PBKDF2 se conserva para
+# validar los hash del dataset mock y los de usuarios creados antes del cambio.
+PASSWORD_HASHERS = [
+    "django.contrib.auth.hashers.Argon2PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2SHA1PasswordHasher",
+    "django.contrib.auth.hashers.ScryptPasswordHasher",
+]
+
+AUTH_PASSWORD_VALIDATORS = [
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+        "OPTIONS": {"min_length": 10},
+    },
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
 MIDDLEWARE = [
@@ -56,8 +80,20 @@ TEMPLATES = [
     },
 ]
 
-# DATABASES: lo agrega HB-03 (conexión como app_user con variables DB_*).
-# Mientras tanto Django usa el backend "dummy" y no toca ninguna base.
+# Conexión a PostgreSQL (readme, secciones 2.4 y 2.5). Los valores vienen del entorno:
+# - web corre como app_user (docker-compose.yml);
+# - migrate.sh, los tests y el CI cambian solo DB_USER y DB_PASSWORD para usar app_owner.
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "HOST": os.environ.get("DB_HOST", "db"),
+        "PORT": os.environ.get("DB_PORT", "5432"),
+        "NAME": os.environ["DB_NAME"],
+        "USER": os.environ["DB_USER"],
+        "PASSWORD": os.environ["DB_PASSWORD"],
+        "CONN_MAX_AGE": 60,
+    }
+}
 
 LANGUAGE_CODE = "es-mx"
 TIME_ZONE = "America/Mexico_City"
