@@ -342,6 +342,16 @@ dj sqlmigrate catalogo 0002 | grep -E "CONSTRAINT|INDEX"
 
 Debes ver `uq_principio_activo_nombre`, `uq_medicamento_nombre_pres_conc` (como `CREATE UNIQUE INDEX` con `f_unaccent(LOWER(...))`), `ck_*`, los 2 índices `gin_trgm_ops` y `ix_mpa_principio_medicamento`, y **ningún** índice suelto sobre `medicamento_principio_activo.medicamento_id` ni `principio_activo_id`.
 
+> **Diferencias de forma con el DDL de la sección 3.1, con el mismo efecto.** Los nombres son idénticos; cambia cómo los escribe Django:
+>
+> | Readme | `sqlmigrate` | Por qué está bien |
+> |---|---|---|
+> | `CHECK (btrim(x) <> '')` | `CHECK (LENGTH(TRIM(x)) > 0)` | Equivalentes. `no_vacio()` es una expresión de Django, así que `full_clean()` también la valida |
+> | `DEFAULT now()` | `DEFAULT STATEMENT_TIMESTAMP()` | Es lo que genera `Now()`. Solo difiere dentro de una transacción larga |
+> | `presentacion.nombre UNIQUE` | además, `presentacion_nombre_..._like` (`varchar_pattern_ops`) | Django lo crea siempre para un `CharField` único. No es una FK de la tabla puente |
+>
+> También aparece `medicamento_presentacion_id_...`, el índice de la FK `medicamento.presentacion_id`: es correcto, porque esa FK no está en la lista "Índices de FK que Django no debe crear" (sección 3.3).
+
 ### Paso 5. Presentaciones semilla (≈ 15 min)
 
 ```bash

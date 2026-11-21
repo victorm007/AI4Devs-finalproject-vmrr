@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     "django.contrib.postgres",  # índices GIN/BRIN y restricciones de exclusión (HB-05 y HB-07)
     # Apps del proyecto (readme, sección 2.3)
     "apps.accounts",
+    "apps.catalogo",
 ]
 
 AUTH_USER_MODEL = "accounts.Usuario"
