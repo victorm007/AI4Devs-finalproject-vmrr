@@ -1,0 +1,474 @@
+# HB-09 · Guía paso a paso: catálogo y residentes en el panel `/admin/`
+
+> **Ticket:** [readme, sección 6, HB-09](../../readme.md#tickets-de-habilitación-hb-01-a-hb-09) · **Tipo:** panel de administración · **Estimación:** 2 puntos · **Rama:** `feature/HB-09-admin-catalogo-residentes`
+>
+> Esta guía explica **cómo** hacerlo. El **qué** y el **porqué** están en el ticket y en la sección 5 del readme ("Habilitadores en el panel `/admin/` de Django"). Si algo de esta guía contradice al readme, manda el readme: avisa en el PR.
+
+**Resultado al terminar:** desde <https://localhost/admin/>, un usuario de **Lectura y escritura** da de alta y edita medicamentos (con sus principios activos en la misma pantalla), principios activos, presentaciones y residentes. Uno de **Solo lectura** los consulta sin poder cambiarlos. Nadie borra: la baja es lógica (`activo` o `estado`). La búsqueda del panel ignora mayúsculas y acentos ("losartan" encuentra "Losartán"), y las reglas de la base aparecen como mensajes junto al campo, nunca como un error `500`.
+
+---
+
+## 0. Antes de empezar
+
+### 0.1 Lee primero (20 min)
+
+| Qué | Dónde | Para qué |
+|---|---|---|
+| Habilitadores y "Controles" | readme, sección 5 | Qué se hace en el panel, quién, y las 5 reglas que debe respetar |
+| D2 y D3 | readme, sección 3.2 | Campos y reglas de medicamentos y residentes |
+| Servicio de alta de residentes | guía de HB-06, paso 5 | `registrar_residente()` |
+| `ModelAdmin` | <https://docs.djangoproject.com/en/5.2/ref/contrib/admin/> | `inlines`, `autocomplete_fields`, `get_search_results` |
+
+### 0.2 Requisitos previos
+
+- HB-08 integrado en `main`: existen los 2 grupos con sus permisos y el login.
+
+### 0.3 Crea la rama
+
+```bash
+git switch main && git pull
+git switch -c feature/HB-09-admin-catalogo-residentes
+```
+
+---
+
+## 1. Archivos que vas a crear o modificar
+
+```
+app/
+├── config/urls.py                         # MODIFICAR: títulos del panel
+└── apps/
+    ├── panel.py                           # NUEVO: reglas comunes del panel (sin borrado, búsqueda sin acentos)
+    ├── catalogo/
+    │   ├── admin.py                       # NUEVO
+    │   └── tests/test_admin.py            # NUEVO
+    └── entidades/
+        ├── admin.py                       # NUEVO
+        └── tests/test_admin.py            # NUEVO
+```
+
+---
+
+## 2. Tareas paso a paso
+
+El orden sigue TDD (`CLAUDE.md`): primero los tests en rojo, después la implementación.
+
+### Paso 1. Tests en rojo (≈ 1 h)
+
+Escribe los tests de la sección 3 y ejecútalos **antes** de implementar:
+
+```bash
+dtest apps/catalogo/tests/test_admin.py apps/entidades/tests/test_admin.py -q
+```
+
+Solo debe pasar `test_el_hogar_no_se_edita_en_el_panel`, porque `Entidad` nunca se registra en el panel: es un test de regresión.
+
+Así avanza el rojo con cada paso:
+
+| Al terminar | Comando | Resultado esperado |
+|---|---|---|
+| Paso 3 (catálogo) | `dtest apps/catalogo/tests/test_admin.py -q` | Todos pasan |
+| Paso 4 (residentes) | `dtest apps/entidades/tests/test_admin.py -q` | Todos pasan |
+
+### Paso 2. Reglas comunes del panel (≈ 30 min)
+
+`app/apps/panel.py`:
+
+```python
+"""Reglas comunes del panel /admin/ (readme, sección 5, "Controles")."""
+
+from django.db.models import Q, Value
+
+from apps.expresiones import sin_acentos
+
+
+class SinBorrarMixin:
+    """Sin la acción "Eliminar": la baja es lógica (activo o estado)."""
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+class BusquedaSinAcentosMixin:
+    """La búsqueda ignora mayúsculas y acentos: "losartan" encuentra "Losartán".
+
+    Compara f_unaccent(lower(campo)) contra f_unaccent(lower(término)), la misma expresión
+    de los índices trigram (sección 3.3). La subclase define campos_sin_acentos.
+    """
+
+    campos_sin_acentos: tuple[str, ...] = ()
+
+    def get_search_results(self, request, queryset, search_term):
+        if not search_term:
+            return queryset, False
+        termino = sin_acentos(Value(search_term))
+        condicion = Q()
+        for posicion, campo in enumerate(self.campos_sin_acentos):
+            alias = f"_busqueda_{posicion}"
+            queryset = queryset.annotate(**{alias: sin_acentos(campo)})
+            condicion |= Q(**{f"{alias}__contains": termino})
+        # distinct(): buscar por principio activo une con la tabla puente
+        return queryset.filter(condicion).distinct(), True
+```
+
+### Paso 3. Catálogo en el panel (≈ 45 min)
+
+`app/apps/catalogo/admin.py`:
+
+```python
+"""Catálogo de medicamentos en /admin/ (readme, sección 5, "Habilitadores")."""
+
+from django.contrib import admin
+
+from apps.catalogo.models import (
+    Medicamento,
+    MedicamentoPrincipioActivo,
+    Presentacion,
+    PrincipioActivo,
+)
+from apps.panel import BusquedaSinAcentosMixin, SinBorrarMixin
+
+
+@admin.register(Presentacion)
+class PresentacionAdmin(SinBorrarMixin, BusquedaSinAcentosMixin, admin.ModelAdmin):
+    list_display = ("nombre", "activo")
+    list_filter = ("activo",)
+    search_fields = ("nombre",)  # muestra el buscador; la búsqueda real es sin acentos
+    campos_sin_acentos = ("nombre",)
+    ordering = ("nombre",)
+
+
+@admin.register(PrincipioActivo)
+class PrincipioActivoAdmin(SinBorrarMixin, BusquedaSinAcentosMixin, admin.ModelAdmin):
+    list_display = ("nombre", "creado_en")
+    search_fields = ("nombre",)
+    campos_sin_acentos = ("nombre",)
+    ordering = ("nombre",)
+
+
+class PrincipioActivoEnLinea(admin.TabularInline):
+    """Principios activos en la misma pantalla del medicamento (al menos uno)."""
+
+    model = MedicamentoPrincipioActivo
+    extra = 0
+    min_num = 1
+    validate_min = True
+    can_delete = False  # un renglón equivocado se corrige cambiando el principio activo
+    autocomplete_fields = ["principio_activo"]
+    verbose_name = "principio activo"
+    verbose_name_plural = "principios activos"
+
+
+@admin.register(Medicamento)
+class MedicamentoAdmin(SinBorrarMixin, BusquedaSinAcentosMixin, admin.ModelAdmin):
+    list_display = ("nombre_comercial", "concentracion", "presentacion", "tipo", "activo")
+    list_filter = ("activo", "tipo", "presentacion")
+    list_select_related = ("presentacion",)  # sin N+1 en la lista
+    search_fields = ("nombre_comercial",)
+    campos_sin_acentos = ("nombre_comercial", "principios_activos__nombre")
+    fields = ("nombre_comercial", "tipo", "presentacion", "concentracion", "activo")
+    inlines = [PrincipioActivoEnLinea]
+    ordering = ("nombre_comercial",)
+```
+
+> **Pendiente para TK-01:** desmarcar `activo` en un medicamento con existencias debe dar un mensaje ("No se puede dar de baja: hay existencias de este medicamento"). Esa validación necesita la tabla `existencia`, así que la agrega TK-01 junto con el *trigger* `tg_medicamento_baja`.
+
+### Paso 4. Residentes en el panel (≈ 30 min)
+
+`app/apps/entidades/admin.py`:
+
+```python
+"""Residentes en /admin/ (readme, sección 5, "Habilitadores").
+
+El Hogar es fijo (lo crea la migración): Entidad no se registra en el panel.
+"""
+
+from django.contrib import admin
+
+from apps.entidades.models import Residente
+from apps.entidades.services import registrar_residente
+from apps.panel import BusquedaSinAcentosMixin, SinBorrarMixin
+
+CAMPOS_ALTA = (
+    "primer_nombre", "segundo_nombre", "primer_apellido", "segundo_apellido",
+    "fecha_nacimiento", "fecha_ingreso",
+)
+
+
+@admin.register(Residente)
+class ResidenteAdmin(SinBorrarMixin, BusquedaSinAcentosMixin, admin.ModelAdmin):
+    list_display = ("nombre_completo", "estado", "fecha_ingreso", "fecha_baja")
+    list_filter = ("estado",)
+    search_fields = ("primer_apellido",)
+    campos_sin_acentos = ("primer_nombre", "segundo_nombre", "primer_apellido", "segundo_apellido")
+    ordering = ("primer_apellido", "primer_nombre")
+
+    def get_fields(self, request, obj=None):
+        # En el alta no se elige el estado: todo residente nuevo empieza ACTIVO
+        return CAMPOS_ALTA if obj is None else (*CAMPOS_ALTA, "estado", "fecha_baja")
+
+    def save_model(self, request, obj, form, change):
+        if change:
+            obj.save()  # cambio de datos, egreso o defunción (lo validan las restricciones)
+        else:
+            registrar_residente(obj)  # crea la entidad y el residente juntos
+
+    @admin.display(description="Nombre", ordering="primer_apellido")
+    def nombre_completo(self, residente):
+        return residente.nombre_completo
+```
+
+### Paso 5. Títulos del panel (≈ 5 min)
+
+En `app/config/urls.py`, después de los imports:
+
+```python
+admin.site.site_header = "Medicamentos del Hogar · Administración"
+admin.site.site_title = "Medicamentos del Hogar"
+admin.site.index_title = "Catálogo, residentes y usuarios"
+```
+
+### Paso 6. Prueba manual (≈ 20 min)
+
+```bash
+docker compose up -d && dj collectstatic --noinput
+```
+
+En <https://localhost/admin/>, como un usuario de **Lectura y escritura** creado en HB-08:
+1. Da de alta "Losartán 50 mg tableta" con el principio activo "Losartán" (créalo con el botón **+** del campo).
+2. Intenta dar de alta "LOSARTAN 50 MG tableta": aparece el mensaje de duplicado.
+3. Busca "losartan" en la lista de medicamentos: aparece.
+4. Da de alta un residente, ábrelo y cámbialo a "Egresado" sin fecha de baja: aparece el mensaje de la fecha.
+5. Verifica que en ninguna lista aparece la acción "Eliminar".
+
+### Paso 7. Tests en verde, verificación y *pull request* (≈ 30 min)
+
+Comprueba que los tests de la sección 3 pasan, ejecuta la sección 5 y abre el PR.
+
+---
+
+## 3. Tests requeridos
+
+### 3.1 `apps/catalogo/tests/test_admin.py`
+
+```python
+"""Catálogo en /admin/: permisos por grupo, principio activo en línea, sin borrado y búsqueda."""
+
+import pytest
+from django.contrib import admin
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
+
+from apps.catalogo.models import Medicamento, Presentacion, PrincipioActivo
+from apps.entidades.models import Entidad
+
+pytestmark = [pytest.mark.django_db, pytest.mark.http]
+URL = "/admin/catalogo/medicamento/"
+EN_LINEA = "medicamentoprincipioactivo_set"
+
+
+@pytest.fixture
+def entrar_como(client):
+    def entrar(grupo):
+        nombre = "prueba." + grupo.split()[0].lower()  # prueba.solo o prueba.lectura
+        usuario = get_user_model().objects.create_user(nombre, is_staff=True)
+        usuario.groups.add(Group.objects.get(name=grupo))
+        client.force_login(usuario)
+        return client
+    return entrar
+
+
+@pytest.fixture
+def losartan():
+    return PrincipioActivo.objects.create(nombre="Losartán")
+
+
+def formulario(principio_activo, filas=1, **cambios):
+    datos = {
+        "nombre_comercial": "Losartán", "tipo": "GENERICO", "concentracion": "50 mg",
+        "presentacion": Presentacion.objects.get(nombre="tableta").pk, "activo": "on",
+        f"{EN_LINEA}-TOTAL_FORMS": str(filas), f"{EN_LINEA}-INITIAL_FORMS": "0",
+        f"{EN_LINEA}-MIN_NUM_FORMS": "1", f"{EN_LINEA}-MAX_NUM_FORMS": "1000",
+        f"{EN_LINEA}-0-principio_activo": principio_activo.pk,
+    }
+    return datos | cambios
+
+
+def test_solo_lectura_consulta_pero_no_cambia(entrar_como):
+    cliente = entrar_como("Solo lectura")
+    assert cliente.get(URL).status_code == 200
+    assert cliente.get(f"{URL}add/").status_code == 403
+
+
+def test_lectura_y_escritura_da_de_alta_con_su_principio_activo(entrar_como, losartan):
+    respuesta = entrar_como("Lectura y escritura").post(f"{URL}add/", formulario(losartan))
+    assert respuesta.status_code == 302
+    medicamento = Medicamento.objects.get(nombre_comercial="Losartán")
+    assert list(medicamento.principios_activos.all()) == [losartan]
+
+
+def test_sin_principio_activo_el_formulario_avisa(entrar_como, losartan):
+    respuesta = entrar_como("Lectura y escritura").post(f"{URL}add/", formulario(losartan, filas=0))
+    assert respuesta.status_code == 200
+    assert not Medicamento.objects.exists()
+
+
+def test_el_duplicado_sin_acentos_da_un_mensaje_y_no_un_500(entrar_como, losartan):
+    cliente = entrar_como("Lectura y escritura")
+    cliente.post(f"{URL}add/", formulario(losartan))
+    respuesta = cliente.post(
+        f"{URL}add/", formulario(losartan, nombre_comercial="LOSARTAN", concentracion="50 MG")
+    )
+    assert respuesta.status_code == 200
+    assert "Ya existe un medicamento" in respuesta.content.decode()
+
+
+def test_la_baja_es_logica(entrar_como, losartan):
+    cliente = entrar_como("Lectura y escritura")
+    cliente.post(f"{URL}add/", formulario(losartan))
+    medicamento = Medicamento.objects.get()
+    datos = formulario(losartan) | {
+        f"{EN_LINEA}-INITIAL_FORMS": "1",
+        f"{EN_LINEA}-0-id": medicamento.medicamentoprincipioactivo_set.get().pk,
+        f"{EN_LINEA}-0-medicamento": medicamento.pk,
+    }
+    del datos["activo"]  # casilla desmarcada
+    assert cliente.post(f"{URL}{medicamento.pk}/change/", datos).status_code == 302
+    medicamento.refresh_from_db()
+    assert medicamento.activo is False
+
+
+def test_nadie_borra_del_catalogo(entrar_como, admin_client, losartan):
+    medicamento = Medicamento.objects.create(
+        nombre_comercial="Prueba", tipo="GENERICO", concentracion="1 mg",
+        presentacion=Presentacion.objects.get(nombre="tableta"),
+    )
+    assert admin_client.get(f"{URL}{medicamento.pk}/delete/").status_code == 403
+    assert entrar_como("Lectura y escritura").get(f"{URL}{medicamento.pk}/delete/").status_code == 403
+
+
+def test_la_busqueda_ignora_mayusculas_y_acentos(entrar_como, losartan):
+    cliente = entrar_como("Lectura y escritura")
+    cliente.post(f"{URL}add/", formulario(losartan, nombre_comercial="Cozaar"))
+    assert "Cozaar" in cliente.get(URL, {"q": "COZAAR"}).content.decode()
+    assert "Cozaar" in cliente.get(URL, {"q": "losartan"}).content.decode()  # por principio activo
+
+
+def test_el_hogar_no_se_edita_en_el_panel():
+    assert Entidad not in admin.site._registry
+```
+
+### 3.2 `apps/entidades/tests/test_admin.py`
+
+```python
+"""Residentes en /admin/: alta con el servicio, egreso validado y búsqueda sin acentos."""
+
+import pytest
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
+
+from apps.entidades.models import Entidad, Residente
+
+pytestmark = [pytest.mark.django_db, pytest.mark.http]
+URL = "/admin/entidades/residente/"
+ALTA = {
+    "primer_nombre": "María", "segundo_nombre": "Guadalupe", "primer_apellido": "Hernández",
+    "segundo_apellido": "López", "fecha_nacimiento": "1938-04-12", "fecha_ingreso": "2023-02-01",
+}
+
+
+@pytest.fixture
+def operador(client):
+    usuario = get_user_model().objects.create_user("prueba.operador", is_staff=True)
+    usuario.groups.add(Group.objects.get(name="Lectura y escritura"))
+    client.force_login(usuario)
+    return client
+
+
+@pytest.fixture
+def maria(operador):
+    operador.post(f"{URL}add/", ALTA)
+    return Residente.objects.get(primer_apellido="Hernández")
+
+
+def test_el_alta_crea_la_entidad_y_el_residente_activo(maria):
+    assert maria.entidad.tipo == Entidad.Tipo.RESIDENTE
+    assert maria.estado == Residente.Estado.ACTIVO
+
+
+def test_el_alta_no_pide_el_estado(operador):
+    respuesta = operador.get(f"{URL}add/")
+    assert respuesta.status_code == 200  # sin esto, un 404 también pasaría el test
+    html = respuesta.content.decode()
+    assert 'name="estado"' not in html and 'name="fecha_baja"' not in html
+
+
+def test_egresar_sin_fecha_de_baja_da_un_mensaje(operador, maria):
+    respuesta = operador.post(f"{URL}{maria.pk}/change/", ALTA | {"estado": "EGRESADO"})
+    assert respuesta.status_code == 200
+    assert "La fecha de baja es obligatoria" in respuesta.content.decode()
+
+
+def test_egresar_con_fecha_de_baja(operador, maria):
+    datos = ALTA | {"estado": "EGRESADO", "fecha_baja": "2026-02-01"}
+    assert operador.post(f"{URL}{maria.pk}/change/", datos).status_code == 302
+    assert Entidad.objects.get(pk=maria.pk).activa is False
+
+
+def test_la_busqueda_ignora_acentos(operador, maria):
+    assert "Hernández" in operador.get(URL, {"q": "hernandez"}).content.decode()
+
+
+def test_nadie_borra_residentes(operador, maria):
+    assert operador.get(f"{URL}{maria.pk}/delete/").status_code == 403
+```
+
+---
+
+## 4. Criterios de calidad
+
+| Criterio | Cómo se comprueba |
+|---|---|
+| Las 5 reglas de "Controles" (sección 5) se cumplen | Tests y prueba manual (paso 6) |
+| Las reglas de la base aparecen como mensaje, nunca como `500` | `test_el_duplicado...` y `test_egresar_sin_fecha...` |
+| La lista de medicamentos no hace consultas N+1 | `list_select_related = ("presentacion",)`; revisión del PR |
+| Sin lógica de negocio en el panel: el alta pasa por `services.py` | Revisión del PR |
+| Sin errores de CSP en el panel (*autocomplete* incluido) | Consola del navegador |
+| Textos visibles en español | Revisión del PR |
+
+---
+
+## 5. Verificación: comandos y resultado esperado
+
+```bash
+# 1. Calidad del código
+docker compose exec web ruff check . && docker compose exec web ruff format --check .
+dj check && dj makemigrations --check --dry-run      # No changes detected: el panel no crea migraciones
+
+# 2. Tests (toda la suite de habilitación)
+dtest apps/catalogo apps/entidades -q
+dtest -q --cov=apps --cov-fail-under=80
+
+# 3. Prueba completa con el mock de usuarios (desarrollo)
+#    El mock completo se carga después de TK-01; aquí basta crear un usuario de cada grupo
+#    desde el panel como Administrador y repetir el paso 6 con cada uno.
+```
+
+---
+
+## 6. Lista para el *pull request*
+
+- [ ] Todos los comandos de la sección 5 dan el resultado esperado.
+- [ ] Todos los criterios de aceptación del ticket (readme, sección 6) están marcados.
+- [ ] La definición de hecho común y la del ticket se cumplen.
+- [ ] Capturas: alta de un medicamento con su principio activo, mensaje de duplicado y lista de residentes filtrada por "Activo".
+
+## 7. Si te bloqueas
+
+| Síntoma | Causa probable | Solución |
+|---|---|---|
+| `admin.E039: An admin for model "PrincipioActivo" has to be registered to be referenced by ...autocomplete_fields` | `PrincipioActivoAdmin` no está registrado o no tiene `search_fields` | Paso 3 |
+| `ManagementForm data is missing or has been tampered with` en un test | Faltan los campos `TOTAL_FORMS`/`INITIAL_FORMS` del *inline* | Usa `formulario()` de la sección 3.1 |
+| Un usuario de grupo no ve "Medicamentos" | Le falta `is_staff` o el grupo | HB-08 |
+| `IntegrityError` (`500`) al egresar un residente | La restricción no tiene `violation_error_message` o el formulario no la valida | Revisa `ck_residente_baja` en HB-06 |
+| La búsqueda no encuentra "Losartán" con "losartan" | El *mixin* no está antes de `admin.ModelAdmin` en la herencia | `class XAdmin(SinBorrarMixin, BusquedaSinAcentosMixin, admin.ModelAdmin)` |

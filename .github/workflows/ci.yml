@@ -7,7 +7,15 @@
 # Reglas (ver la nota de la sección 7.3):
 # - El workflow corre SIEMPRE: no uses `paths:` / `paths-ignore:` en `on:`.
 # - Un job saltado con `if:` cuenta como aprobado; así se omiten e2e sin bloquear el merge.
-# - Mientras no exista app/manage.py (solo documentación), lint, tests y e2e se saltan.
+# - Cada job se activa cuando existe lo que necesita (tickets HB-02, HB-03 y TK-03):
+#     lint e imagen  -> app/manage.py   (proyecto Django)
+#     tests          -> app/conftest.py (primera app y conexión a PostgreSQL)
+#     e2e            -> app/e2e/        (primera prueba de Playwright)
+#   Así los PR de solo documentación y los primeros tickets de habilitación no fallan
+#   por algo que todavía no existe.
+# - `contrato` (lint de docs/api/openapi.yaml) y `herramientas` (scripts/, .claude/hooks/
+#   y tests/) corren siempre, pero NO son checks obligatorios (readme, 7.3, regla 7).
+# - Cada job tiene timeout-minutes: un test colgado no ocupa el runner horas.
 
 name: CI
 
@@ -53,15 +61,20 @@ jobs:
   detectar:
     name: detectar cambios
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       hay_codigo: ${{ steps.codigo.outputs.existe }}
+      hay_tests: ${{ steps.codigo.outputs.tests }}
+      hay_e2e: ${{ steps.codigo.outputs.e2e }}
       frontend: ${{ steps.filtro.outputs.frontend }}
     steps:
       - uses: actions/checkout@v4
       - id: codigo
         run: |
-          if [ -f app/manage.py ]; then echo "existe=true" >> "$GITHUB_OUTPUT"
-          else echo "existe=false" >> "$GITHUB_OUTPUT"; echo "Aún no hay código Django: se omiten lint, tests y e2e"; fi
+          si_existe() { if [ -e "$2" ]; then echo "$1=true"; else echo "$1=false"; echo "No existe $2: se omite $3" >&2; fi; }
+          si_existe existe app/manage.py  "lint e imagen" >> "$GITHUB_OUTPUT"
+          si_existe tests  app/conftest.py "tests"        >> "$GITHUB_OUTPUT"
+          si_existe e2e    app/e2e         "e2e"          >> "$GITHUB_OUTPUT"
       - uses: dorny/paths-filter@v3
         id: filtro
         with:
@@ -79,25 +92,26 @@ jobs:
               - 'app/requirements*.txt'
 
   # ---------------------------------------------------------------------------
-  # Check obligatorio: calidad estática
+  # Check obligatorio: calidad estática (ruff para Python, djLint para las plantillas)
   # ---------------------------------------------------------------------------
   lint:
     name: lint
     needs: detectar
     if: needs.detectar.outputs.hay_codigo == 'true'
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: app
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - name: Instalar ruff (versión fijada en requirements-dev.txt)
-        run: pip install "$(grep -iE '^ruff[=<>~ ]' requirements-dev.txt || echo ruff)"
-      - run: ruff check .
-      - run: ruff format --check .
+      - name: Instalar ruff y djLint (versiones fijadas en requirements-dev.txt)
+        working-directory: app
+        run: pip install $(grep -iE '^(ruff|djlint)[=<>~ ]' requirements-dev.txt || echo ruff djlint)
+      - name: Verificar (scripts/verificar.py, el mismo que corre Claude Code antes de cada commit)
+        # ruff check, ruff format --check y, si hay plantillas, djlint --check y --lint.
+        # Sin plantillas (hasta HB-08) omite djLint, que en ese caso termina con código 2.
+        run: python scripts/verificar.py --modo local
 
   # ---------------------------------------------------------------------------
   # Check obligatorio: migraciones, pruebas (incluida la de integración) y cobertura
@@ -105,8 +119,9 @@ jobs:
   tests:
     name: tests
     needs: detectar
-    if: needs.detectar.outputs.hay_codigo == 'true'
+    if: needs.detectar.outputs.hay_tests == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:17-alpine
@@ -141,9 +156,11 @@ jobs:
         env:
           # En el CI nocturno también corren los tests "lento" (planes de ejecución)
           MARCADORES: ${{ github.event_name == 'schedule' && 'not e2e' || 'not e2e and not lento' }}
+        # Ramas, migraciones y tests excluidos: [tool.coverage] de app/pyproject.toml (HB-03),
+        # la misma configuración que en local
         run: >-
           pytest -m "$MARCADORES"
-          --cov=apps --cov-branch --cov-report=term-missing --cov-report=xml
+          --cov=apps --cov-report=term-missing --cov-report=xml
           --cov-fail-under=80
       - name: Guardar el reporte de cobertura
         if: always()
@@ -160,9 +177,10 @@ jobs:
     name: e2e
     needs: [detectar, tests]
     if: >-
-      needs.detectar.outputs.hay_codigo == 'true' &&
+      needs.detectar.outputs.hay_e2e == 'true' &&
       (github.event_name != 'pull_request' || needs.detectar.outputs.frontend == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:17-alpine
@@ -211,6 +229,42 @@ jobs:
     needs: detectar
     if: needs.detectar.outputs.hay_codigo == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t hogar-web:ci app
+
+  # ---------------------------------------------------------------------------
+  # Contrato de la API (readme, 4.7): 0 errores con Redocly. No es un check obligatorio.
+  # ---------------------------------------------------------------------------
+  contrato:
+    name: contrato OpenAPI
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - name: Lint de docs/api/openapi.yaml (versión fijada de Redocly CLI)
+        run: npx --yes @redocly/cli@2.79.0 lint docs/api/openapi.yaml
+
+  # ---------------------------------------------------------------------------
+  # Herramientas del repositorio: hooks de Claude Code y scripts (readme, 2.3).
+  # ruff con ruff.toml y sus tests en tests/. No es un check obligatorio.
+  # ---------------------------------------------------------------------------
+  herramientas:
+    name: herramientas del repositorio
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Instalar ruff y pytest (versiones de app/requirements-dev.txt; antes de HB-02, las fijadas aquí)
+        run: pip install $(grep -ihE '^(ruff|pytest)==' app/requirements-dev.txt 2>/dev/null || echo ruff==0.17.5 pytest==9.2.0)
+      - run: python scripts/verificar.py --herramientas
+      - run: python -m pytest tests -q -p no:cacheprovider

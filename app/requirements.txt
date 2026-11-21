@@ -1,0 +1,5 @@
+# Dependencias de producción (readme, sección 2.5: versiones fijas, revisión con pip-audit).
+# Una por línea, en orden alfabético.
+Django[argon2]==5.2.19
+gunicorn==27.0.1
+psycopg[binary]==3.3.9

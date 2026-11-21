@@ -278,6 +278,154 @@ Quedan confirmadas las dos redes Docker (`frontend` y `backend`), el volumen `st
 
 ---
 
+## Prompt 10 — Usuario
+
+Para las pruebas en este proyecto, ¿son por defecto sobre una DB efímera? ¿Necesitamos especificarlo en el `readme.md`? Sí, agrégalo.
+
+---
+
+## Respuesta 10 — Claude
+
+Sí: según el diseño, solo la base de tests es efímera; el servidor de PostgreSQL no. `pytest-django` crea `test_<POSTGRES_DB>`, le aplica las migraciones y la borra al terminar, sin tocar la base de desarrollo. Cada test se revierte con su transacción, y los de `transaction=True` vacían las tablas al final y recuperan los datos semilla con `serialized_rollback=True`. En CI, el servidor también es un contenedor nuevo en cada *job*.
+
+El `readme.md` lo mencionaba solo de forma indirecta (`CREATEDB` en el apartado 1.4 y en TK-01, `serialized_rollback` en TK-02). Agregué un párrafo **Aislamiento** en el apartado 2.6, después de **Herramientas**, para que el diseño respalde la regla de "base temporal y separada" del `CLAUDE.md`.
+
+---
+
+## Prompt 11 — Usuario
+
+Lee `readme.md` (secciones 2, 3, 4, 5 y 6) y `CLAUDE.md` para extraer las decisiones arquitectónicas significativas ya tomadas y formalizarlas como Architecture Decision Records (ADR) en `docs/adr/`, antes de inicializar OpenSpec.
+
+Restricciones obligatorias:
+1. *Zero hallucination*: toda decisión, restricción SQL, tabla, índice, umbral o regla de negocio debe salir estrictamente de `readme.md` y `CLAUDE.md`. No inventes requisitos ni alternativas que no se deduzcan del diseño actual.
+2. Vocabulario de dominio estricto: usa exclusivamente Residente, Entidad, Medicamento, Existencia, Movimiento, Pauta y Baja (nunca sinónimos).
+3. Idioma: español en todos los archivos.
+
+Archivos a crear:
+1. `docs/adr/README.md`: tabla índice con ID, título, estado (`Aceptado`), fecha (`2026-11-16`) y *capabilities* futuras afectadas (`accounts`, `catalogo`, `entidades`, `pautas`, `inventario`, `conteos`, `reportes`, `api`).
+2. Un ADR numerado (`docs/adr/0001-titulo-en-kebab-case.md`, `0002-...`) por cada decisión arquitectónica encontrada en el `readme.md`, en formato MADR ligero.
+
+Al terminar, muéstrame la estructura creada en `docs/adr/` y verifica que ningún archivo contenga datos sensibles ni viole los hooks del proyecto. No hagas commit todavía.
+
+---
+
+## Respuesta 11 — Claude
+
+Creé `docs/adr/` con un índice (`README.md`) y **24 ADR** en formato MADR ligero: estado, fecha, *capabilities* afectadas, fuentes, contexto, decisión, alternativas consideradas y consecuencias.
+
+| Grupo | ADR |
+|---|---|
+| Arquitectura y despliegue | 0001 monolito modular MVT · 0002 renderizado en el servidor con HTMX · 0003 Docker Compose con 3 contenedores · 0004 configuración por entorno y variables `DB_*` |
+| Base de datos | 0005 PostgreSQL como última barrera · 0006 dos usuarios de BD · 0007 nombres con prefijo · 0008 supertipo Entidad · 0009 Bajas lógicas y `ON DELETE RESTRICT` · 0010 cantidades en dosis y fechas con zona |
+| Inventario | 0011 capa de servicios como única vía de escritura · 0012 Movimientos inmutables y corrección · 0013 Existencia materializada y conciliable · 0014 concurrencia y bloqueo en orden fijo · 0015 el conteo físico no ajusta Existencias · 0016 Pautas informativas con vigencia |
+| Búsqueda, API y acceso | 0017 búsqueda sin acentos con trigram · 0018 índices guiados por consultas · 0019 API de solo lectura con OpenAPI *design-first* · 0020 habilitadores en `/admin/` · 0021 autorización por 2 grupos · 0022 autenticación con Argon2, sesiones y django-axes |
+| Calidad | 0023 pruebas contra PostgreSQL real · 0024 calidad estática con un verificador único |
+
+**Cómo respeté las restricciones:**
+- **Sin inventar:** cada ADR cita en "Fuentes" las secciones del readme y de `CLAUDE.md` de donde sale. "Alternativas consideradas" solo menciona las que el propio diseño descarta (por ejemplo, microservicios o SPA, `DATABASE_URL`, asociación polimórfica, `FLOAT`, ajuste automático del conteo, pantallas propias en lugar de `/admin/`); cuando el diseño no documenta ninguna, el ADR lo dice. Quité 2 afirmaciones de mi primer borrador que no salían literalmente del readme: "tokens" en la API V2 y el nombre de un formateador de CSS.
+- **Vocabulario:** busqué los términos prohibidos. "Transacción" solo aparece como transacción de base de datos y `DELETE` solo como SQL, HTTP o permiso de Django. Cambié "un cliente externo" por "otra aplicación" en el ADR-0019.
+- **Capabilities:** el índice usa "Todas" para las 8 y lo explica debajo de la tabla.
+
+**Verificación:** el detector del hook de secretos no encontró nada en los 25 archivos; los 2 hooks `PreToolUse`, simulados ante `git add docs/adr && git commit`, permiten el commit; no hay correos, contraseñas ni datos personales.
+
+**Readme:** agregué `docs/adr/` a la estructura de ficheros del apartado 2.3. No hice commit.
+
+---
+
+## Prompt 12 — Usuario
+
+Agrega esta sección en el `CLAUDE.md` y verifica que no haya conflictos:
+
+> ### Decisiones de Arquitectura (ADRs)
+> Las decisiones estructurales e irreversibles del sistema están documentadas en `docs/adr/` (índice en `docs/adr/README.md`).
+> - **Cumplimiento obligatorio:** Ninguna propuesta de OpenSpec, ticket ni cambio de código puede contradecir un ADR en estado `Aceptado` (por ejemplo: privilegios de `app_user`, inmutabilidad de `movimiento`, prohibición de SPA/JS en línea, uso exacto de `f_unaccent(lower(...))`, o conteos sin autoajuste).
+> - **Supersedencia:** Si un requisito futuro exige cambiar una decisión aceptada, primero se crea un nuevo ADR (`docs/adr/NNNN-*.md`) que marque el anterior como `Supersedido por ADR-NNNN` y se actualiza `readme.md` antes de modificar código o specs.
+> - **Revisión:** El subagente `adversarial-reviewer` debe validar cada PR contra los ADRs aplicables además de las specs de OpenSpec.
+
+---
+
+## Respuesta 12 — Claude
+
+Agregué la sección tal cual en `CLAUDE.md`, como subsección de "Flujo de trabajo", justo después de las reglas de arquitectura. Los 5 ejemplos que cita corresponden a ADR existentes: 0006 (privilegios de `app_user`), 0012 (inmutabilidad de `movimiento`), 0002 (sin SPA ni JavaScript en línea), 0017 (`f_unaccent(lower(...))`) y 0015 (conteos sin autoajuste).
+
+**Conflictos que encontré y corregí:**
+1. **Nombre del estado:** el índice de `docs/adr/` decía que un ADR cambiado pasa a `Reemplazado por ADR-NNNN`. Lo cambié a `Supersedido por ADR-NNNN` y agregué un apartado "Cumplimiento y supersedencia" que remite a `CLAUDE.md`.
+2. **Precedencia:** el índice decía "si un ADR y el readme no coinciden, manda el readme". Eso permitía cambiar una decisión solo en el readme, sin ADR nuevo. Ahora dice que una diferencia es un error de documentación que se corrige antes de seguir, y que para cambiar una decisión se sigue la supersedencia. Sigue siendo compatible con que el readme sea la fuente de verdad del diseño, porque la supersedencia exige actualizarlo.
+3. **El subagente no conocía los ADR:** `.claude/agents/adversarial-reviewer.md` solo contrastaba contra `openspec/specs/`. Ahora contrasta también contra los ADR aceptados que apliquen, y contradecir uno es un hallazgo crítico, salvo que el PR incluya el ADR que lo supersede.
+4. **Instrucción de revisión en `CLAUDE.md` y en el readme:** la sección Git de `CLAUDE.md` pedía contrastar "mientras no exista `openspec/specs/`" solo contra los criterios de aceptación. Ahora pide contrastar siempre contra los ADR. También lo agregué al paso 2 del proceso de revisión del readme (apartado 7.2).
+
+Además, el estado del repositorio de `CLAUDE.md` menciona ahora los ADR de `docs/adr/`. No hice commit.
+
+---
+
+## Prompt 13 — Usuario
+
+Gracias, hagamos por ahora 1 (que entiendo son las capas) y 2. Documenta que las pruebas E2E son funcionales pero no lo contrario.
+
+---
+
+## Respuesta 13 — Claude
+
+Antes de este prompt, la conversación comparó tres estructuras para los tests (plana por app, `unit/` + `integration/` dentro de cada app, y por tipo en la raíz). Concluí que, con 8 apps y solo `inventario` con muchos archivos, convenía mantener `tests/` plano por app: el tipo ya está en el nombre del archivo, el CI no distingue unitario de integración y "integración" ya significa en el proyecto el flujo Vista → Servicio → BD → conciliación. Por eso se adoptaron solo dos cosas: documentar las capas y añadir un marcador, sin mover rutas.
+
+**1. Capas y nombres.** Agregué la convención a `CLAUDE.md` (Testing Rules) y al apartado 2.6 del `readme.md` (con una tabla): servicio y BD (`test_models`, `test_forms`, `test_services`, `test_selectors`, `test_templatetags`, `test_esquema`, `test_privilegios`, `test_concurrencia`), HTTP (`test_views_*`, `test_admin*`), flujo completo (`test_integracion`) y e2e (`app/e2e/`). Aclara que la capa de servicio y BD también corre contra PostgreSQL real, por eso no se llama "unitaria".
+
+**2. Marcador `http`.** Lo registré junto a `lento` y `e2e` en los `pyproject.toml` de las guías HB-03 y TK-01, y lo apliqué con `pytestmark` en los tests HTTP de las guías (HB-08 login y administración de usuarios, HB-09 catálogo y residentes, TK-03 vista de existencias). `test_integracion.py` no lleva `http`. El CI no cambia: `-m "not e2e and not lento"` sigue incluyendo `http`.
+
+**E2E y funcional.** Toda prueba E2E es funcional (verifica un criterio de aceptación como lo vive el usuario), pero no toda prueba funcional es E2E: `test_views_*`, `test_admin*`, `test_integracion.py` y los contratos de la API también lo son, sin navegador. El marcador `e2e` es solo para Playwright.
+
+Sincronicé el anexo de este archivo y el de `06-tickets-trabajo.md`. No hice commit.
+
+---
+
+## Prompt 14 — Usuario
+
+Agrega un marcador para las pruebas de Flujo completo como `integracion`.
+
+---
+
+## Respuesta 14 — Claude
+
+Registré el marcador `integracion` junto a `lento`, `http` y `e2e` en los `pyproject.toml` de las guías HB-03 y TK-01 (con `--strict-markers`), y lo apliqué con `pytestmark = pytest.mark.integracion` en `test_integracion.py` de `docs/tickets/integracion.md`. La tabla de capas del apartado 2.6 del `readme.md` y de `CLAUDE.md` ahora muestra `integracion` en la fila de flujo completo (antes decía "ninguno"), y la descripción de HB-03 lista los 4 marcadores. Sigue sin llevar `http`, así que `-m integracion` corre solo esa prueba y `-m http` solo la capa de vistas. El CI no cambia: `-m "not e2e and not lento"` sigue incluyéndolo. Sincronicé el anexo de este archivo y el de `06-tickets-trabajo.md`. No hice commit.
+
+---
+
+## Prompt 15 — Usuario
+
+Sí, agrégalos y también el marcador.
+
+---
+
+## Respuesta 15 — Claude
+
+Agregué la categoría **Infraestructura y configuración** y su marcador `infra`. Antes de esto, la pregunta fue en qué categoría iban las pruebas de los tickets HB: HB-01 y HB-02 no tienen tests de pytest (solo comandos con resultado esperado en el PR), HB-03 tiene `test_conexion.py`, que no figuraba en ninguna capa, y HB-04 tiene `app/config/tests/test_proxy.py`, fuera de `apps/`.
+
+- **Tabla de capas** (apartado 2.6 del `readme.md` y `CLAUDE.md`): nueva fila con `app/config/tests/test_proxy.py` y `apps/accounts/tests/test_conexion.py`, marcador `infra`. La regla de ubicación ahora dice que los tests de la configuración del proyecto van en `app/config/tests/`.
+- **Marcador `infra`:** registrado junto a los otros en los `pyproject.toml` de HB-03 y TK-01, y aplicado con `pytestmark` en `test_conexion.py` (HB-03) y `test_proxy.py` (HB-04). No lleva `http`, aunque use el cliente de Django, porque prueba configuración y no las vistas de una app. El CI no cambia.
+- **Comandos sin marcador:** las verificaciones de HB-01 y HB-02 y los `curl` de HB-04 se documentan como comandos con resultado esperado del PR, no como tests de pytest.
+
+Sincronicé el anexo de este archivo y el de `06-tickets-trabajo.md` (descripción de HB-03). No hice commit.
+
+---
+
+## Prompt 16 — Usuario
+
+Acepto la propuesta.
+
+---
+
+## Respuesta 16 — Claude
+
+Moví `test_conexion.py` (HB-03) de `apps/accounts/tests/` a `app/config/tests/`, para que toda la capa `infra` quede en una sola carpeta y no se mezcle con los tests de `accounts` en el ciclo TDD (`dtest apps/accounts` ya no la ejecuta). `test_privilegios.py` sigue en `accounts`, porque TK-01 lo extiende con los privilegios de `movimiento`.
+
+- **HB-03:** el árbol de archivos, el paso 4.1 (ahora crea `app/config/tests/` y su `__init__.py`) y la sección 3.1 apuntan a `app/config/tests/test_conexion.py`, con una nota de por qué va ahí y cómo correrlo (`dtest config/tests -q` o `dtest -m infra`).
+- **HB-04:** ya no crea `app/config/tests/__init__.py` (lo creó HB-03); `dtest config/tests -q` corre ahora ambos archivos.
+- **Documentación:** la fila de infraestructura de la tabla de capas del apartado 2.6 del `readme.md`, su anexo en este archivo y la línea de `CLAUDE.md` listan los 2 archivos en `app/config/tests/`.
+
+No hice commit.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 2)
 
 ### 2.1. Diagrama de arquitectura
@@ -639,10 +787,13 @@ flowchart TB
 AI4Devs-finalproject-vmrr/
 ├── readme.md                  # documentación del proyecto
 ├── prompts.md                 # prompts utilizados con IA
+├── openspec/                  # OpenSpec: config.yaml (fuentes y reglas), specs/ y changes/ (un cambio por ticket)
 ├── docs/                      # documentación de apoyo y diagramas
 │   ├── api/openapi.yaml       # contrato de la API (sección 4)
+│   ├── adr/                   # decisiones de arquitectura (ADR), índice en adr/README.md
 │   └── tickets/               # guías paso a paso de los tickets (sección 6)
 ├── docker-compose.yml         # servicios: nginx, web, db
+├── Makefile                   # atajos de desarrollo local (make help); el CI no lo usa
 ├── .env.example               # variables de entorno de ejemplo (el .env real no se versiona)
 ├── .github/
 │   ├── workflows/ci.yml       # integración continua: lint + tests
@@ -653,18 +804,25 @@ AI4Devs-finalproject-vmrr/
 ├── db/
 │   └── init/01_roles.sh       # crea los usuarios app_owner y app_user al crear el volumen
 ├── scripts/
+│   ├── verificar.py           # ruff y djLint: lo corren el job lint del CI y el hook de commits
 │   ├── migrate.sh             # migrate con las credenciales de app_owner
 │   ├── backup_db.sh           # respaldo con pg_dump
 │   └── restore_db.sh          # restauración de un respaldo
+├── tests/                     # tests de las herramientas (hooks y scripts), con pytest; no de la aplicación
+├── ruff.toml                  # ruff para scripts/, .claude/hooks/ y tests/ (app/ usa su pyproject.toml)
 └── app/                       # proyecto Django
     ├── Dockerfile
     ├── requirements.txt
+    ├── requirements-dev.txt   # pytest, ruff y djLint: solo desarrollo y CI, nunca en la imagen de producción
+    ├── pyproject.toml         # configuración de ruff, djLint y pytest
     ├── manage.py
     ├── config/                # configuración global
     │   ├── settings/          # base.py, local.py, prod.py
     │   ├── urls.py
     │   └── wsgi.py
     ├── apps/                  # un módulo de negocio por app
+    │   ├── expresiones.py     # sin_acentos(): la expresión f_unaccent(lower(...)) de los índices
+    │   ├── panel.py           # reglas comunes del panel /admin/ (sin borrado, búsqueda sin acentos)
     │   ├── accounts/
     │   ├── catalogo/
     │   ├── entidades/
@@ -685,7 +843,7 @@ AI4Devs-finalproject-vmrr/
     ├── templates/             # base.html y layout común (Bootstrap)
     ├── static/                # css, js (htmx), imágenes
     ├── fixtures/mock/         # dataset mock para demo y desarrollo (sección 3.4)
-    ├── e2e/                   # pruebas de extremo a extremo con Playwright
+    ├── e2e/                   # pruebas de extremo a extremo con Playwright (el servidor corre como app_user)
     ├── conftest.py            # fixtures de pytest compartidos (datos_demo, demo, como_app_user)
     └── pruebas.py             # helpers de los tests (ejecutar_sql, saldo)
 ```
@@ -698,7 +856,7 @@ AI4Devs-finalproject-vmrr/
 flowchart TB
     subgraph DEV["Desarrollo"]
         GH["GitHub<br/>repositorio"]
-        CI["GitHub Actions<br/>ruff + pytest + build de imagen"]
+        CI["GitHub Actions<br/>ruff + djLint + pytest + build de imagen"]
         GH --> CI
     end
     subgraph LAN["Red del hogar (producción actual)"]
@@ -763,7 +921,7 @@ C4Container
 
 | Contenedor | Imagen / tecnología | Responsabilidad | Puertos | Volúmenes | Redes |
 |---|---|---|---|---|---|
-| **`nginx`** — proxy inverso | `nginx:stable-alpine` | Único punto de entrada. Termina **HTTPS** (`mkcert` en la red local, Let's Encrypt en el VPS) y redirige 80 → 443. Sirve `/static/` sin pasar por Django. Aplica cabeceras de seguridad (HSTS, CSP, `X-Frame-Options`) y límites de tamaño de petición. Reenvía el resto a `web`. | **80 y 443 publicados** al host | `static` (solo lectura), `nginx/certs` | `frontend` |
+| **`nginx`** — proxy inverso | `nginx:1.30.7-alpine` | Único punto de entrada. Termina **HTTPS** (`mkcert` en la red local, Let's Encrypt en el VPS) y redirige 80 → 443. Sirve `/static/` sin pasar por Django. Aplica cabeceras de seguridad (HSTS, CSP, `X-Frame-Options`) y límites de tamaño de petición. Reenvía el resto a `web`. | **80 y 443 publicados** al host | `static` (solo lectura), `nginx/certs` | `frontend` |
 | **`web`** — app + API backend | Imagen propia: Python 3.12 + Django 5.2 + Gunicorn | **App web:** renderiza las páginas HTML (Bootstrap + HTMX) de existencias, movimientos, conteos y reportes. En el MVP, el catálogo y los residentes se operan desde `/admin/`, y las pautas son *Could* (sección 5). **API REST** (DRF): 3 endpoints JSON de solo lectura bajo `/api/`, con esquema OpenAPI. **Backend:** autenticación, sesiones, permisos por grupo, reglas de inventario (`services.py`) y panel `/admin/` para gestionar usuarios. | 8000 (solo interno, no publicado) | `static` (escribe con `collectstatic`) | `frontend` y `backend` |
 | **`db`** — base de datos | `postgres:17-alpine` | Persistencia relacional de los almacenes D1 a D6. Garantiza transacciones atómicas y bloqueo de filas (`SELECT ... FOR UPDATE`) para que las existencias nunca queden negativas. | 5432 (solo interno, no publicado) | `pgdata` (datos persistentes) | `backend` |
 
@@ -780,7 +938,7 @@ C4Container
 **Orden de arranque:** `db` declara un *healthcheck* (`pg_isready`). `web` arranca con `depends_on: condition: service_healthy` y `nginx` arranca después de `web`. Así `web` nunca intenta conectarse a una base de datos que todavía no responde.
 
 **Proceso de despliegue:**
-1. **Integración continua:** en cada *push* o *pull request* a `main`, GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) ejecuta `ruff` (lint), `pytest` con cobertura contra un servicio PostgreSQL 17, las pruebas de extremo a extremo con Playwright si el PR toca el frontend, y el *build* de la imagen. Cada noche corren además los tests lentos. Solo se integra a `main` con los *checks* obligatorios en verde (sección 7.3).
+1. **Integración continua:** en cada *push* o *pull request* a `main`, GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) ejecuta `scripts/verificar.py` (`ruff` para el lint y el formato de Python, djLint para los de las plantillas), `pytest` con cobertura contra un servicio PostgreSQL 17, las pruebas de extremo a extremo con Playwright si el PR toca el frontend, y el *build* de la imagen. Además revisa el contrato `docs/api/openapi.yaml` con Redocly y las herramientas del repositorio (`scripts/`, `.claude/hooks/` y `tests/`) con ruff y sus propios tests. Cada noche corren además los tests lentos. Solo se integra a `main` con los *checks* obligatorios en verde (sección 7.3).
 2. **Despliegue (local o VPS):** se hace manualmente por SSH, lo cual es suficiente para un solo mantenedor:
    ```bash
    git pull origin main
@@ -793,7 +951,7 @@ C4Container
    - `DB_OWNER_PASSWORD`: `app_owner`, para las migraciones.
    - `DB_APP_PASSWORD`: `app_user`, para la aplicación.
 
-   Al crear el volumen `pgdata`, el contenedor `db` ejecuta `db/init/01_roles.sh`, que crea `app_owner` y `app_user` (sección 6, TK-01). Después se generan los certificados (`mkcert` en local, `certbot` en el VPS), se crea el superusuario con `createsuperuser`. Los grupos de permisos, el Hogar y los catálogos semilla no se cargan aparte: los crean las migraciones de datos (sección 3.1).
+   Al crear el volumen `pgdata`, el contenedor `db` ejecuta `db/init/01_roles.sh`, que crea `app_owner` y `app_user` (sección 6, HB-01). Después se generan los certificados (`mkcert` en local, `certbot` en el VPS), se crea el superusuario con `createsuperuser`. Los grupos de permisos, el Hogar y los catálogos semilla no se cargan aparte: los crean las migraciones de datos (sección 3.1).
 4. **Respaldos:** un cron diario ejecuta `scripts/backup_db.sh`, que genera un `pg_dump` comprimido y cifrado, con retención de 14 días y copia a un disco externo. Una vez al mes se prueba la restauración con `scripts/restore_db.sh`.
 5. **Migración a hosting:** se aprovisiona el VPS con Ubuntu y Docker, se clona el repositorio, se restaura el último respaldo y se apunta el dominio. No hay cambios de código, solo variables de entorno.
 
@@ -807,7 +965,7 @@ C4Container
 | **Fuerza bruta** | `django-axes`: bloquea temporalmente la cuenta tras 5 intentos fallidos. |
 | **Autorización** | Grupos `Solo lectura` / `Lectura y escritura` con permisos de Django, validados **en el backend** (`PermissionRequiredMixin` en las vistas; en la API, `IsAuthenticated`, porque sus 3 endpoints son de solo lectura, sección 4.2). La interfaz oculta botones según el nivel, pero la autorización real ocurre en el servidor. Ejemplo: un usuario de solo lectura que envía un `POST` a `/inventario/bajas/` recibe `403`. |
 | **API** | Solo lectura (`GET`), requiere sesión autenticada y no expone métodos de escritura. |
-| **Vulnerabilidades web** | CSRF por defecto en formularios y peticiones HTMX. Protección contra XSS por el *autoescape* de plantillas. Protección contra inyección SQL al usar el ORM con consultas parametrizadas. `X-Frame-Options: DENY` y `Content-Security-Policy` en Nginx. |
+| **Vulnerabilidades web** | CSRF por defecto en formularios y peticiones HTMX. Protección contra XSS por el *autoescape* de plantillas. Protección contra inyección SQL al usar el ORM con consultas parametrizadas. `X-Frame-Options: DENY` y `Content-Security-Policy` en Nginx. Django envía la misma política CSP (nginx oculta la suya y deja una sola), para que las pruebas que no pasan por nginx la apliquen. |
 | **Secretos y configuración** | `SECRET_KEY` y credenciales de base de datos en `.env` (no versionado). `DEBUG=False` y `ALLOWED_HOSTS` restringido en producción. |
 | **Aislamiento de red** | PostgreSQL sin puertos expuestos, accesible solo desde el contenedor `web`. |
 | **Privilegios mínimos en la base de datos** | 2 usuarios: `app_owner` es dueño de las tablas y solo ejecuta migraciones; `app_user` es el que usa la aplicación, sin `UPDATE`, `DELETE` ni `TRUNCATE` sobre `movimiento` y sin poder alterar tablas ni desactivar *triggers*. Así, aunque alguien robe las credenciales de la aplicación, no puede reescribir el historial. Un test en CI verifica estos permisos. |
@@ -818,18 +976,34 @@ C4Container
 
 ### 2.6. Tests
 
-**Herramientas:** `pytest` + `pytest-django`, con el dataset mock de la sección 3.4 como *fixture* (`datos_demo`), ejecutados en CI contra PostgreSQL real. Playwright (Python) para el flujo de extremo a extremo.
+**Herramientas:** solo `pytest`, con `pytest-django` y el dataset mock de la sección 3.4 como *fixture* (`datos_demo`), ejecutados en CI contra PostgreSQL real. Playwright (Python, con `pytest-playwright`) para el flujo de extremo a extremo. Las pruebas son funciones con *fixtures* y marcadores de pytest; no se usan clases `TestCase` de Django ni de `unittest`: las transacciones reales se piden con `@pytest.mark.django_db(transaction=True, serialized_rollback=True)` y el número de consultas se comprueba con `django_assert_num_queries`. Los marcadores `lento`, `http`, `integracion`, `infra` y `e2e` se declaran con `--strict-markers`.
+
+**Capas y nombres:** los tests de cada app van planos en `app/apps/<app>/tests/`, sin subcarpetas por tipo, y los de la configuración del proyecto en `app/config/tests/`; la capa se reconoce por el nombre del archivo y, en las demás, por su marcador.
+
+| Capa | Archivos | Marcador |
+|---|---|---|
+| Servicio y base de datos (sin HTTP) | `test_models.py`, `test_forms.py`, `test_services.py`, `test_selectors.py`, `test_templatetags.py`, `test_esquema.py`, `test_privilegios.py`, `test_concurrencia.py` | `lento` solo en los planes de ejecución (`EXPLAIN`) |
+| HTTP (URL + vista + plantilla, con el cliente de pruebas de Django) | `test_views_*.py`, `test_admin*.py` | `http` |
+| Flujo completo (Vista → Servicio → Base de datos → `v_conciliacion_existencia`) | `test_integracion.py` | `integracion` |
+| Infraestructura y configuración (HTTPS por cabecera, CSRF, CSP, conexión y usuarios de BD) | `app/config/tests/test_conexion.py` (HB-03), `app/config/tests/test_proxy.py` (HB-04) | `infra` |
+| Extremo a extremo (Playwright) | `app/e2e/` | `e2e` |
+
+Todas las capas corren contra PostgreSQL real, incluida la de servicio y base de datos, que por eso no se llama "unitaria". Toda prueba E2E es funcional, porque verifica un criterio de aceptación tal como lo vive el usuario; lo contrario no es cierto: las de `test_views_*`, `test_admin*`, `test_integracion.py` y las de contrato de la API también son funcionales y no usan navegador. `-m http` corre solo la capa HTTP y `-m infra`, solo la de infraestructura y configuración, que no lleva `http` porque prueba configuración y no las vistas de una app. Las verificaciones de HB-01 y HB-02 y los `curl` de HB-04 son comandos con resultado esperado que van en el PR: no son tests de pytest y no llevan marcador.
+
+**Permisos reales también en pantalla:** el *fixture* `como_app_user` hace `SET LOCAL ROLE app_user` y falla si el test no tiene transacción envolvente (con `transaction=True`, cada hilo hace `SET ROLE app_user`). En los e2e, el servidor de pruebas corre como `app_user` y Django envía la misma CSP que nginx, así un script o un estilo en línea falla también en `live_server`.
+
+**Aislamiento:** `pytest-django` crea una base aparte (`test_<POSTGRES_DB>`) en el mismo PostgreSQL, le aplica las migraciones y la borra al terminar; la base de desarrollo no se toca (por eso `app_owner` tiene `CREATEDB` en desarrollo y CI). Cada test corre dentro de una transacción que se revierte, así que empieza con el mock recién cargado. Los de concurrencia y Playwright (`transaction=True`) confirman sus datos y al final se vacían las tablas; `serialized_rollback=True` restaura los datos semilla de las migraciones. En CI, además, el servidor de PostgreSQL es un contenedor nuevo en cada *job*.
 
 | Tipo | Caso | Resultado esperado |
 |---|---|---|
 | **Unitario (servicios)** | Registrar una entrada de 30 dosis para un residente | La existencia del residente aumenta en 30 y se crea un movimiento con usuario, fecha y quién entregó. |
 | **Unitario (servicios)** | Dar de baja más dosis de las disponibles | Se lanza `ExistenciaInsuficiente` y el saldo no cambia. |
 | **Unitario (servicios)** | Transferir del hogar a un residente cuando falla el abono al destino | La transacción se revierte y el saldo del hogar queda igual (atomicidad). |
-| **Concurrencia** | Dos bajas simultáneas que juntas superan la existencia (`TransactionTestCase`) | Solo una se aplica y el saldo nunca es negativo. |
+| **Concurrencia** | Dos bajas simultáneas que juntas superan la existencia (`@pytest.mark.django_db(transaction=True)` con hilos) | Solo una se aplica y el saldo nunca es negativo. |
 | **Unitario (conteos)** | Conteo físico de 18 dosis cuando el sistema registra 20 | La diferencia reportada es −2. |
 | **Permisos** | Usuario `Solo lectura` envía un `POST` para registrar una baja | Responde `403` y no se crea el movimiento. |
 | **Permisos** | Usuario sin sesión accede a cualquier pantalla | Redirige al login. |
 | **API** | `GET /api/v1/existencias?entidad_id=<id>` sin autenticación / autenticado | `401` / `200` con solo las existencias de esa entidad (casos completos en la sección 4.6). |
 | **Extremo a extremo** | Login → alta de medicamento → entrada a residente → consulta filtrada por principio activo | El medicamento aparece con la existencia correcta. |
 
-**Criterio:** cobertura ≥ 80 % en todo el código de `apps/`, que el CI exige en cada PR (sección 7.3). Las capas de servicios y permisos, que concentran las reglas críticas del negocio, tienen además el umbral de su ticket (por ejemplo, ≥ 90 % en `services.py`).
+**Criterio:** cobertura ≥ 80 % en todo el código de `apps/`, con ramas y sin contar migraciones ni tests (`[tool.coverage]` de `app/pyproject.toml`, la misma medida en local y en el CI), que el CI exige en cada PR (sección 7.3). Las capas de servicios y permisos, que concentran las reglas críticas del negocio, tienen además el umbral de su ticket (por ejemplo, ≥ 90 % en `services.py`).

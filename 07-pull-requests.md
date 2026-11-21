@@ -100,6 +100,173 @@ También actualicé la descripción de la integración continua en la sección 2
 
 ---
 
+## Prompt 3 — Usuario
+
+(Tras una revisión de `CLAUDE.md` contra el readme.) Corrige las inconsistencias como sugieres. La regla de `docs/capabilities` queda comentada con un recordatorio: trabajaremos con OpenSpec, pero aún no definimos las capabilities. Corrige el mapeo de conceptos a Django; sugiero este, pero si no es correcto haz tu sugerencia:
+- Rutas → `urls.py` (URL dispatcher).
+- Controladores → vistas (`views.py`).
+- Validadores → `validators.py` y formularios (`forms.py`).
+- Transformers → serializers de DRF (`serializers.py`).
+
+De los demás puntos:
+1. Commit cuando lo pida.
+3. PR solo al final.
+5. Crea el subagente `adversarial-reviewer` (revisor de solo lectura que intenta refutar el cambio contra los scenarios de `openspec/specs/`).
+8. Cambia "paciente" por "residente", incluyendo el readme y `openapi.yaml`, por consistencia.
+
+---
+
+## Respuesta 3 — Claude
+
+**Proceso de PR (sección 7.2 del readme):**
+- El PR se abre **una sola vez, al terminar la unidad de trabajo**, en lugar de en borrador al primer *push*. Antes, el autor verifica en local con `make lint` y `make test-ci`, que es lo mismo que corre el CI.
+- La revisión con un solo desarrollador es la autorrevisión del día siguiente más el subagente **`adversarial-reviewer`**. Lo creé en `.claude/agents/adversarial-reviewer.md` con la especificación indicada.
+- Actualicé el diagrama del proceso y la sección 6 ("Quién revisa").
+
+**"Paciente" → "residente"** en el readme (secciones 0.3, 1.2, 3.2 y 4), en `docs/api/openapi.yaml` (validado con Redocly: 0 errores), en `00-ficha-proyecto.md` y en los anexos. Los prompts y respuestas ya registrados en los transcripts conservan su texto original, porque son historia.
+
+**El mapeo propuesto es correcto**, con 3 precisiones que dejé en el recordatorio de `CLAUDE.md`:
+- **Controladores:** son las vistas de las pantallas (`views.py`) y, en la API, las vistas de DRF (`apps/api/views.py`).
+- **Validadores:** también incluyen la validación de los serializers (`validate_<campo>()`). Las reglas de negocio se validan además en `services.py`, y la base de datos es la última barrera.
+- **Transformers:** en las pantallas no hay *transformer*: la vista arma el contexto con `selectors.py`.
+
+Además, al activar la regla habrá que cambiar 2 cosas que venían de otro proyecto: aquí el contrato OpenAPI se escribe a mano, así que sí hay que actualizar `docs/api/openapi.yaml`; y la "spec" de cada capability probablemente vivirá en `openspec/specs/`.
+
+**`CLAUDE.md`:** commit solo cuando se pida, ramas `feature/`, push y PR solo al final, reglas de Git reunidas en su sección, cobertura (80 % en CI y 90 % como umbral de ticket), `como_app_user` y los tests con hilos, vocabulario (Pauta, Movimiento, Transacción), prefijos de nombres de la BD, búsquedas de texto, `numeric(6,2)` de la pauta y autorización de pantallas, API y `/admin/`.
+
+**Pendiente:** el subagente contrasta contra `openspec/specs/`, que todavía no existe. Mientras tanto, `CLAUDE.md` indica que contraste contra los criterios de aceptación del readme y la guía del ticket, y que al invocarlo se le pase el diff, porque no tiene Bash.
+
+---
+
+## Prompt 4 — Usuario
+
+En la versión de djLint tienes razón: usemos la más reciente, que es la estable, 1.50.0, para las plantillas de Django. Además, configura un hook `PostToolUse` para cuando hagas `Edit` y `Write` de código, y otro `PreToolUse` antes de los commits, con un script verificador que vaya en ese `PreToolUse`. Ese script verificador también debe quedar integrado en el flujo de CI de GitHub.
+
+(Respuesta a mi pregunta sobre la versión, porque la más reciente de la serie 1.50 es la 1.50.4:) 1.50.4.
+
+---
+
+## Respuesta 4 — Claude
+
+**djLint 1.50.4:** queda congelado en esa versión en la guía de HB-02, la ficha de HB-02 (sección 6) y `CLAUDE.md`. Las plantillas de las guías de HB-08 y TK-03 pasan `--check` y `--lint` con ella, igual que con la 1.49.9.
+
+**Verificador `scripts/verificar.py`:** solo usa la biblioteca estándar de Python. Corre `ruff check`, `ruff format --check` y, si hay plantillas, `djlint --check` y `djlint --lint`, desde `app/` y con su `pyproject.toml`.
+- Usa el contenedor `web` si está corriendo, con las versiones de `requirements-dev.txt`; si no, las herramientas instaladas en el equipo (`--modo auto|docker|local`).
+- `--corregir` formatea antes de verificar, y con rutas de archivos revisa solo esos archivos.
+- Antes de que exista `app/manage.py` (HB-02) no hay nada que verificar y termina bien. Sin ruff ni djLint termina con código 3, y con errores, con 1.
+
+**Hooks en `.claude/settings.json`:**
+- **`PostToolUse` (`Edit|Write`), `formatear_codigo.py`:** formatea el `.py` o `.html` de `app/` recién escrito con `verificar.py --corregir <archivo>`. Si lo cambió, avisa para volver a leerlo antes de la siguiente edición. Si quedan errores de lint que no se corrigen solos, los devuelve para arreglarlos.
+- **`PreToolUse` (`Bash|PowerShell`), `verificar_antes_commit.py`:** antes de cada commit que incluya código de `app/`, corre el verificador completo y niega el commit si hay errores o si no se pudo verificar (falla cerrada, como el hook de secretos). Los commits de solo documentación pasan sin verificar. Corre junto al hook de secretos, no lo reemplaza.
+
+**CI:** el *job* `lint` instala ruff y djLint de `requirements-dev.txt` y corre `python scripts/verificar.py --modo local`. Así, el CI y el hook de commits ejecutan exactamente lo mismo, y la lógica para saltar djLint sin plantillas vive en un solo lugar.
+
+**Lo probé** en un repositorio de prueba con ruff y djLint 1.50.4: archivo bien formateado, mal formateado, plantilla con estilo en línea (H021), sin herramientas, archivo fuera de `app/`, commit de solo documentación, commit con código mal formateado (se niega), el mismo commit ya corregido (pasa) y la opción `-C` de git desde otra carpeta.
+
+**Documentación:** `CLAUDE.md` (estado del repositorio, tabla de comandos, CI y los 2 hooks), readme (estructura de 2.3, CI de 2.4, proceso de 7.2 y criterio "Calidad estática" de 7.3) y guía de HB-02.
+
+---
+
+## Prompt 5 — Usuario
+
+1. Haz que el hook reaccione a los commits reales: esa es la intención.
+2. Recuérdame mañana.
+3. ¿Recordarás esta sesión?
+
+---
+
+## Respuesta 5 — Claude
+
+**1. Solo commits y push reales.** Los 2 hooks `PreToolUse` (secretos y verificación) buscaban el texto `git ... commit` con una expresión regular. Por eso bloqueaban comandos que solo lo mencionaban: un `echo`, el cuerpo de un heredoc con un mensaje o un script, o el texto `git -C <ruta>`. En 3 casos, la "ruta" del texto ni siquiera existía, y el hook bloqueó por precaución.
+
+Ahora los 2 usan `.claude/hooks/comandos_git.py`, que separa el comando como lo haría el shell, sin ejecutar nada:
+- Respeta comillas, heredocs de Bash, here-strings de PowerShell y comentarios: su contenido es texto, no comandos.
+- Corta por `;`, `&&`, `||`, `|` y saltos de línea, y solo cuenta un comando cuya primera palabra es `git` (saltando `VAR=valor`, `&`, `if`, `then` o `{`).
+- Salta las opciones globales de git y respeta `git -C <ruta>`, `cd <ruta>` y `Set-Location`, incluidas las rutas de Git Bash (`/c/...`).
+- Detecta `-a`, `--all` o `-am` en el commit, y un `git add` en el mismo comando, para revisar también lo no preparado.
+
+Lo probé con 23 comandos (commits con mensaje en heredoc, here-string o `-C`, y los 3 falsos positivos de hoy) y con los 2 hooks en un repositorio de prueba: siguen bloqueando un `.env` en staging, un correo real antes del push y el código mal formateado, y ya no reaccionan al texto.
+
+**2. Recordatorio:** quedó programado para mañana en esta sesión. Solo funciona si la sesión sigue abierta.
+
+**3. Memoria:** no recuerdo las conversaciones por mí mismo. Lo que se conserva es la memoria del proyecto (`MEMORY.md` y sus notas), que actualicé con el estado de hoy, y el historial de la sesión, que se puede retomar con `claude --continue` o `claude --resume`. Además, el repositorio y los transcripts guardan todas las decisiones.
+
+---
+
+## Prompt 6 — Usuario
+
+Crea una skill para hacer `git push`, por petición y de forma segura, que sirva para hacer push o para actualizar un PR.
+
+---
+
+## Respuesta 6 — Claude
+
+Creé la skill **`/push`** en `.claude/skills/push/SKILL.md`. Solo se ejecuta cuando el usuario la pide.
+
+- **`/push`:** sube los commits de la rama actual. Si la rama ya tiene un PR abierto, el push lo actualiza y la skill deja un comentario con los commits nuevos.
+- **`/push pr`:** además, crea el PR con la plantilla llena si no existe, o regenera su descripción si ya existe. Después pasa el subagente `adversarial-reviewer` (contra los ADR y los criterios de aceptación) y registra sus hallazgos como comentario del PR.
+
+**Qué la hace segura:**
+- No sube a `main` ni con la cabeza separada, y solo sube la rama actual.
+- Nunca fuerza: si el remoto tiene commits que no están en local, se detiene y propone `git pull --rebase`, sin ejecutarlo.
+- Avisa si quedan cambios sin commitear (no van en el push) o si la rama está atrasada respecto de `main`, que es un criterio de *merge*.
+- Antes de subir corre `scripts/verificar.py`, lo mismo que el *job* `lint` del CI. El hook de secretos sigue revisando cada push y no se esquiva.
+- El PR no lleva secretos, datos personales ni menciones `@` sueltas, y la respuesta final es solo la URL del PR, como pide `CLAUDE.md`.
+
+**GitHub CLI:** `gh` no está instalado en este equipo. Sin él, la skill hace el push y entrega la URL para abrir el PR en el navegador y el cuerpo listo en un archivo; para crear y actualizar PR desde la skill hace falta `winget install --id GitHub.cli` y `gh auth login`.
+
+Probé los pasos de solo lectura sobre `feature/entrega-2-vmrr`: la rama todavía no existe en el remoto, tiene 34 commits por subir respecto de `origin/main`, `main` no está adelantado y el verificador termina bien. No hice push.
+
+También lo documenté en `CLAUDE.md` (sección Git) y en el paso 1 del proceso de revisión del readme (apartado 7.2).
+
+---
+
+## Prompt 7 — Usuario
+
+1. Que lo haga la skill.
+2. Sí se permite, si el plan aprobado lo declara.
+3. Déjalas como están; pon un comentario de que el ancla de `CLAUDE.md` evita el commit que dejaría commits rotos.
+
+---
+
+## Respuesta 7 — Claude
+
+Creé el flujo TDD para implementar tickets, con estas 3 decisiones:
+
+- **`.claude/skills/implementar-ticket/SKILL.md`:** una sola skill para backend, frontend e infraestructura. Su orden es explorar, plan, parada para aprobar, tests, rojo, congelar, implementar hasta el verde, comprobar que la huella está intacta y cierre. No hace commit, push ni PR.
+- **`.claude/agents/test-writer.md`:** escribe los tests a partir de los criterios de aceptación y de las piezas de contrato. No lee `docs/tickets/`, porque las guías traen la implementación, ni el código de producción, y no tiene Bash.
+- **`.claude/agents/implementer.md`:** implementa contra los tests congelados. Si un test parece incorrecto, lo devuelve como disputa en lugar de cambiarlo.
+- **Ancla en `CLAUDE.md`:** cualquier ticket HB o TK, o cualquier cambio de la aplicación, pasa por la skill sin que nadie tenga que pedirlo.
+
+**Decisiones aplicadas:**
+1. **OpenSpec:** si falta el cambio del ticket, la skill lo crea y lo valida antes de la parada, para aprobar la spec junto con el plan.
+2. **`docker compose down -v`:** solo se ejecuta si el plan aprobado lo declara, y nunca lo lanza un subagente.
+3. **Commits por paso:** las guías no cambian. El ancla explica que su frase "Haz un commit al terminar cada paso" no aplica dentro de la skill, porque dejaría commits rotos en la historia, con tests en rojo o pasos a medias.
+
+El ciclo todavía no se ha probado con un ticket real.
+
+---
+
+## Prompt 8 — Usuario
+
+Regístralo. Otra pregunta: ¿esta configuración dispara `/opsx:propose`, `/opsx:apply`, etc.?
+
+---
+
+## Respuesta 8 — Claude
+
+No. Esos comandos no están instalados en este proyecto ni en el perfil del usuario, y la skill `implementar-ticket` no los invoca: usa directamente la CLI (`openspec new change`, `openspec instructions` y `openspec validate`).
+
+| Comando | Qué lo cubre hoy |
+|---|---|
+| `/opsx:propose` | El paso 2 de la skill, que crea y valida el cambio antes de la parada |
+| `/opsx:apply` | Los pasos 3 a 8 de la skill, que además exigen rojo, huella y disputas |
+| `/opsx:archive` y `/opsx:sync` | Nada: es un hueco del flujo |
+
+Como nadie archiva los cambios, `openspec/specs/` seguiría vacío, y el subagente `adversarial-reviewer` contrasta contra esas specs. La CLI ya trae `openspec archive <cambio>`, que actualiza las specs principales, así que basta agregar ese paso al flujo sin instalar `/opsx:apply`, que competiría con la skill.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 7)
 
 ## 7. Pull Requests
@@ -134,11 +301,11 @@ La plantilla vive en [`.github/pull_request_template.md`](.github/pull_request_t
 
 ```mermaid
 flowchart LR
-    A["Rama feature/TK-NN<br/>commits pequeños"] --> B["PR en borrador<br/>plantilla llena"]
+    A["Rama feature/TK-NN<br/>commits pequeños"] --> B["PR al terminar la unidad<br/>plantilla llena"]
     B --> C{"CI en verde?"}
     C -- no --> A
     C -- sí --> D["Listo para revisión<br/>autor completa su checklist"]
-    D --> E["Revisión<br/>Tech Lead o autorrevisión + IA"]
+    D --> E["Revisión<br/>Tech Lead o autorrevisión<br/>+ adversarial-reviewer"]
     E --> F{"Comentarios<br/>bloqueantes?"}
     F -- sí --> G["Autor corrige<br/>y responde cada uno"] --> E
     F -- no --> H{"Criterios de merge<br/>(7.3)"}
@@ -146,9 +313,9 @@ flowchart LR
     I --> J["Ticket cerrado<br/>lecciones al readme/guías"]
 ```
 
-1. **Autor.** Abre el PR en borrador al primer *push*, para que CI corra desde el inicio. Llena la plantilla y lo pasa a "listo para revisión" solo cuando CI está en verde y su checklist está completa.
+1. **Autor.** Trabaja la unidad completa en su rama, con commits pequeños, y la verifica en local con `make lint` y `make test-ci` (lo mismo que corre el CI). Con Claude Code, además, los hooks del proyecto formatean cada archivo de código que escribe y corren `scripts/verificar.py`, el mismo del *job* `lint`, antes de cada commit. **Al terminar la unidad** hace *push* y abre **un solo PR**, con la plantilla llena (con Claude Code, la skill `/push pr`, que sube la rama sin forzar y verifica antes con `scripts/verificar.py`). CI corre en ese momento y en cada *push* posterior; si falla, el autor lo corrige en la misma rama antes de pedir revisión.
 2. **Revisor.** Usa los **criterios de revisión de código** de la sección 6. Marca cada comentario como **[bloqueante]**, **[sugerencia]** o **[nit]** y responde en máximo 1 día hábil.
-   - **Con un solo desarrollador:** el autor revisa al día siguiente con la lista y hace además una revisión asistida por IA. Las 2 quedan registradas como comentarios en el PR.
+   - **Con un solo desarrollador:** el autor revisa al día siguiente con la lista y pasa además el subagente `adversarial-reviewer` (`.claude/agents/`), que revisa el cambio con el objetivo de refutarlo, también contra las decisiones de arquitectura aceptadas de [`docs/adr/`](docs/adr/README.md). Las 2 revisiones quedan registradas como comentarios en el PR.
 3. **Autor.** Responde cada comentario: lo corrige (con el commit que lo resuelve) o explica por qué no. Solo el revisor marca un comentario bloqueante como resuelto.
 4. **Aprobación.** El revisor aprueba cuando no queda ningún bloqueante abierto. Las sugerencias que no se atiendan pasan al backlog como tarea.
 5. ***Merge*.** Con *squash*, cuando se cumplen los criterios de 7.3. Después se borra la rama, se cierra el ticket y las lecciones aprendidas que lo ameriten se pasan al readme o a la guía del ticket.
@@ -160,7 +327,7 @@ Un PR se integra a `main` solo si cumple **todos**:
 | Criterio | Umbral | Cómo se verifica |
 |---|---|---|
 | **Pruebas** | `pytest` completo en verde contra PostgreSQL 17, incluida la prueba de integración de la sección 6. Si toca el frontend, también los e2e de Playwright | *Checks* obligatorios `tests` y `e2e` |
-| **Calidad estática** | `ruff check`, `ruff format --check` y `makemigrations --check` sin errores | *Checks* obligatorios `lint` (ruff) y `tests` (migraciones) |
+| **Calidad estática** | `ruff check`, `ruff format --check`, `djlint --check`, `djlint --lint` y `makemigrations --check` sin errores | *Checks* obligatorios `lint` (`scripts/verificar.py`: ruff y djLint) y `tests` (migraciones) |
 | **Cobertura** | ≥ 80 % en todo `apps/` (sección 2.6), más el umbral del ticket (TK-02 ≥ 90 % en `services.py`); la cobertura total no baja respecto de `main` | El *job* `tests` falla con menos de 80 % (`--cov-fail-under=80`) y guarda `coverage.xml`; el umbral del ticket y la comparación con `main` los verifica el autor y los anota en la plantilla |
 | **Aprobaciones** | 1 aprobación sin comentarios bloqueantes abiertos. Con un solo desarrollador: autorrevisión y revisión con IA registradas en el PR | Revisión en GitHub y conversaciones resueltas |
 | **Definición de hecho** | La común y la del ticket (sección 6), con todos los criterios de aceptación cumplidos | Checklist del autor, revisada por el revisor |
@@ -182,9 +349,9 @@ Con un solo desarrollador, GitHub no permite aprobar un PR propio. Por eso la ap
 > | 2 | Primero se integra `ci.yml` y se abre un PR para que los *jobs* corran; después se marcan como obligatorios | GitHub solo deja elegir *checks* que ya se ejecutaron alguna vez en el repositorio |
 > | 3 | El workflow corre **siempre**: nada de `paths:` ni `paths-ignore:` en `on:` | Si el workflow no corre, el *check* obligatorio nunca se reporta y el PR queda bloqueado |
 > | 4 | `e2e` se salta con una condición `if:` cuando el PR no toca el frontend (lo detecta el *job* `detectar cambios`) | Un *job* saltado cuenta como aprobado. En `push` a `main` y en el CI nocturno, `e2e` corre siempre |
-> | 5 | Mientras no exista `app/manage.py`, `lint`, `tests` y `e2e` se saltan | Los PR de solo documentación (como esta entrega) no fallan por falta de código |
+> | 5 | Cada *job* se activa cuando existe lo que necesita: `lint` e `imagen` con `app/manage.py` (HB-02), `tests` con `app/conftest.py` (HB-03) y `e2e` con `app/e2e/` (TK-03). Antes, se saltan | Los PR de solo documentación (como esta entrega) y los primeros tickets de habilitación no fallan por algo que todavía no existe |
 > | 6 | Los tests marcados `lento` (planes de ejecución) solo corren en el CI nocturno | Mantiene rápido el CI de cada PR |
-> | 7 | `detectar cambios` y `build de la imagen` corren pero **no** son obligatorios | El primero es auxiliar; el segundo verifica el `Dockerfile` sin bloquear PR de documentación |
+> | 7 | `detectar cambios`, `build de la imagen`, `contrato OpenAPI` y `herramientas del repositorio` corren pero **no** son obligatorios | El primero es auxiliar; el segundo verifica el `Dockerfile` sin bloquear PR de documentación; los 2 últimos revisan el contrato y los hooks y scripts, que no son código de la aplicación |
 > | 8 | **La protección de ramas solo funciona en repositorios públicos** con una cuenta gratuita de GitHub | En un repositorio privado se necesita GitHub Pro, Team o Enterprise. Sin eso, las reglas de 7.3 son un acuerdo de trabajo: antes del *merge*, el autor comprueba a mano que `lint`, `tests` y `e2e` estén en verde |
 
 ---

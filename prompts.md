@@ -434,4 +434,157 @@ Confirmo 1,2 y 3. Crea el ci.yml completo con los 3 nombres de las pruebas/proce
 > Crea de antemano el github workflow para los PRs dejando el camino preparado y actualiza las seccion 7 de PR para que la documentacion este coherente.
 
 
+<!--Entrega 2-->
+
+
+## Creacion Harness
+**Prompt 1:**
+```
+Revisa el CLAUDE.MD por inconsistencias entre sus instrucciones y secciones y ademas vs el readme.md
+```
+**Respuesta clave de Claude Code Opus 5.5 High:**
+> Señalo inconsistencias mayores y menores entre readme.md y cl y pregunto por como reconciliar las mayores.
+>
+**Impacto en el proyecto:**
+> Me ayudo que el harness fuera consistente en su comporatmiento y efectivo.
+>
+
+**Prompt 2:**
+```
+Corrige las inconsistencias como sugieres, considera para la de docs/capabilities vamos a trabajar con openspec aunque no hemos iniciado, ni definido las capabilities esa regla queda comentada con un recordatorio y la agregaremos cuando entremos a definir capabilities y trabajar con openspec, corrige los mapeos de los conceptos sugiero esto pero si no son correctos haz tu sugerencia:
+En Django los conceptos mencionados mapean a:
+Rutas -> url.py (URL dispatcher)
+Controladores -> vistas (views.py)
+Validadores -> Validators(validators.py), Forms(forms.py)
+Transformers -> Serializers-con DRF (serializers.py)
+
+De los demas puntos:
+1.  Commit cuando lo pida, 
+3. PR solo al final
+8. Cambia a "residente" incluyendo en readme y openapi.yaml por consistencia
+5. Crea el subagente con esta especificacion:
+"---
+name: adversarial-reviewer
+description: Revisa un cambio con el objetivo de REFUTARLO. Contrasta contra la spec viva de OpenSpec. Read-only.
+tools: Read, Grep, Glob
+model: sonnet
+---
+Eres un revisor adversarial. Tu único objetivo es DEMOSTRAR que el código está mal,
+no aprobarlo. Contrasta cada cambio contra los scenarios de `openspec/specs/`.
+Busca: (1) desviaciones de la spec, (2) edge cases no manejados, (3) fugas de
+seguridad o de datos, (4) supuestos frágiles. Devuelve hallazgos PRIORIZADOS
+(crítico/alto/medio) con evidencia (archivo:línea) y el scenario que se rompe.
+No edites archivos. Si no encuentras nada, busca más a fondo.
+"
+```
+**Respuesta clave de Claude Code Opus 5.5 High:**
+>  Creo  el revisor como se le pidio.
+>
+**Impacto en el proyecto:**
+>  Claude propuso las reglas para anclarlo en el proceso al final de cada push, solo antes de subir el codigo.
+
 **Prompt 3:**
+```
+Para las pruebas en este proyecto, ¿son por defecto sobre una DB efímera? ¿Necesitamos especificarlo en el readme.md? Sí, agrégalo.
+
+```
+**Respuesta clave de Claude Code Opus 5.5 High:**
+>  Reviso que las pruebas se hicieran en una DB efimera y servidor efimero de PostgressSQL. Se aseguro que el entorno de pruebas empezara siempre con una DB limpia, aislada, temporal  y separada.
+>
+**Impacto en el proyecto:**
+>  Un entorno de pruebas confiable y que se inicializa en limpio cuando corren las pruebas.
+
+
+**Prompt 4:**
+```
+Como Tech Lead Experimentado y Senior Devops Engineer,a partir de la arquitectura documentada en readme.md crea tickets de trabajo principales para la infrastructura
+1. Lee la sección 2.4 e implementa exactamente los 3 contenedores descritos: nginx, web (Django) y db (PostgreSQL 17).
+2. Respeta las instrucciones de la sección 1.4: mapeo de puertos 80 y 443 al host, volúmenes de certificados y la inicialización de roles app_owner/app_user.
+3. Define las variables de entorno necesarias (DB_USER, DB_PASSWORD, etc.) referenciando un archivo .env.
+4. Configura el orden de arranque correcto (depends_on con condition: service_healthy en la base de datos).
+5. No inventes servicios de caché (Redis) ni colas de mensajes; cíñete a la arquitectura documentada.
+
+Para que un desarrollador junior pueda hacer el ticket sin bloqueos, detalla cada ticket con (donde aplique):
+- Tareas especificas paso a paso
+- Archivos y estructura de codigo a crear
+- Test requeridos con ejemplos
+- Criterios de calidad
+- Comandos/pasos especificos para la verificacion
+
+```
+**Respuesta clave de Claude Code Opus 5.5 High:**
+>  Creo tickets detallados cada paso y mismas secciones que los de codigo para la configuracion y creacion de la infrastructura.
+
+**Impacto en el proyecto:**
+>  Con estos tickets ayudo a quitar drifts y halucinaciones y ceñirse al diseño, arquitectura y reglas del claude.md
+
+**Prompt 5:**
+```
+Lee `readme.md` (secciones 2, 3, 4, 5 y 6) y `CLAUDE.md` para extraer las decisiones arquitectónicas significativas ya tomadas y formalizarlas como Architecture Decision Records (ADRs) en `docs/adr/`, antes de inicializar OpenSpec.
+
+**Restricciones obligatorias:**
+1. Zero Hallucination: toda decisión, restricción SQL, tabla, índice, umbral o regla de negocio debe salir estrictamente de `readme.md` y `CLAUDE.md`. No inventes requisitos ni alternativas que no se deduzcan del diseño actual.
+2. Vocabulario de dominio estricto: usa exclusivamente `Residente`, `Entidad`, `Medicamento`, `Existencia`, `Movimiento`, `Pauta` y `Baja` (nunca sinónimos).
+3. Idioma: español en todos los archivos.
+
+```
+**Respuesta clave de Claude Code Opus 5.5 High:**
+> Propuso los ADRs con las decisiones arquitecturales, configuro el harness para asegurarse que cada vez que se toma una decision de este tipo se actualizcen los ADRs.
+
+**Impacto en el proyecto:**
+> Creo todo los ADRs iniciales y la configuracion para mantenerlos actualizados -vivos-
+
+
+**Prompt 6:**
+```
+Ya inicialice OpenSpec, quiero configurar el harness para que tome lo siguiente:
+1. La fuente de historias de usuario y tickets de las secciones correspondientes del readme.md
+2. La arquitectura, stack tecnologico, adrs las convenciones de la DB(CLAUDE.md)
+  - Todo proposal.md debe incluir el ID exacto de la Historia de Usuario y Ticket en su encabezado.
+  - Todo criterio de aceptación debe convertirse en escenarios GIVEN/WHEN/THEN en specs/.
+  - Cada tarea en tasks.md debe respetar la arquitectura mock-first / TDD definida en CLAUDE.md.
+  
+
+Actualiza el adversarial reviewer para que al final del push cmpruebe que la implementacion concuerda con la historia.
+
+Creo toda la configuracion de openspec para que siga la arquitectura y convenciones de DB. 
+
+Aclara que las de infra no tienen capability, lo que es correcto.
+
+Prompt creador agente de test-writer
+
+```
+**Respuesta clave de Claude Code Opus 5.5 High:**
+> Ayudo a configurar las reglas globales de openspec para que haga cumplir todas las guias de arquitectura.
+
+**Impacto en el proyecto:**
+> Facilmente dejo listo una de las salvaguardas mas confiables que a nivel de OpenSpec se cumpla con la arquitectura y estandares definidos en readme.md y CLAUDE.md
+ 
+
+
+**Prompt 7:**
+```
+Mira el proyecto https://github.com/LIDR-academy-temp/flowsync-ai4devs/tree/s14/start, en CLAUDE.md hay dos parrafo que ancla la ejecucion de backend-feature y frontend-feature. Estos definen una serie de pasos para ese proyecto de AdonisJS, pero con TDD. Los pasos son :
+explorar,
+plan,
+parada para aprobar,
+tests o historias,
+rojo,
+congelar,
+implementar hasta el verde,
+comprobar que la huella está intacta,
+cierre.
+
+Esta skill llama a 2 subagentes implementer y test-writter, las skills fijan unas **piezas de contrato** con el que fijan los nombres de los artefactos que los test fijan, y que son en comun con el que van a interactuar. 
+
+Corren/orquestan todo el ciclo TDD desde explorar hasta el cierre en verde sin comittear. Quiero hacer algo adecuado a nuestro proyecto. Podrias analizarlo y proponer  la ancla en CLAUDE.md, un SOLO skill para tareas de backend, frontend e infrastructura/configuracion y lo subagentes de test-writer e implementer?
+
+No escribas nada , solo propon. No registres este prompt.
+
+```
+**Respuesta clave de Claude Code Opus 5.5 High:**
+> Mirando al patron agentico de FlowSync propuso un plan de implementacion de la skill implementar-ticket, con dos subagentes test-writer e implementer para manejar los tipos de tickets en mi proyecto
+
+**Impacto en el proyecto:**
+> Poder ejecutar facil y rapidamente el ciclo orientado TDD: propose  → human gate →  implementar-ticket  →  /commit  →  sync  →  verify  →  archive con solo pedirle que implemente el ticket. El solo hace todo el ciclo y para aprobaciones, correciones hasta el verde y el commit.
+
