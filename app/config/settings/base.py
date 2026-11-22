@@ -36,9 +36,10 @@ INSTALLED_APPS = [
 AUTH_USER_MODEL = "accounts.Usuario"
 
 # Nombre del Hogar que crea la migración entidades/0003_hogar (readme, sección 3.2, D3).
-# El real solo se pone en el servidor del hogar; en desarrollo y la demo basta el por defecto,
-# que es el que esperan los tests de TK-03 con el dataset mock.
-HOGAR_NOMBRE = os.environ.get("HOGAR_NOMBRE", "Hogar Gerontológico Demo")
+# En desarrollo, el CI y los tests basta el por defecto, que es el que esperan los tests de
+# TK-03 con el dataset mock; una variable vacía (docker-compose.yml la pasa así si .env no la
+# define) también lo toma. En producción es obligatoria: prod.py no arranca sin ella.
+HOGAR_NOMBRE = os.environ.get("HOGAR_NOMBRE", "").strip() or "Hogar Gerontológico Demo"
 
 # Contraseñas (readme, sección 2.5): Argon2 para las nuevas. PBKDF2 se conserva para
 # validar los hash del dataset mock y los de usuarios creados antes del cambio.

@@ -963,6 +963,8 @@ C4Container
    - `DB_OWNER_PASSWORD`: `app_owner`, para las migraciones.
    - `DB_APP_PASSWORD`: `app_user`, para la aplicación.
 
+   También `HOGAR_NOMBRE`, con el nombre real del hogar (o el de la demo, si es la demo). La primera migración crea el Hogar con ese nombre, una sola vez, y `config.settings.prod` no arranca sin la variable. En desarrollo, sin ella, el Hogar se llama "Hogar Gerontológico Demo".
+
    Al crear el volumen `pgdata`, el contenedor `db` ejecuta `db/init/01_roles.sh`, que crea `app_owner` y `app_user` (sección 6, HB-01). Después se generan los certificados (`mkcert` en local, `certbot` en el VPS), se crea el superusuario con `createsuperuser`. Los grupos de permisos, el Hogar y los catálogos semilla no se cargan aparte: los crean las migraciones de datos (sección 3.1).
 4. **Respaldos:** un cron diario ejecuta `scripts/backup_db.sh`, que genera un `pg_dump` comprimido y cifrado, con retención de 14 días y copia a un disco externo. Una vez al mes se prueba la restauración con `scripts/restore_db.sh`.
 5. **Migración a hosting:** se aprovisiona el VPS con Ubuntu y Docker, se clona el repositorio, se restaura el último respaldo y se apunta el dominio. No hay cambios de código, solo variables de entorno.

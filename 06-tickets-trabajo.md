@@ -390,6 +390,31 @@ No estaba asignado a ningún ticket: la nota de HB-06 decía "en otro ticket" si
 
 ---
 
+## Prompt 14 — Usuario
+
+(Tras la revisión adversarial de HB-06 en el PR #2, sin bloqueantes y con 5 sugerencias y 6 *nits*:) Atiéndelas.
+
+(Tras el plan, con 3 decisiones:) Sí, apruebo.
+
+---
+
+## Respuesta 14 — Claude
+
+Lo hice como un cambio de OpenSpec propio, `hb-06-ajustes-revision`, con `implementar-ticket`: tests congelados por su huella, rojo comprobado y verde con `implementer`. Atendí las 5 sugerencias y los *nits* 6, 7, 9, 10 y 11; el 8 ya lo cubre TK-01.
+
+| Hallazgo | Cambio |
+|---|---|
+| 1. `activa` y `__str__` fallaban sin el subtipo | Una Entidad `RESIDENTE` sin su fila no está activa y se muestra como `Entidad <id>`. Con `select_related("residente")`, una sola consulta. Actualicé el punto de integración 11 del readme |
+| 2. Un alta fallida dejaba el objeto con un `pk` falso | `_state.adding`; si el alta falla, el Residente recibido queda como estaba y se puede reintentar. Un solo test inyecta la falla con `monkeypatch`, contra PostgreSQL real |
+| 3. Mensaje técnico para nombres vacíos | El servicio quita los espacios (error de campo obligatorio) y `ck_residente_nombres` tiene mensaje propio (migración `0004`, que no cambia la base) |
+| 4. Un servidor sin `HOGAR_NOMBRE` crearía un Hogar "Demo" definitivo | `config.settings.prod` no arranca sin la variable, y `docker-compose.yml` ya no inventa un valor. No se rechaza el nombre de la demo, porque la demo lo usa. Lo agregué a la primera instalación (readme 2.4) y al `check --deploy` de la guía de HB-04 |
+| 5. La guía de HB-06 aconsejaba poner en `.env` un valor con espacios | Corregí la sección 7 y anoté los ajustes en la guía |
+| *Nits* 6, 7, 9, 10 y 11 | Nombres normalizados (opcionales vacíos a `NULL`), `nombre_completo` sin espacios de más, comentario sobre el `id = 1`, patrón `ejecutar_sql` y `TODO(TK-01)` para `como_app_user` |
+
+**Comprobaciones:** 75 tests pasan y 1 se omite, con cobertura del 97.38 %. Además, `makemigrations --check` no detecta cambios y la `0004` se revierte y se vuelve a aplicar. Por último, `docker compose config` deja `HOGAR_NOMBRE` vacía y `check --deploy` con la variable no da advertencias. Los anexos de `02` y `06` quedaron sincronizados.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 6)
 
 ## 6. Tickets de Trabajo
@@ -504,7 +529,7 @@ Son los contratos entre las capas. Si un ticket cambia uno, avisa en su PR a los
 | 8 | Vista de conciliación | TK-01 | TK-02, prueba de integración | `v_conciliacion_existencia` vacía = todo cuadra | *Fixture* `autouse` de TK-02 |
 | 9 | Selector `buscar_existencias` | TK-03 | TK-05 (API) | Argumentos por nombre, igual que los campos de `FiltroExistenciasForm`; devuelve un `QuerySet[Existencia]` ordenado | Tests de selector de TK-03 |
 | 10 | Excepciones con `code` y `campo` | TK-02 | TK-04 (formularios), TK-05/V2 (API) | `code` igual a la sección 4.4; `DatoInvalido.campo` indica qué campo del formulario marcar | Tests de servicios de TK-02 |
-| 11 | `Entidad.activa` y `Entidad.__str__` | HB-06 | TK-01, TK-02, TK-03 | `activa`: el Hogar siempre, un residente solo si su estado es `ACTIVO`. `__str__`: nombre del Hogar o nombre completo del residente | Requisitos previos de cada guía |
+| 11 | `Entidad.activa` y `Entidad.__str__` | HB-06 | TK-01, TK-02, TK-03 | `activa`: el Hogar siempre, un residente solo si su estado es `ACTIVO`. `__str__`: nombre del Hogar o nombre completo del residente. Sin su fila en `residente`: no activa y `Entidad <id>`. En listas, con `select_related("residente")` | Requisitos previos de cada guía |
 | 12 | Servicio de conteos y sus excepciones | TK-06 | TK-07 | `iniciar_conteo`, `capturar_renglon` y `cerrar_conteo` con argumentos por nombre; `ConteoCerrado` y `ConteoSinRenglones` con `code` de la sección 4.4; el conteo nunca ajusta existencias | Tests de servicio de TK-06 (PR 3, sección 7) |
 
 #### Prueba de integración final

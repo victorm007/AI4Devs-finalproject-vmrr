@@ -415,13 +415,17 @@ docker compose exec nginx sh -c 'nc -z -w 2 db 5432 && echo "alcanza db" || echo
 
 # 6. Tests y configuración de producción
 dtest config/tests -q
-# 10 passed, 1 skipped    (la comparación de CSP se omite: web no ve nginx/)
+# 10 passed, 1 skipped    (la comparación de CSP se omite: web no ve nginx/; desde HB-06,
+#                          con test_configuracion.py, 15 passed, 1 skipped)
 # En Git Bash, MSYS_NO_PATHCONV=1 evita que convierta /nginx en una ruta de Windows: sin él,
 # el montaje no llega y el test vuelve a omitirse sin avisar. En Linux no hace falta.
 MSYS_NO_PATHCONV=1 docker compose run --rm -v ./nginx:/nginx:ro \
     -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PASSWORD" web pytest config/tests -q
-# 11 passed               (con nginx/ montado, también compara la CSP de Django con la de nginx)
-docker compose exec -e DJANGO_SETTINGS_MODULE=config.settings.prod web python manage.py check --deploy
+# 11 passed               (con nginx/ montado, también compara la CSP de Django con la de nginx;
+#                          desde HB-06, 16 passed)
+# config.settings.prod no arranca sin HOGAR_NOMBRE (HB-06), y el .env de desarrollo no la define
+docker compose exec -e DJANGO_SETTINGS_MODULE=config.settings.prod -e HOGAR_NOMBRE="Hogar de prueba" \
+    web python manage.py check --deploy
 # Sin advertencias de seguridad salvo, si tu SECRET_KEY de desarrollo es corta, security.W009
 ```
 

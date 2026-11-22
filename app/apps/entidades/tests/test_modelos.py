@@ -12,13 +12,17 @@ no se confunda con "ck_entidad_nombre_no_vacio".
 
 "migrate entidades zero revierte todo" no es un test de pytest: se comprueba con
 ./scripts/migrate.sh entidades zero y ./scripts/migrate.sh en el cierre del ticket.
+
+Ajustes de la revisión de HB-06: una Entidad RESIDENTE sin su fila en residente no lanza un
+error, recorrer Entidades con select_related("residente") hace una sola consulta y
+nombre_completo no deja espacios de más.
 """
 
 from datetime import date
 
 import pytest
 from django.conf import settings
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError
 
 from apps.entidades.models import Entidad, Residente
 from apps.entidades.services import registrar_residente
@@ -44,7 +48,9 @@ def test_la_migracion_crea_un_solo_hogar_con_su_nombre():
     # Scenario: La migración crea un solo Hogar (HB-06, criterio 1)
     assert Entidad.objects.filter(tipo=Entidad.Tipo.HOGAR).count() == 1
     hogar = Entidad.objects.get(tipo=Entidad.Tipo.HOGAR)
-    assert hogar.pk == 1  # la base de tests es nueva
+    # pk == 1 depende de que la base de tests sea nueva y de que ningún test la vacíe sin
+    # serialized_rollback=True (CLAUDE.md): ese vaciado borraría el Hogar de la migración
+    assert hogar.pk == 1
     assert hogar.nombre == settings.HOGAR_NOMBRE
     # Scenario: Nombre para mostrar (HB-06, criterio 4): el del Hogar
     assert str(hogar) == settings.HOGAR_NOMBRE
@@ -55,8 +61,7 @@ def test_la_migracion_crea_un_solo_hogar_con_su_nombre():
 def test_no_puede_haber_un_segundo_hogar():
     # Scenario: Un segundo Hogar viola la restricción (HB-06, criterio 1)
     with pytest.raises(IntegrityError, match='"uq_entidad_un_hogar"'):
-        with transaction.atomic():
-            Entidad.objects.create(tipo=Entidad.Tipo.HOGAR, nombre="Otro hogar")
+        ejecutar_sql("INSERT INTO entidad (tipo, nombre) VALUES ('HOGAR', 'Otro hogar')")
 
 
 def test_un_residente_no_puede_colgar_del_hogar():
@@ -191,3 +196,57 @@ def test_indice_de_nombre_sin_acentos():
     assert nombre != -1
     # Primero el apellido y después el nombre: el índice sirve para ordenar así
     assert apellido < nombre
+
+
+def test_una_entidad_residente_sin_su_residente_no_lanza_un_error():
+    # Scenario: Entidad Residente sin su Residente (revisión de HB-06, sugerencia 1)
+    # La base lo admite: la FK compuesta va del subtipo al supertipo, no al revés
+    entidad = Entidad.objects.create(tipo=Entidad.Tipo.RESIDENTE)
+    # Control: la Entidad quedó guardada y de verdad no tiene fila en residente
+    assert entidad.pk is not None
+    assert not Residente.objects.filter(pk=entidad.pk).exists()
+    assert entidad.activa is False
+    assert str(entidad) == f"Entidad {entidad.pk}"
+    # Leída de la base, con y sin select_related (este guarda None en la caché sin consultar)
+    for leida in (
+        Entidad.objects.get(pk=entidad.pk),
+        Entidad.objects.select_related("residente").get(pk=entidad.pk),
+    ):
+        assert leida.activa is False
+        assert str(leida) == f"Entidad {entidad.pk}"
+
+
+def test_leer_las_entidades_con_su_residente_hace_una_sola_consulta(
+    carmen, django_assert_num_queries
+):
+    # Scenario: Sin consultas extra al leer las Entidades con su Residente (revisión de HB-06,
+    # sugerencia 1)
+    # Regresión: con la implementación de HB-06 ya hace una sola consulta. Protege contra
+    # resolver activa con una consulta propia (por ejemplo, Residente.objects...exists()).
+    ana = registrar_residente(
+        Residente(
+            primer_nombre="Ana",
+            primer_apellido="Ruiz",
+            fecha_nacimiento=date(1940, 3, 1),
+            fecha_ingreso=date(2026, 1, 5),
+        )
+    )
+    # Ana egresada: activa tiene que leer el estado del Residente, no solo el tipo
+    ana.estado = Residente.Estado.EGRESADO
+    ana.fecha_baja = date(2026, 2, 1)
+    ana.save()
+    with django_assert_num_queries(1):
+        entidades = list(Entidad.objects.select_related("residente").order_by("pk"))
+        resumen = [(entidad.activa, str(entidad)) for entidad in entidades]
+    # El Hogar (id = 1) y después los 2 Residentes, en el orden en que se registraron
+    assert resumen == [
+        (True, settings.HOGAR_NOMBRE),
+        (True, "Carmen Torres Vega"),
+        (False, "Ana Ruiz"),
+    ]
+
+
+def test_nombre_completo_sin_espacios_en_los_extremos():
+    # Scenario: Nombres con espacios en los extremos (revisión de HB-06, nit 7)
+    residente = Residente(primer_nombre=" Ana ", primer_apellido="Ruiz ")
+    assert residente.nombre_completo == "Ana Ruiz"

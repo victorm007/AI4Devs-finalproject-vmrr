@@ -15,6 +15,14 @@ from apps.expresiones import no_vacio, sin_acentos
 
 
 class Entidad(models.Model):
+    """Supertipo: el Hogar o un residente (punto de integración 11: activa y __str__).
+
+    activa y __str__ leen el Residente de la Entidad. Las listas deben cargarlo con
+    select_related("residente"), o cada fila hará una consulta extra:
+
+        Entidad.objects.select_related("residente")
+    """
+
     class Tipo(models.TextChoices):
         HOGAR = "HOGAR", "Hogar"
         RESIDENTE = "RESIDENTE", "Residente"
@@ -53,15 +61,31 @@ class Entidad(models.Model):
             ),
         ]
 
-    # Punto de integración 11: lo usan TK-02 (destino activo) y TK-03 (pantalla)
+    # Punto de integración 11: lo usan TK-02 (destino activo) y TK-03 (pantalla).
+    # Residente.DoesNotExist cubre una Entidad RESIDENTE sin su fila en residente, tanto al
+    # consultarla (RelatedObjectDoesNotExist hereda de ella) como con select_related, que
+    # guarda None en la caché y lanza la misma excepción sin consultar.
     @property
     def activa(self) -> bool:
-        """El Hogar siempre está activo; un residente, solo si su estado es ACTIVO."""
-        return self.tipo == self.Tipo.HOGAR or self.residente.estado == Residente.Estado.ACTIVO
+        """El Hogar siempre está activo; un residente, solo si su estado es ACTIVO.
+
+        Sin su Residente no se puede saber el estado: no está activa.
+        """
+        if self.tipo == self.Tipo.HOGAR:
+            return True
+        try:
+            return self.residente.estado == Residente.Estado.ACTIVO
+        except Residente.DoesNotExist:
+            return False
 
     def __str__(self) -> str:
-        """Nombre del Hogar o nombre completo del residente (punto de integración 11)."""
-        return self.nombre if self.tipo == self.Tipo.HOGAR else self.residente.nombre_completo
+        """Nombre del Hogar o nombre completo del residente; sin Residente, "Entidad <id>"."""
+        if self.tipo == self.Tipo.HOGAR:
+            return self.nombre
+        try:
+            return self.residente.nombre_completo
+        except Residente.DoesNotExist:
+            return f"Entidad {self.pk}"
 
 
 class Residente(models.Model):
@@ -119,6 +143,8 @@ class Residente(models.Model):
             models.CheckConstraint(
                 condition=no_vacio("primer_nombre") & no_vacio("primer_apellido"),
                 name="ck_residente_nombres",
+                violation_error_message="El primer nombre y el primer apellido no pueden "
+                "quedar vacíos.",
             ),
             models.CheckConstraint(
                 condition=Q(fecha_nacimiento__gte=date(1900, 1, 1))
@@ -139,14 +165,17 @@ class Residente(models.Model):
 
     @property
     def nombre_completo(self) -> str:
-        """Ejemplo: "Carmen Torres Vega" (sin segundo nombre). Se compone, no se guarda."""
+        """Ejemplo: "Carmen Torres Vega" (sin segundo nombre). Se compone, no se guarda.
+
+        Quita los espacios de los extremos de cada parte y omite las vacías.
+        """
         partes = [
             self.primer_nombre,
             self.segundo_nombre,
             self.primer_apellido,
             self.segundo_apellido,
         ]
-        return " ".join(parte for parte in partes if parte)
+        return " ".join(parte.strip() for parte in partes if parte and parte.strip())
 
     def __str__(self) -> str:
         return self.nombre_completo

@@ -619,6 +619,16 @@ print(r.entidad, r.entidad.activa)
 > **Alternativa sin borrar la base:** ejecuta el paso 5 dentro de una transacción que se revierte. Pon el alta dentro de `with transaction.atomic():` (importa `transaction` de `django.db`) y termina el bloque con `transaction.set_rollback(True)`. La salida es la misma (`Ana Ruiz True`, como `app_user`), y `dpsql -tAc "SELECT count(*) FROM residente"` sigue en 0.
 >
 > **Nota sobre los tests de la sección 3:** el caso de estado desconocido usa `'PERDIDO'`, no `'DESAPARECIDO'`. `estado` es `varchar(10)`, y un valor más largo falla con `DataError: value too long` antes de llegar a `ck_residente_estado`. El PR agrega además tests para el `id = 1` del Hogar, `ck_entidad_nombre_no_vacio`, la definición de `fk_residente_entidad` y `uq_entidad_id_tipo`, `primer_apellido` vacío y el alta que siempre queda `ACTIVO`.
+>
+> **Ajustes tras la revisión adversarial** (cambio de OpenSpec `hb-06-ajustes-revision`). El código de los pasos 2 a 5 de esta guía es el original. El que está en el repositorio cambia en esto:
+> - `Entidad.activa` y `__str__`: una Entidad `RESIDENTE` sin su fila en `residente` no está activa y se muestra como `Entidad <id>`, sin excepción. Las listas usan `select_related("residente")`, y así no hay una consulta por fila.
+> - `registrar_residente()`:
+>   - usa `_state.adding` para saber si el Residente ya está registrado;
+>   - quita los espacios de los extremos de los nombres, y el segundo nombre o el segundo apellido vacíos se guardan como `NULL`;
+>   - si el alta falla, el objeto recibido queda como estaba.
+> - `Residente.nombre_completo` no deja espacios de más.
+> - `ck_residente_nombres` tiene mensaje propio (migración `0004_mensaje_nombres`, que no cambia la base).
+> - `HOGAR_NOMBRE`: `docker-compose.yml` ya no le da un valor por defecto, y `config.settings.prod` no arranca sin ella. Desarrollo y CI siguen usando "Hogar Gerontológico Demo" (`app/config/tests/test_configuracion.py`).
 
 ---
 
@@ -635,6 +645,7 @@ print(r.entidad, r.entidad.activa)
 |---|---|---|
 | `function f_unaccent(text) does not exist` al migrar | `0001_initial` no depende de `catalogo.0001_extensiones` | Paso 4.1 |
 | `there is no unique constraint matching given keys for referenced table "entidad"` | `uq_entidad_id_tipo` no existe al crear la FK | `0002_fk_compuesta` debe depender de `0001_initial` |
-| `RelatedObjectDoesNotExist: Entidad has no residente` | Se creó una entidad RESIDENTE sin su residente | Da de alta solo con `registrar_residente()` |
+| Una Entidad aparece como `Entidad <id>` y no está activa | Se creó una entidad RESIDENTE sin su residente | Da de alta solo con `registrar_residente()` |
 | `insert or update on table "residente" violates foreign key constraint "fk_residente_entidad"` | El residente apunta a una entidad que no es `RESIDENTE` | Usa `registrar_residente()` |
-| El Hogar no tiene el nombre esperado | `HOGAR_NOMBRE` no estaba en `.env` al migrar | Corrígelo en `.env`; en desarrollo recrea la base |
+| El Hogar no tiene el nombre esperado (desarrollo) | Se migró con otro valor de `HOGAR_NOMBRE` en el entorno de `web` | Hasta TK-01 no la pongas en `.env`: un valor con espacios rompe `migrate.sh`. Sin la variable, el Hogar se llama "Hogar Gerontológico Demo"; recrea la base (`docker compose down -v`, `up -d` y `./scripts/migrate.sh`) |
+| `ImproperlyConfigured: Falta HOGAR_NOMBRE en .env` | `config.settings.prod` exige `HOGAR_NOMBRE` | En el servidor, defínela en `.env` con el nombre real (o el de la demo, si es la demo). Con un valor con espacios, espera a TK-01. Para `check --deploy` en desarrollo, pásala con `-e HOGAR_NOMBRE=...` |
