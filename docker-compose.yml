@@ -41,6 +41,8 @@ services:
       GUNICORN_CMD_ARGS: ${GUNICORN_CMD_ARGS:-}
       # Orígenes desde los que Django acepta formularios (HTTPS de nginx)
       CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-https://localhost}
+      # Nombre del Hogar que crea la migración entidades/0003_hogar (HB-06)
+      HOGAR_NOMBRE: ${HOGAR_NOMBRE:-Hogar Gerontológico Demo}
       # Conexión a PostgreSQL: la aplicación NUNCA usa app_owner
       DB_HOST: db
       DB_PORT: "5432"

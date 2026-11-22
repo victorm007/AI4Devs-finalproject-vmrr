@@ -30,9 +30,15 @@ INSTALLED_APPS = [
     # Apps del proyecto (readme, sección 2.3)
     "apps.accounts",
     "apps.catalogo",
+    "apps.entidades",
 ]
 
 AUTH_USER_MODEL = "accounts.Usuario"
+
+# Nombre del Hogar que crea la migración entidades/0003_hogar (readme, sección 3.2, D3).
+# El real solo se pone en el servidor del hogar; en desarrollo y la demo basta el por defecto,
+# que es el que esperan los tests de TK-03 con el dataset mock.
+HOGAR_NOMBRE = os.environ.get("HOGAR_NOMBRE", "Hogar Gerontológico Demo")
 
 # Contraseñas (readme, sección 2.5): Argon2 para las nuevas. PBKDF2 se conserva para
 # validar los hash del dataset mock y los de usuarios creados antes del cambio.

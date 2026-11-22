@@ -100,14 +100,17 @@ El Hogar es una entidad fija que crea la migración. Su nombre cambia por instal
 HOGAR_NOMBRE = os.environ.get("HOGAR_NOMBRE", "Hogar Gerontológico Demo")
 ```
 
-En `.env.example` (y en tu `.env`):
+En `.env.example`, **comentada**:
 
 ```dotenv
-# Nombre del Hogar: lo usa la primera migración. En el servidor del hogar, el nombre real.
-HOGAR_NOMBRE=Hogar Gerontológico Demo
+# Nombre del Hogar: lo usa la migración entidades/0003_hogar. Solo se define en el servidor
+# del hogar, con el nombre real; en desarrollo y en la demo basta el valor por defecto.
+# HOGAR_NOMBRE=Hogar Gerontológico Demo
 ```
 
 y en el `environment` de `web`: `HOGAR_NOMBRE: ${HOGAR_NOMBRE:-Hogar Gerontológico Demo}`.
+
+> **Por qué comentada.** El valor lleva espacios. Sin comillas, `. ./.env` (lo usan `scripts/migrate.sh` y los atajos `dtest`, `dj` y `dpsql`) lo lee como `HOGAR_NOMBRE=Hogar` seguido del comando `Gerontológico`, y `migrate.sh` falla. Con comillas, `make` (TK-01) exportaría las comillas literales. Por eso la regla de `.env` es "sin comillas", y el valor por defecto de `settings` y de `docker-compose.yml` cubre el desarrollo y la demo (`design.md` de `hb-06-entidades`, decisión 6). **Pendiente en [TK-01](TK-01-esquema-inventario.md)** (paso 1, "Valores con espacios en `.env`", y su criterio de aceptación en la sección 6 del readme): `migrate.sh` y los atajos dejarán de usar `. ./.env`, y `.env.example` traerá la línea sin comentar. Así el servidor del hogar podrá poner su nombre real.
 
 > "Hogar Gerontológico Demo" es el nombre que esperan los tests de TK-03 con el dataset mock.
 
@@ -347,6 +350,15 @@ dpsql -c "SELECT id, tipo, nombre FROM entidad"     # 1 | HOGAR | Hogar Gerontol
 
 > El Hogar queda con `id = 1` en una base nueva. El dataset mock y algunas pruebas de TK-01 lo dan por hecho.
 
+> **Diferencias de forma con el DDL de las secciones 3.1 y 3.3, con el mismo efecto.** Los nombres son idénticos; cambia cómo los escribe Django:
+>
+> | Readme | `\d entidad` / `\d residente` | Por qué está bien |
+> |---|---|---|
+> | `CHECK ((tipo = 'HOGAR') = (nombre IS NOT NULL))` y su par en `ck_residente_baja` | `(a AND b) OR (NOT a AND NOT b)` | Equivalentes; así `full_clean()` también los valida |
+> | `CHECK (btrim(x) <> '')` | `CHECK (length(TRIM(BOTH FROM x)) > 0)` | Equivalentes (`no_vacio()`, como en HB-05) |
+> | `DEFAULT now()` | `DEFAULT statement_timestamp()` | Es lo que genera `Now()`. Solo difiere dentro de una transacción larga |
+> | `CREATE UNIQUE INDEX uq_entidad_un_hogar ... WHERE tipo = 'HOGAR'` | `UNIQUE, btree (tipo) WHERE tipo = 'HOGAR'` | Es el mismo índice único parcial, declarado como `UniqueConstraint` con `condition` |
+
 ### Paso 5. Servicio de alta de residentes (≈ 30 min)
 
 Primero crea el esqueleto en `app/apps/entidades/services.py`, para ver el rojo real del servicio:
@@ -467,7 +479,7 @@ def test_la_base_rechaza_entidades_invalidas(sql, restriccion):
     ("estado = 'EGRESADO'", "ck_residente_baja"),
     ("fecha_baja = '2026-01-01'", "ck_residente_baja"),
     ("estado = 'EGRESADO', fecha_baja = '2000-01-01'", "ck_residente_fechas"),
-    ("estado = 'DESAPARECIDO', fecha_baja = fecha_ingreso", "ck_residente_estado"),
+    ("estado = 'PERDIDO', fecha_baja = fecha_ingreso", "ck_residente_estado"),
     ("fecha_nacimiento = '1899-12-31'", "ck_residente_nacimiento"),
     ("fecha_ingreso = '1930-01-01'", "ck_residente_nacimiento"),
     ("primer_nombre = '   '", "ck_residente_nombres"),
@@ -603,6 +615,10 @@ print(r.entidad, r.entidad.activa)
 ```
 
 > Si ya hiciste el paso 5, recrea la base antes de cargar el mock de la sección 3.4 (el mock solo se carga en una base sin residentes): `docker compose down -v && docker compose up -d && ./scripts/migrate.sh`.
+>
+> **Alternativa sin borrar la base:** ejecuta el paso 5 dentro de una transacción que se revierte. Pon el alta dentro de `with transaction.atomic():` (importa `transaction` de `django.db`) y termina el bloque con `transaction.set_rollback(True)`. La salida es la misma (`Ana Ruiz True`, como `app_user`), y `dpsql -tAc "SELECT count(*) FROM residente"` sigue en 0.
+>
+> **Nota sobre los tests de la sección 3:** el caso de estado desconocido usa `'PERDIDO'`, no `'DESAPARECIDO'`. `estado` es `varchar(10)`, y un valor más largo falla con `DataError: value too long` antes de llegar a `ck_residente_estado`. El PR agrega además tests para el `id = 1` del Hogar, `ck_entidad_nombre_no_vacio`, la definición de `fk_residente_entidad` y `uq_entidad_id_tipo`, `primer_apellido` vacío y el alta que siempre queda `ACTIVO`.
 
 ---
 
