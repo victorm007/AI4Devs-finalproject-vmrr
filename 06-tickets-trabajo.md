@@ -415,6 +415,34 @@ Lo hice como un cambio de OpenSpec propio, `hb-06-ajustes-revision`, con `implem
 
 ---
 
+## Prompt 15 — Usuario
+
+(Tras una segunda revisión adversarial, sin bloqueantes y con 5 sugerencias y 3 *nits*:) ¿Cuáles son las sugerencias y los *nits*?
+
+(Tras la explicación, con una opinión sobre cada uno:) Ok, atiéndelos.
+
+(Tras el plan, con 3 decisiones:) Apruebo.
+
+---
+
+## Respuesta 15 — Claude
+
+Lo hice como el cambio de OpenSpec `hb-06-ajustes-revision-2`, con `implementar-ticket`. Atendí las 5 sugerencias y los *nits* 6 y 7; el 8 quedó fuera, como recomendé, porque el test de control ya delata esa causa.
+
+| Hallazgo | Cambio |
+|---|---|
+| 1. El test del reintento usaba `monkeypatch` (ADR-0023) | Ahora provoca una falla real: una restricción temporal `CHECK ... NOT VALID` que PostgreSQL aplica al `INSERT` del Residente. No queda ningún `monkeypatch` |
+| 2. Restauración parcial y comprobación de "ya registrado" más débil | `registrar_residente()` rechaza también un Residente con Entidad asignada, y restaura todos los campos, incluidas las fechas que `full_clean` convierte |
+| 3. Nada sostenía la restauración de `_state` | Un test con `transaction=True` hace fallar el `COMMIT` con un `UNIQUE ... DEFERRABLE` después de un `save` correcto. Lo comprobé por mutación: sin esa restauración, el test queda en rojo |
+| 4. El readme no avisaba de los espacios hasta TK-01 | Readme 2.4 y su anexo |
+| 5. El paso 2 de la guía de HB-06 estaba desactualizado | Ahora muestra el código actual de `base.py`, `prod.py` y `docker-compose.yml` |
+| *Nit* 6. Largo de `HOGAR_NOMBRE` | Máximo 150 caracteres en todos los entornos, con `ImproperlyConfigured` |
+| *Nit* 7. TK-01 borraría el aviso de "obligatoria en producción" | Su paso 1 pide conservarlo |
+
+**Comprobaciones:** 80 tests pasan y 1 se omite, con cobertura del 97.35 %. Además, `makemigrations --check` no detecta cambios y `check --deploy` con la variable no da advertencias. El anexo de `02` quedó sincronizado; la sección 6 del readme no cambió.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 6)
 
 ## 6. Tickets de Trabajo

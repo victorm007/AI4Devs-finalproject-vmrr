@@ -7,6 +7,8 @@ Los valores sensibles o que cambian por entorno vienen de variables de entorno
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+
 BASE_DIR = Path(__file__).resolve().parent.parent.parent  # la carpeta app/
 
 
@@ -40,6 +42,13 @@ AUTH_USER_MODEL = "accounts.Usuario"
 # TK-03 con el dataset mock; una variable vacía (docker-compose.yml la pasa así si .env no la
 # define) también lo toma. En producción es obligatoria: prod.py no arranca sin ella.
 HOGAR_NOMBRE = os.environ.get("HOGAR_NOMBRE", "").strip() or "Hogar Gerontológico Demo"
+# 150 es el largo de entidad.nombre: un nombre más largo falla aquí, con un mensaje claro, y no
+# como DataError en la migración. Como local.py y prod.py importan este módulo, y prod.py lee
+# la misma variable, aplica en todos los entornos.
+if len(HOGAR_NOMBRE) > 150:
+    raise ImproperlyConfigured(
+        f"HOGAR_NOMBRE tiene {len(HOGAR_NOMBRE)} caracteres; el máximo es 150 (entidad.nombre)."
+    )
 
 # Contraseñas (readme, sección 2.5): Argon2 para las nuevas. PBKDF2 se conserva para
 # validar los hash del dataset mock y los de usuarios creados antes del cambio.

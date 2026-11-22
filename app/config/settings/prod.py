@@ -14,12 +14,13 @@ DEBUG = False  # nunca True en producción, aunque .env diga otra cosa
 
 # Nombre del Hogar (HB-06): sin valor por defecto, como SECRET_KEY. La migración
 # entidades/0003_hogar lo crea una sola vez y no se renombra desde la aplicación, así que el
-# servidor del hogar no arranca sin haberlo elegido.
+# servidor del hogar no arranca sin haberlo elegido. El largo máximo ya lo comprobó base.py
+# con la misma variable: si no está vacía, aquí se lee el mismo valor.
 HOGAR_NOMBRE = os.environ.get("HOGAR_NOMBRE", "").strip()
 if not HOGAR_NOMBRE:
     raise ImproperlyConfigured(
         "Falta HOGAR_NOMBRE en .env: en producción el Hogar debe tener su nombre real "
-        "(o el de la demo, si es la demo)."
+        "(o el de la demo, si es la demo). Sin ella, el contenedor web no arranca y se reinicia."
     )
 
 # nginx ya redirige 80 -> 443 y envía HSTS: Django no los repite

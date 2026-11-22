@@ -192,7 +192,7 @@ make openapi     # 0 errores y 2 advertencias intencionales
 
    Se probó con `bash --posix` y con el `sh` de BusyBox (Alpine): exporta `HOGAR_NOMBRE` completo. Si `.env` tiene fines de línea CRLF, el valor arrastra un `\r`; el `.env` debe estar en LF, como `db/init/01_roles.sh` (HB-01).
 2. Usa la misma lectura en el atajo `set -a && . ./.env && set +a` de la sección 0.4 de esta guía, de `CLAUDE.md` ("Comandos"), del readme (sección 1.4) y de las guías que lo repiten (`grep -rn '\. \./\.env' --include=*.md .`).
-3. Descomenta en `.env.example` la línea `HOGAR_NOMBRE=Hogar Gerontológico Demo` y deja una sola línea de comentario encima (quita la explicación de por qué iba comentada). Actualiza la nota "Por qué comentada" de la guía de HB-06, paso 2, para decir que TK-01 lo resolvió.
+3. Descomenta en `.env.example` la línea `HOGAR_NOMBRE=Hogar Gerontológico Demo`. De su comentario, quita solo la explicación de por qué iba comentada y **conserva** el resto: la usa `0003_hogar` una sola vez, es obligatoria en producción (`config.settings.prod` no arranca sin ella ni con más de 150 caracteres) y en desarrollo basta el valor por defecto de `settings`. Actualiza la nota "Por qué comentada" de la guía de HB-06, paso 2, para decir que TK-01 lo resolvió.
 
 Comprueba con un `.env` que tenga la línea sin comentar:
 

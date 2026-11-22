@@ -23,6 +23,8 @@ pytestmark = pytest.mark.infra
 # app/, la carpeta de manage.py: desde ahí se importa el paquete config
 CARPETA_APP = Path(__file__).resolve().parents[2]
 NOMBRE_DEMO = "Hogar Gerontológico Demo"
+# El largo de entidad.nombre
+LARGO_MAXIMO = 150
 LEER_HOGAR_NOMBRE = "from django.conf import settings; print(settings.HOGAR_NOMBRE)"
 
 
@@ -79,3 +81,29 @@ def test_desarrollo_sin_hogar_nombre_usa_el_de_la_demo(hogar_nombre):
     resultado = cargar_configuracion("config.settings.local", hogar_nombre)
     assert resultado.returncode == 0, resultado.stderr
     assert resultado.stdout.strip() == NOMBRE_DEMO
+
+
+@pytest.mark.parametrize("modulo", ["config.settings.local", "config.settings.prod"])
+def test_hogar_nombre_demasiado_largo_no_carga(modulo):
+    # Scenario: HOGAR_NOMBRE demasiado largo (segunda revisión de HB-06, nit 6)
+    # Rojo esperado: hoy la configuración carga, y el error llegaría como DataError en la
+    # migración (entidad.nombre es de 150 caracteres)
+    resultado = cargar_configuracion(modulo, "H" * (LARGO_MAXIMO + 1))
+    assert resultado.returncode != 0, resultado.stdout
+    # Como en test_produccion_sin_hogar_nombre_no_carga: el mensaje está en la última línea
+    ultima_linea = resultado.stderr.strip().splitlines()[-1]
+    assert ultima_linea.startswith("django.core.exceptions.ImproperlyConfigured:"), resultado.stderr
+    assert "HOGAR_NOMBRE" in ultima_linea
+    assert str(LARGO_MAXIMO) in ultima_linea
+    # No llegó a imprimir un nombre del Hogar
+    assert resultado.stdout == ""
+
+
+def test_hogar_nombre_de_150_caracteres_carga():
+    # Scenario: HOGAR_NOMBRE de 150 caracteres (segunda revisión de HB-06, nit 6)
+    # Regresión: nace en verde. Es el control de test_hogar_nombre_demasiado_largo_no_carga: el
+    # límite admite exactamente 150, así que allá falla solo por el carácter de más.
+    nombre = "H" * LARGO_MAXIMO
+    resultado = cargar_configuracion("config.settings.prod", nombre)
+    assert resultado.returncode == 0, resultado.stderr
+    assert resultado.stdout.strip() == nombre

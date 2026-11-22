@@ -95,22 +95,36 @@ Así avanza `dtest apps/entidades -q` con cada paso:
 El Hogar es una entidad fija que crea la migración. Su nombre cambia por instalación (el real en el servidor del hogar, "Hogar Gerontológico Demo" en desarrollo y en la demo), así que viene del entorno:
 
 ```python
-# app/config/settings/base.py
-# Nombre del Hogar que crea la migración entidades/0003_hogar (readme, sección 3.2, D3)
-HOGAR_NOMBRE = os.environ.get("HOGAR_NOMBRE", "Hogar Gerontológico Demo")
+# app/config/settings/base.py  (from django.core.exceptions import ImproperlyConfigured)
+# Nombre del Hogar que crea la migración entidades/0003_hogar (readme, sección 3.2, D3).
+# Vacía o ausente: el de la demo, que esperan los tests de TK-03 con el dataset mock.
+HOGAR_NOMBRE = os.environ.get("HOGAR_NOMBRE", "").strip() or "Hogar Gerontológico Demo"
+if len(HOGAR_NOMBRE) > 150:  # el largo de entidad.nombre
+    raise ImproperlyConfigured(
+        f"HOGAR_NOMBRE tiene {len(HOGAR_NOMBRE)} caracteres; el máximo es 150 (entidad.nombre)."
+    )
 ```
 
-En `.env.example`, **comentada**:
+```python
+# app/config/settings/prod.py  (después de "from .base import *")
+# Sin valor por defecto, como SECRET_KEY: el servidor del hogar no arranca sin haberlo elegido
+HOGAR_NOMBRE = os.environ.get("HOGAR_NOMBRE", "").strip()
+if not HOGAR_NOMBRE:
+    raise ImproperlyConfigured(
+        "Falta HOGAR_NOMBRE en .env: en producción el Hogar debe tener su nombre real "
+        "(o el de la demo, si es la demo). Sin ella, el contenedor web no arranca y se reinicia."
+    )
+```
+
+En el `environment` de `web`, **sin valor por defecto**, para que un servidor sin la variable no cree un Hogar "Demo" que después no se puede renombrar: `HOGAR_NOMBRE: ${HOGAR_NOMBRE:-}`.
+
+En `.env.example`, **comentada**, con un comentario que dice que la usa `0003_hogar` una sola vez, que es obligatoria en producción y que en desarrollo basta el valor por defecto de `settings`:
 
 ```dotenv
-# Nombre del Hogar: lo usa la migración entidades/0003_hogar. Solo se define en el servidor
-# del hogar, con el nombre real; en desarrollo y en la demo basta el valor por defecto.
 # HOGAR_NOMBRE=Hogar Gerontológico Demo
 ```
 
-y en el `environment` de `web`: `HOGAR_NOMBRE: ${HOGAR_NOMBRE:-Hogar Gerontológico Demo}`.
-
-> **Por qué comentada.** El valor lleva espacios. Sin comillas, `. ./.env` (lo usan `scripts/migrate.sh` y los atajos `dtest`, `dj` y `dpsql`) lo lee como `HOGAR_NOMBRE=Hogar` seguido del comando `Gerontológico`, y `migrate.sh` falla. Con comillas, `make` (TK-01) exportaría las comillas literales. Por eso la regla de `.env` es "sin comillas", y el valor por defecto de `settings` y de `docker-compose.yml` cubre el desarrollo y la demo (`design.md` de `hb-06-entidades`, decisión 6). **Pendiente en [TK-01](TK-01-esquema-inventario.md)** (paso 1, "Valores con espacios en `.env`", y su criterio de aceptación en la sección 6 del readme): `migrate.sh` y los atajos dejarán de usar `. ./.env`, y `.env.example` traerá la línea sin comentar. Así el servidor del hogar podrá poner su nombre real.
+> **Por qué comentada.** El valor lleva espacios. Sin comillas, `. ./.env` (lo usan `scripts/migrate.sh` y los atajos `dtest`, `dj` y `dpsql`) lo lee como `HOGAR_NOMBRE=Hogar` seguido del comando `Gerontológico`, y `migrate.sh` falla. Con comillas, `make` (TK-01) exportaría las comillas literales. Por eso la regla de `.env` es "sin comillas", y el valor por defecto de `settings` cubre el desarrollo y el CI (`design.md` de `hb-06-entidades`, decisión 6, y de `hb-06-ajustes-revision`, decisión 4). **Pendiente en [TK-01](TK-01-esquema-inventario.md)** (paso 1, "Valores con espacios en `.env`", y su criterio de aceptación en la sección 6 del readme): `migrate.sh` y los atajos dejarán de usar `. ./.env`, y `.env.example` traerá la línea sin comentar. Así el servidor del hogar podrá poner su nombre real.
 
 > "Hogar Gerontológico Demo" es el nombre que esperan los tests de TK-03 con el dataset mock.
 
@@ -629,6 +643,11 @@ print(r.entidad, r.entidad.activa)
 > - `Residente.nombre_completo` no deja espacios de más.
 > - `ck_residente_nombres` tiene mensaje propio (migración `0004_mensaje_nombres`, que no cambia la base).
 > - `HOGAR_NOMBRE`: `docker-compose.yml` ya no le da un valor por defecto, y `config.settings.prod` no arranca sin ella. Desarrollo y CI siguen usando "Hogar Gerontológico Demo" (`app/config/tests/test_configuracion.py`).
+>
+> **Segunda revisión** (cambio `hb-06-ajustes-revision-2`):
+> - `registrar_residente()` también rechaza un Residente que ya trae Entidad. Si el alta falla, restaura todos los campos recibidos, incluidas las fechas que `full_clean` convierte.
+> - Los tests del reintento provocan fallas reales de PostgreSQL, sin `monkeypatch`: un `CHECK ... NOT VALID` hace fallar el guardado, y un `UNIQUE ... DEFERRABLE`, en un test con `transaction=True`, la confirmación.
+> - `HOGAR_NOMBRE` admite como máximo 150 caracteres en todos los entornos.
 
 ---
 
