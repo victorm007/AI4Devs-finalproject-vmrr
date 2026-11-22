@@ -707,7 +707,7 @@ C4Container
 
 | Capa | Archivos | Marcador |
 |---|---|---|
-| Servicio y base de datos (sin HTTP) | `test_models.py`, `test_forms.py`, `test_services.py`, `test_selectors.py`, `test_templatetags.py`, `test_esquema.py`, `test_privilegios.py`, `test_concurrencia.py` | `lento` solo en los planes de ejecución (`EXPLAIN`) |
+| Servicio y base de datos (sin HTTP) | `test_modelos.py`, `test_formularios.py`, `test_services.py`, `test_selectors.py`, `test_templatetags.py`, `test_esquema.py`, `test_privilegios.py`, `test_concurrencia.py` | `lento` solo en los planes de ejecución (`EXPLAIN`) |
 | HTTP (URL + vista + plantilla, con el cliente de pruebas de Django) | `test_views_*.py`, `test_admin*.py` | `http` |
 | Flujo completo (Vista → Servicio → Base de datos → `v_conciliacion_existencia`) | `test_integracion.py` | `integracion` |
 | Infraestructura y configuración (HTTPS por cabecera, CSRF, CSP, conexión y usuarios de BD) | `app/config/tests/test_conexion.py` (HB-03), `app/config/tests/test_proxy.py` (HB-04) | `infra` |
