@@ -173,6 +173,13 @@ La base DEBE (MUST) tener el índice `ix_residente_nombre` sobre `f_unaccent(low
 - **WHEN** se intenta registrar de nuevo
 - **THEN** el servicio lo rechaza con `ValueError`
 
+#### Scenario: Un Residente con Entidad asignada no se registra (segunda revisión de HB-06, sugerencia 2)
+
+- **GIVEN** un Residente sin guardar al que se le asignó la Entidad de otro Residente ya registrado
+- **WHEN** se registra
+- **THEN** el servicio lo rechaza con `ValueError`
+- **AND** el número de Entidades y de Residentes no cambia
+
 #### Scenario: Alta como app_user (HB-06, criterio 5)
 
 - **GIVEN** una sesión que actúa como `app_user`
@@ -201,17 +208,24 @@ La base DEBE (MUST) tener el índice `ix_residente_nombre` sobre `f_unaccent(low
 
 #### Scenario: Datos inválidos no alteran el Residente recibido (revisión de HB-06, sugerencia 2)
 
-- **GIVEN** un Residente sin guardar con estado `EGRESADO`, fecha de baja e ingreso anterior al nacimiento
+- **GIVEN** un Residente sin guardar con estado `EGRESADO`, fecha de baja, nombres con espacios y la fecha de ingreso escrita como texto, anterior al nacimiento
 - **WHEN** se registra y falla la validación
-- **THEN** el Residente recibido conserva su estado `EGRESADO`, su fecha de baja y sus nombres
+- **THEN** el Residente recibido conserva su estado `EGRESADO`, su fecha de baja, sus nombres con espacios y la fecha de ingreso como el mismo texto
 - **AND** sigue sin Entidad
 
 #### Scenario: Un fallo al guardar permite reintentar (revisión de HB-06, sugerencia 2)
 
-- **GIVEN** un Residente válido sin guardar, y una falla de la base al guardar el Residente después de crear su Entidad
+- **GIVEN** un Residente válido sin guardar, y una restricción de la base, desconocida para la aplicación, que rechaza guardarlo después de crear su Entidad
 - **WHEN** se registra
-- **THEN** el error llega al llamador y no queda ninguna Entidad nueva
-- **AND** el Residente recibido sigue sin Entidad, y un segundo intento sin la falla lo registra
+- **THEN** el error de la base llega al llamador y no queda ninguna Entidad nueva
+- **AND** el Residente recibido sigue sin Entidad, y un segundo intento sin esa restricción lo registra
+
+#### Scenario: Un fallo al confirmar permite reintentar (segunda revisión de HB-06, sugerencia 3)
+
+- **GIVEN** un Residente válido sin guardar, y una restricción diferida de la base que solo se comprueba al confirmar la transacción y que su alta viola
+- **WHEN** se registra, el Residente se guarda y falla la confirmación
+- **THEN** el error de la base llega al llamador y no queda ninguna Entidad nueva
+- **AND** el Residente recibido vuelve a estar sin guardar y sin Entidad, y un segundo intento sin esa restricción lo registra
 
 ### Requirement: Migraciones reversibles
 
