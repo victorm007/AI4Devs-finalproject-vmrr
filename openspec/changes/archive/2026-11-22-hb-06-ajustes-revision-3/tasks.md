@@ -6,7 +6,7 @@
 
 ## 2. Coherencia con el código
 
-- [x] 2.1 Comprobar que el docstring de `registrar_residente()` dice lo mismo y que `dtest apps/entidades -q` sigue en verde, sin cambios de comportamiento.
+- [x] 2.1 Aclarar el comentario junto al `try` de `registrar_residente()` (savepoint dentro de un `atomic` externo) y comprobar que el docstring de `registrar_residente()` dice lo mismo y que `dtest apps/entidades -q` sigue en verde, sin cambios de comportamiento.
 
 ## Workflow follow-up
 

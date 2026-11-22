@@ -10,7 +10,8 @@ La revisión adversarial de `0e70a01` dejó un *nit*: el docstring de `registrar
 
 - El requisito "Alta atómica de Residentes" limita la garantía de no alterar el Residente a las fallas ocurridas antes de que el servicio retorne, y dice que dentro de una transacción externa la confirmación queda fuera de ella.
 - El Scenario "Un fallo al confirmar permite reintentar" precisa que el Residente se registra sin una transacción externa, que es lo que prueba `test_un_fallo_al_confirmar_permite_reintentar`.
-- No cambia el código ni los tests.
+- El comentario junto al `try` de `registrar_residente()` aclara que, dentro de un `atomic` externo, lo que se revierte es el *savepoint* del servicio (segundo *nit* de la misma revisión).
+- No cambia el comportamiento ni los tests.
 
 ## Capabilities
 
@@ -24,6 +25,6 @@ La revisión adversarial de `0e70a01` dejó un *nit*: el docstring de `registrar
 
 ## Impact
 
-- **Spec:** `openspec/specs/entidades/spec.md`. Sin cambios de código: el comportamiento ya es el descrito, y el docstring de `services.py` lo dice desde `0e70a01`.
+- **Spec:** `openspec/specs/entidades/spec.md`. Solo un comentario en `app/apps/entidades/services.py`, sin cambio de comportamiento: el código ya hace lo descrito, y el docstring lo dice desde `0e70a01`.
 - **Puntos de integración:** el punto 11 no cambia. HB-09 debe tenerlo en cuenta: dentro del `atomic` del panel, si falla la confirmación, el objeto queda como guardado.
 - **ADR aplicables:** [ADR-0011](../../../docs/adr/0011-capa-de-servicios-unica-via-de-escritura.md) (la escritura pasa por `services.py`).
