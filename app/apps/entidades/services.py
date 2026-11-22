@@ -44,8 +44,9 @@ def registrar_residente(residente: Residente) -> Residente:
     }
     estado_original = (residente._state.adding, residente._state.db)
     try:
-        # Fuera de la transacción: cuando se restaura, la base ya se revirtió, también si
-        # falló al confirmar (cuando este servicio abre la transacción; ver el docstring)
+        # Fuera del atomic del servicio: cuando se restaura, lo que hizo el servicio ya se
+        # revirtió (la transacción completa o, dentro de un atomic externo, su savepoint).
+        # Una falla al confirmar solo llega aquí si este servicio abre la transacción.
         return _crear_entidad_y_residente(residente)
     except BaseException:
         # Asignar entidad_id (None) también borra la Entidad en caché

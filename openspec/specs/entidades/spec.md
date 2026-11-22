@@ -151,7 +151,7 @@ La base DEBE (MUST) tener el índice `ix_residente_nombre` sobre `f_unaccent(low
 
 ### Requirement: Alta atómica de Residentes
 
-`registrar_residente()` DEBE (MUST) crear la Entidad y el Residente en una sola transacción, siempre con estado `ACTIVO`, sin fecha de baja y con los nombres normalizados. Si los datos son inválidos o el alta falla, NO DEBE (MUST NOT) dejar una Entidad suelta ni alterar el Residente recibido, y los datos inválidos DEBEN (MUST) dar un error de validación con un mensaje claro. DEBE (MUST) funcionar con los permisos de `app_user`.
+`registrar_residente()` DEBE (MUST) crear la Entidad y el Residente en una sola transacción, siempre con estado `ACTIVO`, sin fecha de baja y con los nombres normalizados. Si el alta falla antes de que el servicio retorne, NO DEBE (MUST NOT) dejar una Entidad suelta ni alterar el Residente recibido, y los datos inválidos DEBEN (MUST) dar un error de validación claro. Una confirmación en una transacción externa queda fuera de esa garantía. DEBE (MUST) funcionar con los permisos de `app_user`.
 
 #### Scenario: Alta correcta (HB-06, criterio 5)
 
@@ -222,7 +222,7 @@ La base DEBE (MUST) tener el índice `ix_residente_nombre` sobre `f_unaccent(low
 
 #### Scenario: Un fallo al confirmar permite reintentar (segunda revisión de HB-06, sugerencia 3)
 
-- **GIVEN** un Residente válido sin guardar, y una restricción diferida de la base que solo se comprueba al confirmar la transacción y que su alta viola
+- **GIVEN** un Residente válido sin guardar, registrado sin una transacción externa (el servicio abre y confirma la suya), y una restricción diferida de la base que solo se comprueba al confirmar y que su alta viola
 - **WHEN** se registra, el Residente se guarda y falla la confirmación
 - **THEN** el error de la base llega al llamador y no queda ninguna Entidad nueva
 - **AND** el Residente recibido vuelve a estar sin guardar y sin Entidad, y un segundo intento sin esa restricción lo registra
