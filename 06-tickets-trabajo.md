@@ -372,6 +372,24 @@ Encontré 8 huecos, y 3 hacían que un test pasara sin comprobar lo que decía. 
 
 ---
 
+## Prompt 13 — Usuario
+
+En las desviaciones en HB-06-entidades.md, ¿en qué ticket se revisará "poner el nombre real" y cómo lo recordaremos?
+
+(Tras la respuesta, que proponía asignarlo a TK-01:) Hazlo con la opción TK-01, es decir 1, 2 y 3.
+
+---
+
+## Respuesta 13 — Claude
+
+No estaba asignado a ningún ticket: la nota de HB-06 decía "en otro ticket" sin nombrarlo. El despliegue en el servidor del hogar no tiene ficha, y HB-09 no registra `Entidad` en `/admin/`, así que el nombre del Hogar tampoco se corrige desde el panel. Lo asigné a **TK-01**, que crea el `Makefile` y fija cómo se lee `.env`:
+
+1. **Ficha de TK-01 (readme, sección 6):** un criterio de aceptación nuevo, que exige que un valor con espacios y sin comillas en `.env` funcione con `make`, con `scripts/migrate.sh` y los atajos, y con `docker compose`, con `HOGAR_NOMBRE` sin comentar en `.env.example`. También lo agregué a la descripción técnica (punto 10). La tabla "Archivos que tocan varios tickets" decía que los TK no modifican `.env.example`; ahora permite a TK-01 descomentar esa línea.
+2. **Guía de TK-01, paso 1:** la tarea "Valores con espacios en `.env`", con la lectura línea por línea que sustituye a `. ./.env`. La probé con `bash --posix` y con el `sh` de BusyBox; `. ./.env` falla con el código 127 y `make` lee bien el valor. Agregué también la comprobación del nombre del Hogar en la sección 5.
+3. **Nota de HB-06:** ahora apunta a TK-01. Cuando se cree el cambio de OpenSpec de TK-01, el criterio nuevo se convierte en un Scenario por la regla de `openspec/config.yaml`, así que no se podrá archivar sin cumplirlo.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 6)
 
 ## 6. Tickets de Trabajo
@@ -468,7 +486,7 @@ flowchart LR
 | `apps/inventario/migrations/` | `0001` a `0004` | — | — | TK-02 y TK-03 no crean migraciones. Si alguno la necesita, se renumera después del *rebase* |
 | `config/settings/base.py` | — | — | `django_htmx`, `LOGIN_REDIRECT_URL` | Lo crea HB-02 y lo completan HB-03 a HB-08 (`DATABASES` es de HB-03). Cambios en bloques distintos |
 | `requirements.txt` / `requirements-dev.txt` | — | — | `django-htmx` / `pytest-playwright` | Los crea HB-02 (`djlint`, `pytest`, `pytest-django`, `pytest-cov` y `ruff`); TK-05 agrega `jsonschema`. Una dependencia por línea, en orden alfabético |
-| `docker-compose.yml`, `.env.example` | — | — | — | Los crean HB-01 a HB-04 (y HB-06 agrega `HOGAR_NOMBRE`). Los tickets TK no los modifican |
+| `docker-compose.yml`, `.env.example` | Descomenta `HOGAR_NOMBRE` en `.env.example` | — | — | Los crean HB-01 a HB-04 (y HB-06 agrega `HOGAR_NOMBRE`, comentada). Los tickets TK no los modifican, salvo TK-01 en esa línea |
 
 #### Puntos de integración
 
@@ -629,7 +647,7 @@ No agrega dependencias nuevas.
 
 9. **Fixtures de prueba compartidos** (punto de integración 7): `datos_demo` (carga el mock con `cargar_mock.sql` adaptado), `demo` (accesos a entidades, medicamentos, motivos y usuario), `como_app_user` (el test corre con los permisos de la aplicación; falla si no hay transacción envolvente, para no correr en silencio como `app_owner`) y el helper `saldo`, junto a `ejecutar_sql` (de HB-03). TK-02 y TK-03 los usan sin modificarlos.
 
-10. **`Makefile` de la raíz:** atajos de desarrollo local (`make up`, `make migrate`, `make test`, `make mock`…) sobre los mismos comandos de la guía, con `make help` como punto de entrada. Se crea en este ticket porque es el primero en que todos sus comandos funcionan (`make mock` necesita las tablas de inventario y `make test` los *fixtures*). El CI no lo usa.
+10. **`Makefile` de la raíz:** atajos de desarrollo local (`make up`, `make migrate`, `make test`, `make mock`…) sobre los mismos comandos de la guía, con `make help` como punto de entrada. Se crea en este ticket porque es el primero en que todos sus comandos funcionan (`make mock` necesita las tablas de inventario y `make test` los *fixtures*). El CI no lo usa. Como fija cómo se lee `.env`, este ticket también hace que admita valores con espacios sin comillas: `HOGAR_NOMBRE` (HB-06) quedó comentada en `.env.example` porque `. ./.env` (`scripts/migrate.sh` y los atajos `dtest`, `dj` y `dpsql`) la rompe, y así el servidor del hogar puede poner su nombre real.
 
 **Fuera de alcance:** la lógica de negocio (TK-02), las pantallas y la API, los usuarios de base de datos (HB-01 y HB-03) y las tablas de catálogo, entidades y pautas (HB-05 a HB-07).
 
@@ -637,6 +655,7 @@ No agrega dependencias nuevas.
 - [ ] `python manage.py migrate` crea el esquema en una base vacía, y `migrate inventario zero` y `migrate conteos zero` lo revierten sin errores.
 - [ ] `makemigrations --check` no detecta cambios pendientes.
 - [ ] `make help` lista los 17 comandos, y `make migrate`, `make test` y `make mock` hacen lo mismo que sus comandos directos.
+- [ ] Un valor con espacios y sin comillas en `.env`, como `HOGAR_NOMBRE=Hogar Gerontológico Demo`, funciona con `make`, con `scripts/migrate.sh` y los atajos, y con `docker compose`; `.env.example` lo trae sin comentar, y en una base nueva el Hogar queda con ese nombre.
 - [ ] `\d movimiento` en `psql` muestra todas las restricciones e índices de las secciones 3.1 y 3.3 con sus nombres exactos.
 - [ ] Sin índices duplicados: ninguna FK de la tabla de la sección 3.3 tiene un índice propio además del compuesto.
 - [ ] El mock de la sección 3.4 se carga con `cargar_mock.sql` sin errores, y `SELECT count(*) FROM v_conciliacion_existencia` devuelve 0.

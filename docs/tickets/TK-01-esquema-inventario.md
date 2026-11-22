@@ -72,6 +72,8 @@ dpsql() { docker compose exec db psql -U app_owner -d "$POSTGRES_DB" "$@"; }    
 ```
 AI4Devs-finalproject-vmrr/
 ├── Makefile                               # NUEVO: atajos de desarrollo local (make help)
+├── .env.example                           # MODIFICAR (de HB-06): descomenta HOGAR_NOMBRE
+├── scripts/migrate.sh                     # MODIFICAR (de HB-03): lee .env sin ". ./.env"
 └── app/
     ├── conftest.py                        # MODIFICAR (de HB-03): fixtures datos_demo, demo y como_app_user
     ├── pruebas.py                         # MODIFICAR (de HB-03): agrega el helper saldo
@@ -170,13 +172,37 @@ openapi: ## Valida el contrato OpenAPI
 
 Tres reglas para que funcione:
 - **Las recetas se indentan con tabulador**, no con espacios. Si no, `make` falla con `missing separator`. Configura tu editor para no convertir tabuladores en este archivo.
-- **`.env` se lee con `-include .env`.** Funciona con valores simples (`CLAVE=valor`). Las contraseñas de desarrollo no deben llevar `$`, `#` ni comillas, porque `make` los interpreta distinto que el shell.
+- **`.env` se lee con `-include .env`.** Funciona con valores simples (`CLAVE=valor`), también con espacios (`HOGAR_NOMBRE=Hogar Gerontológico Demo`). Los valores no deben llevar `$`, `#` ni comillas, porque `make` los interpreta distinto que el shell.
 - **En Windows, Git Bash no trae `make`.** Instálalo, por ejemplo con `winget install ezwinports.make` o `choco install make`, o trabaja desde WSL.
 
 ```bash
 make help        # lista los 17 comandos con su descripción
 make openapi     # 0 errores y 2 advertencias intencionales
 ```
+
+**Valores con espacios en `.env` (pendiente de HB-06).** HB-06 dejó `HOGAR_NOMBRE` comentada en `.env.example` porque el valor lleva espacios. `make` y `docker compose` lo leen bien sin comillas, pero `. ./.env` (en `scripts/migrate.sh` y en los atajos `dtest`, `dj` y `dpsql`) lo lee como `HOGAR_NOMBRE=Hogar` seguido del comando `Gerontológico`. `migrate.sh`, que usa `set -e`, termina con el código 127. Este ticket lo resuelve, porque es el que fija cómo se lee `.env`:
+
+1. Cambia `set -a; . ./.env; set +a` en `scripts/migrate.sh` por una lectura línea por línea, que exporta cada `CLAVE=valor` tal cual y salta las líneas vacías y los comentarios:
+
+   ```sh
+   while IFS= read -r linea || [ -n "$linea" ]; do
+       case $linea in ''|'#'*) ;; *) export "$linea" ;; esac
+   done < .env
+   ```
+
+   Se probó con `bash --posix` y con el `sh` de BusyBox (Alpine): exporta `HOGAR_NOMBRE` completo. Si `.env` tiene fines de línea CRLF, el valor arrastra un `\r`; el `.env` debe estar en LF, como `db/init/01_roles.sh` (HB-01).
+2. Usa la misma lectura en el atajo `set -a && . ./.env && set +a` de la sección 0.4 de esta guía, de `CLAUDE.md` ("Comandos"), del readme (sección 1.4) y de las guías que lo repiten (`grep -rn '\. \./\.env' --include=*.md .`).
+3. Descomenta en `.env.example` la línea `HOGAR_NOMBRE=Hogar Gerontológico Demo` y deja una sola línea de comentario encima (quita la explicación de por qué iba comentada). Actualiza la nota "Por qué comentada" de la guía de HB-06, paso 2, para decir que TK-01 lo resolvió.
+
+Comprueba con un `.env` que tenga la línea sin comentar:
+
+```bash
+./scripts/migrate.sh                                  # sin "command not found"
+make help >/dev/null && echo ok                       # make lee el .env sin errores
+docker compose config | grep HOGAR_NOMBRE             # HOGAR_NOMBRE: Hogar Gerontológico Demo
+```
+
+El nombre del Hogar en una base nueva se comprueba en la sección 5, paso 5.
 
 ### Paso 2. Privilegios de `app_user` (ya hechos en HB-03)
 
@@ -1146,6 +1172,7 @@ docker compose down -v && docker compose up -d && ./scripts/migrate.sh
 docker compose cp app/fixtures/mock/. db:/tmp/mock/
 dpsql -v ON_ERROR_STOP=1 -f /tmp/mock/cargar_mock.sql
 dpsql -c 'SELECT count(*) FROM v_conciliacion_existencia'          # 0
+dpsql -c "SELECT id, nombre FROM entidad WHERE tipo = 'HOGAR'"     # 1 | el HOGAR_NOMBRE de .env
 
 # 6. La aplicación corre como app_user
 docker compose exec web python manage.py shell -c \
