@@ -246,6 +246,9 @@ def test_un_fallo_al_confirmar_permite_reintentar():
     )
     # Control: Carmen Torres quedó confirmada, así que otro "Torres" viola la restricción
     assert Residente.objects.filter(pk=carmen.pk, primer_apellido="Torres").exists()
+    # Control: Carmen es el único Residente. Con apellidos repetidos en la tabla, el ALTER de
+    # abajo fallaría por los datos y no por lo que prueba este test.
+    assert Residente.objects.count() == 1
     # El DDL queda confirmado en este test: el finally quita la restricción aunque algo falle
     try:
         with connection.cursor() as cursor:

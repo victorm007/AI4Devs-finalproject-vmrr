@@ -1,4 +1,5 @@
-"""HOGAR_NOMBRE por entorno: obligatoria en producción, con valor de la demo en desarrollo.
+"""HOGAR_NOMBRE por entorno: obligatoria en producción, con valor de la demo en desarrollo,
+y con un máximo de 150 caracteres en todos los entornos.
 
 Va en config/tests/ porque prueba la configuración del proyecto, no una app: lleva el
 marcador infra y se corre sola con -m infra. No usa la base de datos.

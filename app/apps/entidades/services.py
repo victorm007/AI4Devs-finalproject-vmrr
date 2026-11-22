@@ -11,13 +11,17 @@ _NOMBRES_OPCIONALES = ("segundo_nombre", "segundo_apellido")
 def registrar_residente(residente: Residente) -> Residente:
     """Da de alta un residente: crea su entidad (supertipo) y el residente (subtipo) juntos.
 
-    Recibe un Residente sin guardar y sin Entidad; si ya está guardado o trae una Entidad
-    asignada, lanza ValueError. Quita los espacios de los extremos de los nombres, y el
-    segundo nombre o el segundo apellido que queden en blanco se guardan vacíos (NULL).
+    Recibe un Residente sin guardar y sin Entidad; si ya está guardado o trae asignada una
+    Entidad guardada, lanza ValueError. Quita los espacios de los extremos de los nombres, y
+    el segundo nombre o el segundo apellido que queden en blanco se guardan vacíos (NULL).
     Siempre queda ACTIVO y sin fecha de baja. Si sus datos no son válidos, lanza
-    ValidationError y no se crea nada. Si el alta falla por cualquier motivo, también al
-    confirmar la transacción, el Residente recibido queda como estaba (todos sus campos tal
-    como llegaron, sin guardar y sin Entidad), para poder corregirlo y reintentar.
+    ValidationError y no se crea nada. Si el alta falla por cualquier motivo, el Residente
+    recibido queda como estaba (sus campos tal como llegaron, sin guardar y sin Entidad), para
+    poder corregirlo y reintentar.
+
+    La transacción la abre este servicio. Si se llama dentro de un atomic externo (por
+    ejemplo, el del panel /admin/), el COMMIT ocurre después de que el servicio retorna: una
+    falla al confirmar ya no pasa por aquí, y el objeto queda como guardado.
 
     Ejemplo:
         registrar_residente(Residente(primer_nombre="Ana", primer_apellido="Ruiz",
@@ -26,7 +30,8 @@ def registrar_residente(residente: Residente) -> Residente:
     """
     # 2 condiciones, porque el pk es la Entidad (supertipo):
     # - _state.adding es False si ya se guardó o se leyó de la base;
-    # - pk no es None si se le asignó una Entidad, aunque no esté guardado.
+    # - pk no es None si se le asignó una Entidad guardada, aunque el Residente no lo esté.
+    #   Una Entidad sin guardar no tiene pk: el servicio la reemplaza por la que crea.
     # Tras un alta fallida, la restauración deja las 2 como al llegar y se puede reintentar.
     if not residente._state.adding or residente.pk is not None:
         raise ValueError("El residente ya está registrado.")
@@ -40,7 +45,7 @@ def registrar_residente(residente: Residente) -> Residente:
     estado_original = (residente._state.adding, residente._state.db)
     try:
         # Fuera de la transacción: cuando se restaura, la base ya se revirtió, también si
-        # falló al confirmar
+        # falló al confirmar (cuando este servicio abre la transacción; ver el docstring)
         return _crear_entidad_y_residente(residente)
     except BaseException:
         # Asignar entidad_id (None) también borra la Entidad en caché

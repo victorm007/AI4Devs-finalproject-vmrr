@@ -634,10 +634,10 @@ print(r.entidad, r.entidad.activa)
 >
 > **Nota sobre los tests de la sección 3:** el caso de estado desconocido usa `'PERDIDO'`, no `'DESAPARECIDO'`. `estado` es `varchar(10)`, y un valor más largo falla con `DataError: value too long` antes de llegar a `ck_residente_estado`. El PR agrega además tests para el `id = 1` del Hogar, `ck_entidad_nombre_no_vacio`, la definición de `fk_residente_entidad` y `uq_entidad_id_tipo`, `primer_apellido` vacío y el alta que siempre queda `ACTIVO`.
 >
-> **Ajustes tras la revisión adversarial** (cambio de OpenSpec `hb-06-ajustes-revision`). El código de los pasos 2 a 5 de esta guía es el original. El que está en el repositorio cambia en esto:
+> **Ajustes tras la revisión adversarial** (cambio de OpenSpec `hb-06-ajustes-revision`). El código de los pasos 3 a 5 de esta guía es el original (el paso 2 ya muestra el actual). El que está en el repositorio cambia en esto:
 > - `Entidad.activa` y `__str__`: una Entidad `RESIDENTE` sin su fila en `residente` no está activa y se muestra como `Entidad <id>`, sin excepción. Las listas usan `select_related("residente")`, y así no hay una consulta por fila.
 > - `registrar_residente()`:
->   - usa `_state.adding` para saber si el Residente ya está registrado;
+>   - usa `_state.adding` y `pk` para saber si el Residente ya está registrado;
 >   - quita los espacios de los extremos de los nombres, y el segundo nombre o el segundo apellido vacíos se guardan como `NULL`;
 >   - si el alta falla, el objeto recibido queda como estaba.
 > - `Residente.nombre_completo` no deja espacios de más.
@@ -668,3 +668,4 @@ print(r.entidad, r.entidad.activa)
 | `insert or update on table "residente" violates foreign key constraint "fk_residente_entidad"` | El residente apunta a una entidad que no es `RESIDENTE` | Usa `registrar_residente()` |
 | El Hogar no tiene el nombre esperado (desarrollo) | Se migró con otro valor de `HOGAR_NOMBRE` en el entorno de `web` | Hasta TK-01 no la pongas en `.env`: un valor con espacios rompe `migrate.sh`. Sin la variable, el Hogar se llama "Hogar Gerontológico Demo"; recrea la base (`docker compose down -v`, `up -d` y `./scripts/migrate.sh`) |
 | `ImproperlyConfigured: Falta HOGAR_NOMBRE en .env` | `config.settings.prod` exige `HOGAR_NOMBRE` | En el servidor, defínela en `.env` con el nombre real (o el de la demo, si es la demo). Con un valor con espacios, espera a TK-01. Para `check --deploy` en desarrollo, pásala con `-e HOGAR_NOMBRE=...` |
+| `ImproperlyConfigured: HOGAR_NOMBRE tiene N caracteres; el máximo es 150` | El nombre no cabe en `entidad.nombre` (`varchar(150)`) | Acórtalo en `.env` (o en el entorno de `web`) a 150 caracteres o menos |
