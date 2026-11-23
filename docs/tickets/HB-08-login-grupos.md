@@ -92,17 +92,16 @@ Así avanza el rojo con cada paso:
 ### Paso 2. Bootstrap local y `django-axes` (≈ 20 min)
 
 ```bash
-# Bootstrap 5.3.x desde static/: la CSP de nginx (HB-04) no permite CDN
+# Bootstrap 5.3.9 desde static/: la CSP de nginx (HB-04) no permite CDN.
+# npm pack comprueba la integridad del paquete; los 2 archivos se copian sin cambios.
+tmp=$(mktemp -d) && (cd "$tmp" && npm pack bootstrap@5.3.9 --ignore-scripts && tar -xzf bootstrap-5.3.9.tgz)
 mkdir -p app/static/css/vendor app/static/js/vendor
-curl -sL https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css \
-     -o app/static/css/vendor/bootstrap.min.css
-curl -sL https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js \
-     -o app/static/js/vendor/bootstrap.bundle.min.js
-head -c 40 app/static/css/vendor/bootstrap.min.css; echo   # debe empezar con "@charset" o "/*!"
+cp "$tmp/package/dist/css/bootstrap.min.css" app/static/css/vendor/
+cp "$tmp/package/dist/js/bootstrap.bundle.min.js" app/static/js/vendor/
+head -c 60 app/static/css/vendor/bootstrap.min.css; echo   # "@charset ... Bootstrap  v5.3.9"
 
-# django-axes con versión fija
-docker compose exec web pip index versions django-axes | head -1   # anota la última estable
-echo "django-axes==<versión anotada>" >> app/requirements.txt       # y ordena alfabéticamente
+# django-axes con versión fija (la última estable al hacer HB-08: 9.1.0)
+echo "django-axes==9.1.0" >> app/requirements.txt       # y ordena alfabéticamente
 docker compose up -d --build web
 ```
 
@@ -745,6 +744,22 @@ dj axes_reset                       # desbloquea las cuentas (solo desarrollo)
 > - **Revisión en el navegador:** se hizo con Chrome *headless* por CDP y con emulación de dispositivo. A 390 px no hay desplazamiento horizontal, y no aparecen violaciones de CSP ni en escritorio ni en el celular. El único mensaje de la consola es un 404 de `/favicon.ico`, porque el proyecto aún no tiene ícono.
 >   - No sirve `--window-size=390` sin emulación: Chrome tiene un ancho mínimo de ventana, dibuja la página más ancha y la captura sale recortada.
 > - **Rama:** `feature/entrega-2-vmrr`, no `feature/HB-08-login-grupos` (`CLAUDE.md`, sección Git).
+
+> **Ajustes tras la revisión adversarial** (cambio de OpenSpec `hb-08-ajustes-revision`). El código de los pasos 4 a 6 y de la sección 3 es el original; el paso 2 ya muestra el actual. En el repositorio cambia:
+>
+> - **`GrupoAdmin.has_change_permission = False`:** los grupos son de solo consulta. Su nombre y sus permisos solo los cambia una migración: renombrar "Solo lectura" rompería TK-01.
+> - **Aviso único en `GrupoUnicoMixin`:** "Elige exactamente un grupo" no se suma si el grupo elegido ya es inválido.
+> - **`bloqueado.html`:** pide esperar 15 minutos, y ya no pide al Administrador que "restablezca" la cuenta. El Administrador también puede quedar bloqueado: se desbloquea con `dj axes_reset`.
+> - **`[tool.djlint] extend_exclude`:** `static/css/vendor,static/js/vendor`.
+> - **Tests de comportamiento:**
+>   - la barra de `base.html` con sesión cierra la sesión por `POST`, con su token CSRF;
+>   - el bloqueo de un usuario no afecta a otro, termina a los 15 minutos y ya responde `429` al 5.º fallo;
+>   - la sesión dura 1800 segundos;
+>   - el Administrador se edita sin grupo, y el cambio activa `is_staff`;
+>   - el `403` también se cumple para *Solo lectura*;
+>   - `app_user` escribe en las tablas de `axes`.
+> - **Riesgos documentados en ADR-0022:** el bloqueo malicioso de cualquier cuenta y los datos que guarda `axes`.
+> - **CSP del panel con sesión:** queda para HB-09, que ya la exige en sus criterios de calidad.
 
 ---
 

@@ -61,13 +61,22 @@ class UsuarioAdmin(UserAdmin):
         return False  # baja lógica: desmarcar "is_active"
 
 
-# Los 2 grupos los crea la migración 0003_grupos: no se agregan ni se borran a mano
+# Los 2 grupos los crea la migración 0003_grupos: no se agregan, no se cambian ni se borran a mano
 admin.site.unregister(Group)
 
 
 @admin.register(Group)
 class GrupoAdmin(GroupAdmin):
+    """Grupos de solo consulta: su nombre y sus permisos solo los cambia una migración (ADR-0021).
+
+    El Administrador, como superusuario, conserva el permiso de ver: la lista y la página
+    del grupo se muestran en modo de solo lectura, y un POST de cambio responde 403.
+    """
+
     def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
         return False
 
     def has_delete_permission(self, request, obj=None):

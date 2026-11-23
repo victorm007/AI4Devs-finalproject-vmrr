@@ -495,6 +495,62 @@ Los pendientes quedaron documentados en 2 lugares:
 
 ---
 
+## Prompt 18 — Usuario
+
+Implementar HB-08.
+
+(Tras el plan, con 4 decisiones:) Apruebo y actualicemos los ADR con las nuevas versiones de Bootstrap y django-axes. Si tienes problemas para verificar con navegador, para y tratemos de resolverlo.
+
+(Tras una disputa sobre un test congelado y el aviso `axes.W006`:) Las 2 opciones recomendadas.
+
+(Durante la verificación:) ¿Cómo puedo conectar a un navegador? ¿Hay que reflejar las versiones fijas en los contenedores? Anótalo en la guía de TK-01. Instalé Claude in Chrome; en la consola de Firefox se ve un error de CSP… en Firefox incógnito no aparece, y con Brave tampoco. Agrégalo a la guía.
+
+---
+
+## Respuesta 18 — Claude
+
+Hice HB-08 como el cambio de OpenSpec `hb-08-login-grupos`, con `implementar-ticket`:
+
+- **Login y plantilla común:** login propio en `/accounts/login/`, cierre de sesión por `POST` y `base.html` con Bootstrap servido desde `static/`.
+- **Grupos:** los 2 grupos en una migración de datos (5 y 15 permisos) y `uq_usuario_un_grupo`.
+- **Panel:** `UsuarioAdmin` exige un solo grupo, activa `is_staff` y no borra; `GrupoAdmin` no permite crear ni borrar grupos.
+- **Fuerza bruta y sesión:** `django-axes` bloquea 15 minutos tras 5 intentos, y la sesión expira a los 30 minutos.
+
+| Decisión | Resultado |
+|---|---|
+| Versiones | Bootstrap **5.3.9** (la guía decía 5.3.3), copiado de `npm pack`, que comprueba la integridad; `django-axes` **9.1.0**. Quedaron fijadas en ADR-0002, ADR-0022 y el readme |
+| Disputa | `groups.add()` inserta con `ON CONFLICT DO NOTHING`, así que la base impide el segundo grupo sin lanzar error. El test inserta directo en la tabla puente |
+| `axes.W006` | Silenciado: el bloqueo es por usuario. Detrás de nginx, sin `ipware`, todos llegarían con la IP del proxy y 5 fallos de cualquiera bloquearían a todos |
+| Navegador | Sin herramientas de navegador en la sesión, lo revisé con Chrome *headless* por el protocolo DevTools, con emulación de dispositivo. A 390 px no hay desplazamiento horizontal, ni violaciones de CSP en el login ni en `/admin/login/`. Las capturas quedaron en `docs/capturas/HB-08/` y en el PR |
+| CSP en Firefox | La causaba una extensión (`sandbox eval code`): no aparece en Chrome, en Brave ni en la ventana privada. Lo anoté en la sección 7 de la guía, para no agregar ese hash a la CSP |
+| Contenedores | El `Dockerfile` y `docker-compose.yml` no repiten versiones. En cada equipo hay que reconstruir `web`, migrar y ejecutar `collectstatic`. Lo anoté en el paso 1 de TK-01, con un *target* `make actualizar` |
+
+**Comprobaciones:** 134 tests pasan y 1 se omite, con cobertura del 96.91 %; djLint revisa las 3 plantillas. `accounts` se revierte a `0002` y vuelve. Por nginx, el 5.º intento fallido responde `429` con la CSP.
+
+---
+
+## Prompt 19 — Usuario
+
+(Tras la revisión adversarial de HB-08, sin bloqueantes y con 4 hallazgos importantes y 7 menores:) ¿Queda algún pendiente del HB-08? (Tras la respuesta:) Sí, por favor. (Tras el plan:) Apruebo.
+
+---
+
+## Respuesta 19 — Claude
+
+Lo hice como el cambio de OpenSpec `hb-08-ajustes-revision`. El hallazgo 8, la CSP del panel con sesión, ya es criterio de HB-09.
+
+| Hallazgo | Cambio |
+|---|---|
+| 1, 2, 3, 7, 10 y 11. Tests que comprobaban la configuración y no el comportamiento | 9 tests de regresión: la barra de `base.html` con sesión, el bloqueo de un usuario que no afecta a otro y termina a los 15 minutos, el 5.º fallo con `429`, la sesión de 1800 segundos, el Administrador sin grupo, `is_staff` al asignar grupo, el `403` para *Solo lectura* y `app_user` en las tablas de `axes` |
+| 5. `GrupoAdmin` dejaba cambiar nombre y permisos | Grupos de solo consulta (`has_change_permission = False`) |
+| 10. Doble aviso con un grupo inválido | Un solo aviso |
+| 6. El Administrador también puede quedar bloqueado | `bloqueado.html` pide esperar 15 minutos. ADR-0022 documenta el bloqueo malicioso y los datos que guarda `axes` |
+| 4 y 11. Proceso y guía | Este registro, el paso 2 de la guía con `npm pack` y el *glob* de djLint |
+
+**Comprobaciones:** 147 tests pasan y 1 se omite, con cobertura del 97.27 %. Los 3 tests nuevos en rojo fallaron por el motivo esperado antes de implementar.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 6)
 
 ## 6. Tickets de Trabajo

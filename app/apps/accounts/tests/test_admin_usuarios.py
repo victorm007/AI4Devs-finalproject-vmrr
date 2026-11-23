@@ -10,6 +10,10 @@ choca con django-axes.
 
 Cada 403 lleva un control positivo (la misma persona sí ve otra página del panel), para que el
 403 no se confunda con una sesión que no se inició o con un panel que no responde.
+
+Ajustes de la revisión adversarial de HB-08 (hallazgos 3, 5 y 10): el Administrador se edita
+sin grupo, el cambio activa is_staff, un grupo inválido da un solo aviso, el 403 también para
+Solo lectura y los grupos son de solo consulta (no se cambian a mano).
 """
 
 import pytest
@@ -108,12 +112,18 @@ def test_el_cambio_a_un_solo_grupo_se_guarda(admin_client, de_solo_lectura):
 
 
 @pytest.mark.parametrize(
+    "grupo", ["Lectura y escritura", "Solo lectura"], ids=["lectura-escritura", "solo-lectura"]
+)
+@pytest.mark.parametrize(
     "url", ["/admin/accounts/usuario/", "/admin/auth/group/"], ids=["usuarios", "grupos"]
 )
-def test_un_usuario_de_grupo_no_ve_los_usuarios(client, url):
+def test_un_usuario_de_grupo_no_ve_los_usuarios(client, url, grupo):
     # Scenario: Un usuario de grupo no ve usuarios ni grupos (HB-08, criterio 4)
+    # Scenario: 403 también para Solo lectura (revisión de HB-08, hallazgo 10): parametrizado
+    # por grupo. De regresión: nace en verde, porque ningún grupo tiene permisos de usuarios ni
+    # de grupos; protege que Solo lectura tampoco los reciba
     usuario = get_user_model().objects.create_user("prueba.lector", is_staff=True)
-    usuario.groups.add(Group.objects.get(name="Lectura y escritura"))
+    usuario.groups.add(Group.objects.get(name=grupo))
     client.force_login(usuario)
     # Control: tiene sesión y entra al panel; el 403 no es por falta de sesión
     assert client.get("/admin/").status_code == 200
@@ -144,3 +154,82 @@ def test_los_grupos_no_se_borran_a_mano(admin_client):
     assert admin_client.get(f"/admin/auth/group/{solo_lectura.pk}/change/").status_code == 200
     assert admin_client.get(f"/admin/auth/group/{solo_lectura.pk}/delete/").status_code == 403
     assert Group.objects.filter(pk=solo_lectura.pk).exists()
+
+
+def test_el_administrador_se_edita_sin_grupo(admin_client, admin_user):
+    # Scenario: El Administrador no necesita grupo (revisión de HB-08, hallazgo 3)
+    # De regresión: nace en verde, porque el formulario solo exige el grupo a quien no es
+    # superusuario. Protege que el Administrador pueda guardar su propio usuario sin grupo
+    # Control: es superusuario y no tiene grupos
+    assert admin_user.is_superuser and grupos_de(admin_user) == []
+    datos = {
+        "username": admin_user.username,
+        "first_name": "Prueba",
+        "last_name": "Administrador",
+        "email": admin_user.email,
+        "is_active": "on",
+        "is_superuser": "on",
+    }
+    respuesta = admin_client.post(f"/admin/accounts/usuario/{admin_user.pk}/change/", datos)
+    assert respuesta.status_code == 302
+    admin_user.refresh_from_db()
+    # El cambio se guardó (control positivo del 302) y sigue siendo superusuario, sin grupos
+    assert admin_user.last_name == "Administrador"
+    assert admin_user.is_superuser
+    assert grupos_de(admin_user) == []
+    # Y sigue entrando al panel: guardar su usuario no lo deja fuera
+    assert admin_client.get("/admin/").status_code == 200
+
+
+def test_el_cambio_activa_is_staff(admin_client):
+    # Scenario: El cambio activa is_staff (revisión de HB-08, hallazgo 3)
+    # De regresión: nace en verde, porque el formulario de cambio ya activa is_staff al elegir
+    # un grupo. Protege que un usuario sin is_staff pueda entrar al panel tras asignarle grupo
+    usuario = get_user_model().objects.create_user(
+        "prueba.sinstaff",
+        first_name="Prueba",
+        last_name="Sin panel",
+        email="prueba.sinstaff@example.com",
+    )
+    # Control: empieza sin is_staff y sin grupo
+    assert not usuario.is_staff and grupos_de(usuario) == []
+    respuesta = cambio(admin_client, usuario, ["Lectura y escritura"])
+    assert respuesta.status_code == 302
+    usuario.refresh_from_db()
+    assert usuario.is_staff
+    assert grupos_de(usuario) == ["Lectura y escritura"]
+
+
+def test_un_grupo_invalido_da_un_solo_aviso(admin_client):
+    # Scenario: Un grupo inválido da un solo aviso (revisión de HB-08, hallazgo 10)
+    # Control: el id no es de ningún grupo
+    assert not Group.objects.filter(pk=999999).exists()
+    respuesta = alta(admin_client, groups=[999999])
+    assert respuesta.status_code == 200
+    errores = respuesta.context["adminform"].form.errors["groups"]
+    # Solo el error de opción inválida de Django, que nombra el valor rechazado
+    assert len(errores) == 1
+    assert "999999" in errores[0]
+    assert AVISO not in errores
+    # El usuario no se crea
+    assert not get_user_model().objects.filter(username="prueba.nuevo").exists()
+
+
+def test_los_grupos_no_se_cambian_a_mano(admin_client):
+    # Scenario: Los grupos no se cambian a mano (revisión de HB-08, hallazgo 5)
+    solo_lectura = Group.objects.get(name="Solo lectura")
+    permisos = set(solo_lectura.permissions.values_list("pk", flat=True))
+    # Control: el grupo tiene sus 5 permisos antes del POST
+    assert len(permisos) == 5
+    url = f"/admin/auth/group/{solo_lectura.pk}/change/"
+    # La página se puede consultar, en modo de solo lectura: sin el botón de guardar
+    consulta = admin_client.get(url)
+    assert consulta.status_code == 200
+    assert 'name="_save"' not in consulta.content.decode()
+    respuesta = admin_client.post(url, {"name": "Otro nombre", "permissions": sorted(permisos)})
+    assert respuesta.status_code == 403
+    # El grupo conserva su nombre y sus 5 permisos
+    solo_lectura.refresh_from_db()
+    assert solo_lectura.name == "Solo lectura"
+    assert set(solo_lectura.permissions.values_list("pk", flat=True)) == permisos
+    assert not Group.objects.filter(name="Otro nombre").exists()

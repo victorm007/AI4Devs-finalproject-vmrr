@@ -2,7 +2,7 @@
 
 - **Estado:** Aceptado
 - **Fecha:** 2026-11-16
-- **Actualización:** 2026-11-23, HB-08: versión fija de `django-axes` (9.1.0) y bloqueo por usuario, sin cambiar la decisión
+- **Actualización:** 2026-11-23, HB-08: versión fija de `django-axes` (9.1.0), bloqueo por usuario y sus consecuencias, sin cambiar la decisión
 - **Capabilities afectadas:** `accounts`, `api`
 - **Fuentes:** `readme.md` §2.2, §2.4.1, §2.5, §3.2 (D1 y antipatrones), §3.4, §4.2 y §6 (HB-03 y HB-08)
 
@@ -34,3 +34,5 @@ El sistema guarda datos personales de los Residentes (LFPDPPP) y lo usan pocas p
 
 **Negativas:**
 - `PBKDF2PasswordHasher` debe seguir en `PASSWORD_HASHERS`, después de Argon2, mientras existan contraseñas del mock sin rehacer (§3.4).
+- **Bloqueo malicioso:** como el bloqueo es por usuario, quien conozca un nombre de usuario puede mantener bloqueada su cuenta, también la del Administrador, repitiendo 5 fallos cada 15 minutos desde la red del hogar. Se desbloquea con `python manage.py axes_reset`. Un límite de tasa en nginx lo mitigaría, pero queda fuera del MVP (revisión de HB-08).
+- **Datos que guarda `axes`:** cada intento fallido queda en `axes_accessattempt` con el nombre tal como se escribió, la IP y el *user-agent*. Si alguien escribe su contraseña en el campo de usuario, queda en claro. Son datos personales (LFPDPPP): la tabla se limpia con `axes_reset` y no sale del servidor (revisión de HB-08).

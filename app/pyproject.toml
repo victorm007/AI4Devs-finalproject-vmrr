@@ -19,7 +19,7 @@ max_line_length = 120
 # H030 y H031 piden <meta> de descripción y palabras clave: no aplican a una app interna con login
 ignore = "H030,H031"
 # Archivos generados (collectstatic, cobertura, trazas de Playwright) y de terceros
-extend_exclude = "staticfiles,static/vendor,htmlcov,test-results"
+extend_exclude = "staticfiles,static/css/vendor,static/js/vendor,htmlcov,test-results"
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings.local"

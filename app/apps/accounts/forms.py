@@ -18,7 +18,9 @@ class GrupoUnicoMixin:
         datos = super().clean()
         if not datos.get("is_superuser"):
             grupos = datos.get("groups")
-            if grupos is None or len(grupos) != 1:
+            # Si "groups" ya tiene un error (una opción que no existe), Django la rechazó y
+            # cleaned_data no tiene "groups": basta su aviso, sin sumar MENSAJE_GRUPO
+            if "groups" not in self.errors and (grupos is None or len(grupos) != 1):
                 self.add_error("groups", MENSAJE_GRUPO)
             # Los usuarios de los 2 grupos entran al panel (habilitadores, sección 5)
             datos["is_staff"] = True

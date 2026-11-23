@@ -14,9 +14,13 @@ PostgreSQL ('... violates unique constraint "uq_usuario_un_grupo"').
 
 "Revertir a 0002 y volver" no es un test de pytest: se comprueba con
 ./scripts/migrate.sh accounts 0002 y ./scripts/migrate.sh en el cierre del ticket.
+
+Ajuste de la revisión adversarial de HB-08 (hallazgo 11): app_user, el usuario de base de datos
+de la aplicación, escribe en las tablas de axes (con ejecutar_sql(..., rol="app_user")).
 """
 
 import pytest
+from axes.models import AccessAttempt
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.db import IntegrityError, transaction
@@ -137,3 +141,58 @@ def test_un_usuario_solo_puede_tener_un_grupo():
     # que la base impide el segundo grupo en silencio. Quien avisa es el formulario del panel
     usuario.groups.add(lectura_y_escritura)
     assert list(usuario.groups.values_list("name", flat=True)) == ["Solo lectura"]
+
+
+def test_app_user_escribe_en_las_tablas_de_axes():
+    # Scenario: app_user escribe en las tablas de axes (revisión de HB-08, hallazgo 11)
+    # De regresión: nace en verde, porque app_user recibe los privilegios por defecto de las
+    # tablas que crea app_owner. Protege el bloqueo en producción: la aplicación corre como
+    # app_user y, sin escribir en axes_accessattempt, axes no contaría los intentos fallidos
+    valores = {
+        "user_agent": "pytest",
+        "ip_address": "127.0.0.1",
+        "username": "prueba.axes",
+        "http_accept": "text/html",
+        "path_info": "/accounts/login/",
+        "get_data": "",
+        "post_data": "username=prueba.axes",
+        "failures_since_start": 1,
+    }
+    # Control: el INSERT lleva todas las columnas NOT NULL del modelo de axes (attempt_time va
+    # con now()); así, un fallo solo puede ser de privilegios y no de una columna que falte
+    obligatorias = {
+        campo.column
+        for campo in AccessAttempt._meta.concrete_fields
+        if not campo.null and not campo.primary_key
+    }
+    assert obligatorias <= set(valores) | {"attempt_time"}
+    columnas = ", ".join([*valores, "attempt_time"])
+    marcadores = ", ".join(["%s"] * len(valores) + ["now()"])
+    # Desempacar exige exactamente 1 fila: el registro se guardó
+    [(id_intento,)] = ejecutar_sql(
+        f"INSERT INTO axes_accessattempt ({columnas}) VALUES ({marcadores}) RETURNING id",
+        list(valores.values()),
+        rol="app_user",
+    )
+    # axes también actualiza el intento en cada fallo siguiente (failures_since_start)
+    [(fallos,)] = ejecutar_sql(
+        "UPDATE axes_accessattempt SET failures_since_start = failures_since_start + 1 "
+        "WHERE id = %s RETURNING failures_since_start",
+        [id_intento],
+        rol="app_user",
+    )
+    assert fallos == 2
+    # Y app_user puede insertar en todas las tablas de axes (también sus registros de acceso)
+    tablas = [
+        tabla
+        for (tabla,) in ejecutar_sql(
+            "SELECT tablename FROM pg_tables "
+            "WHERE schemaname = current_schema() AND tablename LIKE 'axes\\_%' "
+            "ORDER BY tablename"
+        )
+    ]
+    # Control: la consulta encuentra las tablas de axes; sin ellas, el bucle no probaría nada
+    assert "axes_accessattempt" in tablas
+    for tabla in tablas:
+        [(puede,)] = ejecutar_sql("SELECT has_table_privilege('app_user', %s, 'INSERT')", [tabla])
+        assert puede, tabla
