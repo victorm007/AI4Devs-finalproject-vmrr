@@ -390,6 +390,18 @@ dpsql -c '\d pauta'
 ./scripts/migrate.sh
 ```
 
+> **Diferencias de forma con el DDL de las secciones 3.1 y 3.3, con el mismo efecto.** Los nombres son idénticos; cambia cómo los escribe Django:
+>
+> | Readme | `\d pauta` | Por qué está bien |
+> |---|---|---|
+> | `DEFAULT now()` | `DEFAULT statement_timestamp()` | Es lo que genera `Now()`, como en HB-06 |
+> | `CHECK (frecuencia_horas BETWEEN 1 AND 168)` | `CHECK (frecuencia_horas >= 1 AND frecuencia_horas <= 168)` | Equivalentes |
+> | FK con `ON DELETE RESTRICT` | FK `DEFERRABLE INITIALLY DEFERRED`, sin `ON DELETE` | `PROTECT` lo impide en Django, como en HB-05 y HB-06 |
+>
+> Además de los índices de la sección 3.3, Django crea los de las FK `medicamento_id` y `registrado_por_id`; el readme no los excluye.
+
+> **Nota sobre los tests de la sección 3** (cambio de OpenSpec `hb-07-pautas`). Los `match` usan el nombre de la restricción entre comillas (`'"ck_pauta_dosis"'`), como en HB-06, y los del *trigger*, el mensaje completo con el id. El PR agrega tests para los nombres y definiciones de las restricciones, los 2 índices y el *trigger* (`pg_constraint`, `pg_indexes`, `pg_trigger`); para que ningún índice tenga solo `residente_id`; para los tipos `numeric(6,2)` y `smallint`, y para una Pauta insertada como `app_user`. `pg_get_indexdef` califica la tabla con su esquema (`ON public.pauta USING btree`), y así lo buscan los tests. La rama fue la de la entrega (`feature/entrega-2-vmrr`), no `feature/HB-07-pautas` (`CLAUDE.md`, sección Git).
+
 ---
 
 ## 6. Lista para el *pull request*
