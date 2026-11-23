@@ -767,8 +767,14 @@ dj axes_reset                       # desbloquea las cuentas (solo desarrollo)
 > - **Tests de la sesión real:** la `expire_date` guardada en la base, su renovación con cada petición y la cookie sin `max-age` ni `expires`.
 > - **Tests de los bordes del bloqueo:** a los 14 minutos sigue bloqueado, y un intento durante el bloqueo lo reinicia.
 > - **`app_user` en las tablas de `axes`:** también tiene `UPDATE` y `DELETE`.
-> - **ADR-0022:** nombra `axes_accesslog`, que registra cada inicio de sesión y se limpia con `dj axes_reset_logs`.
+> - **ADR-0022:** nombra `axes_accesslog`, que registra cada inicio de sesión. `dj axes_reset_logs` borra solo los registros de más de 30 días (`--age N` cambia el umbral), y nada lo ejecuta de forma automática.
 > - **ADR-0021 y el readme:** el Administrador gestiona usuarios y consulta grupos.
+
+> **Tercera revisión:** se corrigieron en ADR-0022 la descripción del bloqueo malicioso (basta un intento cada menos de 15 minutos tras los 5 primeros fallos) y la retención de `axes_accesslog`. Quedan anotados, sin cambio:
+>
+> - **Título del requisito** "Solo el Administrador gestiona usuarios y grupos" de la spec de `accounts`: su texto ya dice "ver Grupos". Renombrarlo exige un delta `RENAMED`.
+> - **`AXES_RESET_COOL_OFF_ON_FAILURE_DURING_LOCKOUT`:** no se fija en `base.py`. Se usa el valor por defecto de `axes`, `True`, y `test_cada_intento_durante_el_bloqueo_lo_reinicia` falla si cambia.
+> - **Comentarios de los tests:** citan hallazgos de la 1.ª y la 2.ª revisión sin distinguirlas.
 
 ---
 

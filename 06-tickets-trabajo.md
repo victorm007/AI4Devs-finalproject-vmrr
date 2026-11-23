@@ -574,6 +574,23 @@ Antes de responder comprobé por nginx el hallazgo que la revisión dejó sin ve
 
 ---
 
+## Prompt 21 — Usuario
+
+(Tras una tercera revisión adversarial de HB-08, sin bloqueantes ni importantes y con 5 menores:) ¿Hay pendientes para el HB-08? (Tras la respuesta:) Haz 1 y 2 y cerremos.
+
+---
+
+## Respuesta 21 — Claude
+
+Corregí los 2 menores de documentación y cerré HB-08:
+
+- **1. ADR-0022 se contradecía.** Decía "repitiendo 5 fallos cada 15 minutos", pero cada intento durante el bloqueo lo reinicia. Ahora dice que bastan 5 fallos y después un solo intento cada menos de 15 minutos.
+- **2. `axes_reset_logs` no vacía el registro de accesos.** Lo comprobé en el paquete instalado: solo borra lo que tiene más de 30 días (`--age N`; con `--age 0`, todo), y nada lo ejecuta de forma automática. Lo corregí en ADR-0022 y en la guía de HB-08.
+
+Los otros 3 menores quedan anotados en la guía, sin cambio: el título de un requisito de la spec de `accounts`, `AXES_RESET_COOL_OFF_ON_FAILURE_DURING_LOCKOUT` con su valor por defecto (lo protege un test) y la numeración de los hallazgos en los comentarios de los tests.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 6)
 
 ## 6. Tickets de Trabajo
