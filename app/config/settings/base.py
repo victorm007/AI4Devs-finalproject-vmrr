@@ -5,6 +5,7 @@ Los valores sensibles o que cambian por entorno vienen de variables de entorno
 """
 
 import os
+from datetime import timedelta
 from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
@@ -29,6 +30,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django.contrib.postgres",  # índices GIN/BRIN y restricciones de exclusión (HB-05 y HB-07)
+    "axes",  # bloqueo por intentos fallidos (readme, sección 2.5; HB-08)
     # Apps del proyecto (readme, sección 2.3)
     "apps.accounts",
     "apps.catalogo",
@@ -69,6 +71,32 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
+
+AUTHENTICATION_BACKENDS = [
+    "axes.backends.AxesStandaloneBackend",  # primero: cuenta los intentos fallidos
+    "django.contrib.auth.backends.ModelBackend",
+]
+
+# Fuerza bruta (readme, sección 2.5): 5 intentos fallidos bloquean la cuenta 15 minutos, por
+# usuario y no por IP (detrás de nginx, la IP sería la del proxy). El bloqueo responde 429.
+AXES_FAILURE_LIMIT = 5
+AXES_COOLOFF_TIME = timedelta(minutes=15)
+AXES_LOCKOUT_PARAMETERS = ["username"]
+AXES_RESET_ON_SUCCESS = True
+AXES_LOCKOUT_TEMPLATE = "registration/bloqueado.html"
+# axes.W006 pide agregar ip_address. El bloqueo es por usuario (ADR-0022, design.md de HB-08,
+# decisión 2): detrás de nginx y sin el extra ipware, todos llegarían con la IP del proxy, y
+# 5 fallos de cualquiera bloquearían a todos. prod.py repite este valor.
+SILENCED_SYSTEM_CHECKS = ["axes.W006"]
+
+# Sesiones: expiran tras 30 min sin actividad y al cerrar el navegador (sección 2.5)
+SESSION_COOKIE_AGE = 1800
+SESSION_SAVE_EVERY_REQUEST = True
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+
+LOGIN_URL = "login"
+LOGIN_REDIRECT_URL = "admin:index"  # TK-03 lo cambia a la pantalla de existencias
+LOGOUT_REDIRECT_URL = "login"
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -140,3 +168,7 @@ CONTENT_SECURITY_POLICY = (
     "font-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
 )
 MIDDLEWARE += ["config.middleware.ContentSecurityPolicyMiddleware"]
+
+# django-axes (HB-08) va el último, como pide su documentación, y después del de CSP: así la
+# respuesta 429 de una cuenta bloqueada, que la arma AxesMiddleware, también lleva la CSP.
+MIDDLEWARE += ["axes.middleware.AxesMiddleware"]

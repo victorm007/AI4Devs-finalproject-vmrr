@@ -2,6 +2,7 @@
 
 - **Estado:** Aceptado
 - **Fecha:** 2026-11-16
+- **Actualización:** 2026-11-23, HB-08: versión fija de `django-axes` (9.1.0) y bloqueo por usuario, sin cambiar la decisión
 - **Capabilities afectadas:** `accounts`, `api`
 - **Fuentes:** `readme.md` §2.2, §2.4.1, §2.5, §3.2 (D1 y antipatrones), §3.4, §4.2 y §6 (HB-03 y HB-08)
 
@@ -17,7 +18,7 @@ El sistema guarda datos personales de los Residentes (LFPDPPP) y lo usan pocas p
   - Expira tras 30 minutos de inactividad (`SESSION_COOKIE_AGE=1800`, `SESSION_SAVE_EVERY_REQUEST=True`) y al cerrar el navegador.
   - Cookies `HttpOnly` y `SameSite=Lax`, y en producción también `Secure`.
 - **HTTPS en todos los entornos.** En producción: `SECURE_SSL_REDIRECT=True`, HSTS, `SESSION_COOKIE_SECURE` y `CSRF_COOKIE_SECURE`.
-- **Fuerza bruta:** `django-axes` bloquea temporalmente la cuenta tras 5 intentos fallidos.
+- **Fuerza bruta:** `django-axes` **9.1.0** (versión fija en `requirements.txt`) bloquea la cuenta 15 minutos tras 5 intentos fallidos y responde `429`. El bloqueo es por usuario y no por IP: detrás de nginx, sin el extra `ipware`, todos llegarían con la IP del proxy, así que se silencia el aviso `axes.W006`.
 - **Página de inicio de sesión propia** en `/accounts/login/`, y cierre de sesión por `POST` (HB-08).
 
 ## Alternativas consideradas

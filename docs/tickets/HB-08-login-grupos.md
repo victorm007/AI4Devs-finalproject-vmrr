@@ -727,6 +727,25 @@ dj collectstatic --noinput
 dj axes_reset                       # desbloquea las cuentas (solo desarrollo)
 ```
 
+> **Diferencias con lo que trae esta guía** (cambio de OpenSpec `hb-08-login-grupos`):
+>
+> - **Versiones:**
+>   - **Bootstrap 5.3.9**, no 5.3.3. Se obtiene con `npm pack bootstrap@5.3.9` en un directorio temporal: npm comprueba la integridad del paquete, y de él se copian sin cambios `dist/css/bootstrap.min.css` y `dist/js/bootstrap.bundle.min.js`. El `curl` del paso 2 no comprobaba la integridad.
+>   - **`django-axes==9.1.0`**, sin el extra `ipware`. Las 2 versiones quedaron fijadas en ADR-0002, ADR-0022 y el readme.
+> - **`axes.W006` silenciado** en `base.py` y `prod.py`: el bloqueo es por usuario. Agregar `ip_address` detrás de nginx haría que 5 fallos de cualquiera bloquearan a todos, porque todos llegan con la IP del proxy.
+> - **Orden del *middleware*:** `AxesMiddleware` va después del de CSP, así la respuesta `429` también lleva la CSP.
+> - **`groups.add()` no lanza `IntegrityError`:** Django inserta en la tabla puente con `ON CONFLICT DO NOTHING`, así que `uq_usuario_un_grupo` impide el segundo grupo en silencio. Por eso el test de la restricción inserta directamente en la tabla puente; el formulario del panel es el que avisa.
+> - **Tests añadidos:**
+>   - los permisos exactos de cada grupo y la definición de `uq_usuario_un_grupo`;
+>   - el formulario de cambio con 2 grupos y su control;
+>   - la lista de grupos con `403` y el borrado de un grupo;
+>   - la cabecera CSP y la ausencia de `style=` en el login;
+>   - la configuración de `django-axes` y un control de 4 intentos que no bloquean.
+> - **`0003_grupos`** depende de `entidades.0004_mensaje_nombres`, la última migración de entidades.
+> - **Revisión en el navegador:** se hizo con Chrome *headless* por CDP y con emulación de dispositivo. A 390 px no hay desplazamiento horizontal, y no aparecen violaciones de CSP ni en escritorio ni en el celular. El único mensaje de la consola es un 404 de `/favicon.ico`, porque el proyecto aún no tiene ícono.
+>   - No sirve `--window-size=390` sin emulación: Chrome tiene un ancho mínimo de ventana, dibuja la página más ancha y la captura sale recortada.
+> - **Rama:** `feature/entrega-2-vmrr`, no `feature/HB-08-login-grupos` (`CLAUDE.md`, sección Git).
+
 ---
 
 ## 6. Lista para el *pull request*
@@ -749,3 +768,4 @@ dj axes_reset                       # desbloquea las cuentas (solo desarrollo)
 | `IntegrityError: uq_usuario_un_grupo` al cargar el mock | El mock ya estaba cargado | Recrea la base: `docker compose down -v`, `up -d`, `./scripts/migrate.sh` |
 | La página de login sin estilos | Falta `collectstatic` o la descarga de Bootstrap trajo una página de error | Paso 2 (`head -c 40`) y `dj collectstatic --noinput` |
 | La cuenta quedó bloqueada en desarrollo | 5 intentos fallidos | `dj axes_reset` |
+| La consola de un solo navegador muestra una violación de CSP por un script en línea (`script-src-elem`), con origen `sandbox eval code`, `moz-extension://` o `chrome-extension://` | Una extensión del navegador inyecta el script, y la CSP lo bloquea como debe. Pasó en Firefox; no en Chrome, en Brave ni en la ventana privada de Firefox | Comprueba en una ventana privada, donde no corren las extensiones. **No agregues el hash que sugiere el mensaje a la CSP:** es código de la extensión, no de la aplicación |

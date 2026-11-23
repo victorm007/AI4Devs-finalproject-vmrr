@@ -27,6 +27,7 @@ if not HOGAR_NOMBRE:
 # (dos cabeceras HSTS distintas confunden a los navegadores).
 SECURE_SSL_REDIRECT = False
 SILENCED_SYSTEM_CHECKS = [
+    "axes.W006",  # bloqueo por usuario, no por IP: el motivo está en base.py
     "security.W004",  # SECURE_HSTS_SECONDS: lo pone nginx
     "security.W008",  # SECURE_SSL_REDIRECT: lo hace nginx
 ]

@@ -204,6 +204,29 @@ docker compose config | grep HOGAR_NOMBRE             # HOGAR_NOMBRE: Hogar Gero
 
 El nombre del Hogar en una base nueva se comprueba en la sección 5, paso 5.
 
+**Poner al día los contenedores al traer la rama (pendiente de HB-08).** Las versiones fijas de las dependencias viven en `app/requirements.txt`: desde HB-08, por ejemplo, `django-axes==9.1.0`. Bootstrap 5.3.9 vive en `app/static/*/vendor/`. El `Dockerfile` y `docker-compose.yml` no repiten esas versiones, así que no se tocan cuando cambian. Lo que sí hace falta, en cada equipo y en el servidor del hogar, son 3 pasos después de traer cambios, porque `docker compose` no los hace solo:
+
+| Paso | Por qué |
+|---|---|
+| `docker compose up -d --build web` | Reinstala `requirements.txt` en la imagen. Sin `--build`, el contenedor sigue con las versiones anteriores |
+| `./scripts/migrate.sh` | Aplica las migraciones nuevas, también las de las dependencias (por ejemplo, las tablas de `axes`) |
+| `collectstatic --noinput` | Copia los estáticos al volumen `static`, que es el que sirve nginx. El volumen persiste entre reinicios, y `down -v` también lo borra |
+
+El código no necesita reconstrucción, porque `web` monta `./app`. El CI tampoco necesita nada: instala desde `requirements*.txt` y construye la imagen solo. Al crear el `Makefile`:
+
+1. Agrega un *target* que encadene los 3 pasos, por ejemplo:
+
+   ```make
+   actualizar: ## Pone al día imagen, migraciones y estáticos tras traer cambios
+   	$(DC) up -d --build && ./scripts/migrate.sh && $(DC) exec web python manage.py collectstatic --noinput
+   ```
+
+   Súmalo a `.PHONY` y al conteo de `make help`.
+2. Haz que `reset` termine también con `collectstatic`: después de `down -v`, nginx no tiene estáticos y el login se ve sin estilos.
+3. Revisa que la primera instalación del readme (sección 2.4) y el despliegue en el servidor del hogar (semana 6) incluyan los 3 pasos, o `make actualizar`.
+
+Compruébalo con `make actualizar`: termina sin errores, y `curl -sk -o /dev/null -w "%{http_code}" https://localhost/static/css/vendor/bootstrap.min.css` devuelve `200`.
+
 ### Paso 2. Privilegios de `app_user` (ya hechos en HB-03)
 
 La migración `accounts/0002_privilegios.py` existe desde HB-03: da a `app_user` los 4 permisos sobre todas las tablas que cree `app_owner`, también las de este ticket. Lo único propio de TK-01 es retirar `UPDATE`, `DELETE` y `TRUNCATE` sobre `movimiento` (paso 9), y para eso las tablas nuevas deben depender de `0002_privilegios` (paso 6).
