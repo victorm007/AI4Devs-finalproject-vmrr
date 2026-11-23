@@ -443,6 +443,58 @@ Lo hice como el cambio de OpenSpec `hb-06-ajustes-revision-2`, con `implementar-
 
 ---
 
+## Prompt 16 — Usuario
+
+Implementa HB-07.
+
+(Tras el plan:) Apruebo.
+
+(Tras una disputa sobre un test congelado:) Opción recomendada: `"ON public.pauta USING btree"`.
+
+(Tras la revisión adversarial de HB-07 en el PR #2:) ¿Hay hallazgos que arreglar debido a la revisión adversarial? (Tras la respuesta:) Prosigue. (Tras el plan:) Apruebo.
+
+---
+
+## Respuesta 16 — Claude
+
+Hice HB-07 como el cambio de OpenSpec `hb-07-pautas`, con `implementar-ticket`. La app `pautas` tiene `Pauta` con `ck_pauta_dosis`, `ck_pauta_frecuencia`, `ck_pauta_fechas`, `ex_pauta_sin_traslape` (`daterange(fecha_inicio, fecha_fin, '[]')` sobre `btree_gist`), `ix_pauta_vigente`, `ix_pauta_residente_inicio` y `tg_pauta_validar`, sin pantallas ni `/admin/`. Además de los tests de la guía, agregué los de los nombres y definiciones exactos, los tipos, la ausencia de índice propio sobre `residente_id` y una pauta registrada como `app_user`.
+
+Hubo una disputa: un test buscaba `" pauta USING btree"`, pero `pg_get_indexdef` de PostgreSQL 17 devuelve `ON public.pauta USING btree`. Se corrigió solo ese fragmento y se volvió a congelar el archivo.
+
+La revisión adversarial no tuvo bloqueantes, pero sí un hallazgo importante, que comprobé: `full_clean()` de una pauta con fin anterior al inicio lanzaba `DataError`, porque `ExclusionConstraint.validate()` evalúa el `daterange` inválido. En el futuro formulario sería un `500`. Lo atendí en `hb-07-ajustes-revision`:
+
+| Hallazgo | Cambio |
+|---|---|
+| 1. `DataError` al validar fin anterior al inicio | `Pauta.clean()` avisa en `fecha_fin` y Django ya no evalúa la exclusión. La base no cambia. Comprobado también con un `ModelForm` |
+| 2. Los `CHECK` sin mensaje | Mensajes en español, en la migración `0003_mensajes` (`AlterConstraint`, sin SQL) |
+| 4. `RangoDeFechas` la importa la migración `0001` | Comentario para que no se renombre ni se mueva |
+| 7. Huecos en los tests | La exclusión no rechaza pautas de otro medicamento ni de otro residente, y `app_user` cierra una pauta |
+
+**Comprobaciones:** 107 tests pasan y 1 se omite, con cobertura del 97.37 %. `\d pauta` no cambió, y `migrate pautas zero` y la vuelta funcionan. Los hallazgos 3, 5 y 6 quedaron para la historia de pautas.
+
+---
+
+## Prompt 17 — Usuario
+
+(Tras una segunda revisión adversarial, sin bloqueantes ni importantes y con 6 menores:) ¿Corriste la comprobación? ¿Quedan pendientes para cerrar el HB-07?
+
+(Tras la respuesta, que recomendaba cerrarlo:) No, si quedan documentados como pendientes para después en la historia de las pautas.
+
+(Tras documentarlos en la guía:) Sí, mejor documéntalo en el readme también.
+
+---
+
+## Respuesta 17 — Claude
+
+Sí: reproduje el menor 1 antes de publicarlo en el PR, y `full_clean()` con una fecha de inicio escrita como texto lanza `TypeError` en `Pauta.clean()`. Con un `ModelForm` no ocurre. HB-07 no tenía pendientes obligatorios: los 5 criterios de aceptación se cumplen, `\d pauta` está en el PR y el CI pasa.
+
+Los pendientes quedaron documentados en 2 lugares:
+
+- **Guía de HB-07**, al final de la sección 5: una tabla "Pendientes para la historia de Pautas" con los hallazgos 3, 5 y 6 de la primera revisión y los menores 1 a 5 de la segunda, cada uno con su origen y qué hacer. El menor 6, la huella de los tests fuera del repositorio, es así por diseño de `implementar-ticket`.
+- **Readme, sección 5, EP-05:** un punto nuevo, "Pendientes de HB-07 para la historia de pautas", con la lista resumida y un enlace a la guía. El anexo de `05` quedó sincronizado.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 6)
 
 ## 6. Tickets de Trabajo

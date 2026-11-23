@@ -409,7 +409,20 @@ dpsql -c '\d pauta'
 > - **Comentario en `RangoDeFechas`:** la importa `0001_initial`, así que no se renombra ni se mueve.
 > - **Tests de regresión:** la exclusión no rechaza Pautas de otro Medicamento ni de otro Residente, y `app_user` cierra una Pauta.
 >
-> Quedan para la historia de Pautas: los índices que Django crea sobre `medicamento_id` y `registrado_por_id`, un `tg_pauta_validar` que solo actúa en `INSERT` (como define la sección 3.3) y `Pauta.__str__`.
+> **Pendientes para la historia de Pautas** (EP-05). Salen de las 2 revisiones adversariales del PR #2. No contradicen al readme y no afectan al mock ni a TK-01; se resuelven cuando lleguen las pantallas:
+>
+> | Pendiente | Origen | Qué hacer |
+> |---|---|---|
+> | Índices que Django crea sobre `medicamento_id` y `registrado_por_id`, sin consulta de la sección 3.3 que los use (ADR-0018) | 1.ª revisión, hallazgo 3 | Decidir en el readme si se quedan o se declaran con `db_index=False` |
+> | `tg_pauta_validar` solo actúa en `INSERT` (como define la sección 3.3): un `UPDATE` puede reabrir la Pauta de un Residente egresado | 1.ª revisión, hallazgo 5 | Decidir si el *trigger* cubre también `UPDATE` o si lo impide el servicio de Pautas |
+> | `Pauta.__str__` consulta el Medicamento (N+1 en listados) y no indica cuando la Pauta es "en caso necesario" | 1.ª revisión, hallazgo 6 | Usar `select_related` en los listados y agregar "(en caso necesario)" |
+> | `Pauta.clean()` lanza `TypeError` si `full_clean()` recibe una fecha sin convertir, por ejemplo un texto desde un script (comprobado). Con un `ModelForm` no ocurre | 2.ª revisión, menor 1 | Comparar solo si las 2 fechas son `date` |
+> | Un formulario sin `fecha_fin`, sobre una Pauta que ya tiene fin, recibiría `ValueError`: `clean()` asocia el error a un campo ausente | 2.ª revisión, menor 2 | Que el formulario incluya las 2 fechas, o lanzar el error como no-campo en ese caso |
+> | La spec dice "nunca con un error de base de datos", pero `validate_constraints()` directo sigue fallando, y una carrera en el traslape da `IntegrityError` (ADR-0005) | 2.ª revisión, menor 3 | Acotar el requisito a "`full_clean()` y formularios" |
+> | Sin test de la vía de formulario ni del borde `fecha_fin == fecha_inicio` (válido: rango de un día) | 2.ª revisión, menor 4 | Agregar los 2 tests con el formulario de Pautas |
+> | El Scenario "app_user cierra la vigente" está en "Vigencias sin traslape" y es de privilegios | 2.ª revisión, menor 5 | Moverlo, con el de registro, a un requisito de privilegios de `app_user` |
+>
+> La 2.ª revisión anotó además, como *nit*, que la huella de los tests congelados del cambio archivado queda fuera del repositorio. Es así por diseño de la skill `implementar-ticket`: no requiere acción.
 
 ---
 

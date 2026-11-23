@@ -2016,6 +2016,13 @@ Las épicas agrupan el trabajo por objetivo de negocio. Cada una reúne funciona
 - **Objetivo:** registrar, de forma informativa, la dosis, la frecuencia, las indicaciones y la vigencia de cada medicamento por residente. No mueve existencias ni registra la administración por turno.
 - **Incluye:** el esquema de la tabla `pauta` con sus reglas (sin vigencias traslapadas, solo residentes y medicamentos activos) y, más adelante, sus pantallas.
 - **Tickets:** HB-07 (esquema). Las pantallas son *Could*: su historia y sus tickets se definirán si hay tiempo después de EP-04.
+- **Pendientes de HB-07 para la historia de pautas.** Las 2 revisiones adversariales de HB-07 dejaron ajustes que no afectan al mock ni a TK-01 y se resuelven junto con las pantallas. El detalle, con su origen, está en la [guía de HB-07](docs/tickets/HB-07-pautas.md) (final de la sección 5):
+  - decidir si se quedan los índices que Django crea sobre `medicamento_id` y `registrado_por_id`, que no usa ninguna consulta de la sección 3.3;
+  - decidir si `tg_pauta_validar` cubre también `UPDATE`, para que no se reabra la pauta de un residente egresado, o si lo impide el servicio de pautas;
+  - `Pauta.__str__` sin consultas extra en los listados y con "(en caso necesario)" en las pautas PRN;
+  - `Pauta.clean()` sin `TypeError` ante fechas sin convertir, y un formulario que incluya las 2 fechas;
+  - acotar el requisito de mensajes de la spec de pautas a `full_clean()` y los formularios, y agrupar los escenarios de privilegios de `app_user`;
+  - tests del formulario y del borde `fecha_fin = fecha_inicio`, que es válido (rango de un día).
 - **Se da por terminada cuando** existan la historia y las pantallas de pautas. En el MVP solo se entrega el esquema.
 
 #### Habilitadores en el panel `/admin/` de Django
