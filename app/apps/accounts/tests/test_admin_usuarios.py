@@ -14,6 +14,9 @@ Cada 403 lleva un control positivo (la misma persona sí ve otra página del pan
 Ajustes de la revisión adversarial de HB-08 (hallazgos 3, 5 y 10): el Administrador se edita
 sin grupo, el cambio activa is_staff, un grupo inválido da un solo aviso, el 403 también para
 Solo lectura y los grupos son de solo consulta (no se cambian a mano).
+
+Ajuste de la 2.ª revisión adversarial de HB-08 (hallazgo 7): control positivo del botón _save,
+que sí aparece en una página de cambio editable.
 """
 
 import pytest
@@ -215,12 +218,18 @@ def test_un_grupo_invalido_da_un_solo_aviso(admin_client):
     assert not get_user_model().objects.filter(username="prueba.nuevo").exists()
 
 
-def test_los_grupos_no_se_cambian_a_mano(admin_client):
+def test_los_grupos_no_se_cambian_a_mano(admin_client, admin_user):
     # Scenario: Los grupos no se cambian a mano (revisión de HB-08, hallazgo 5)
     solo_lectura = Group.objects.get(name="Solo lectura")
     permisos = set(solo_lectura.permissions.values_list("pk", flat=True))
     # Control: el grupo tiene sus 5 permisos antes del POST
     assert len(permisos) == 5
+    # Control positivo del botón de guardar (2.ª revisión de HB-08, hallazgo 7): en una página
+    # de cambio editable, la del propio Administrador, sí aparece. Así, su ausencia en la del
+    # grupo se debe al modo de solo lectura y no a que el panel lo escriba de otra forma
+    editable = admin_client.get(f"/admin/accounts/usuario/{admin_user.pk}/change/")
+    assert editable.status_code == 200
+    assert 'name="_save"' in editable.content.decode()
     url = f"/admin/auth/group/{solo_lectura.pk}/change/"
     # La página se puede consultar, en modo de solo lectura: sin el botón de guardar
     consulta = admin_client.get(url)

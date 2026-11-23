@@ -1044,7 +1044,7 @@ ALTER TABLE detalle_conteo
 | `email` | varchar(254) | NOT NULL, DEFAULT `''` | Opcional |
 | `is_active` | boolean | NOT NULL, DEFAULT true | `false` = usuario dado de baja (no se borra) |
 | `is_superuser` | boolean | NOT NULL, DEFAULT false | `true` = **Administrador** |
-| `is_staff` | boolean | NOT NULL, DEFAULT false | Acceso al panel `/admin/`: el Administrador y los usuarios de los 2 grupos (habilitadores, sección 5). Solo el Administrador gestiona usuarios y grupos |
+| `is_staff` | boolean | NOT NULL, DEFAULT false | Acceso al panel `/admin/`: el Administrador y los usuarios de los 2 grupos (habilitadores, sección 5). Solo el Administrador gestiona usuarios y consulta los grupos, que son de solo consulta (HB-08) |
 | `last_login` | timestamptz | NULL | Último inicio de sesión |
 | `date_joined` | timestamptz | NOT NULL, DEFAULT now() | Fecha de alta |
 
@@ -1706,7 +1706,7 @@ Se validó con **Redocly CLI** (`npx @redocly/cli lint docs/api/openapi.yaml`): 
 |---|---|
 | `SOLO_LECTURA` | Todos los `GET` |
 | `LECTURA_ESCRITURA` | Todo lo anterior y las operaciones de escritura |
-| `ADMINISTRADOR` | Igual que lectura y escritura, y además la gestión de usuarios y grupos en `/admin/` |
+| `ADMINISTRADOR` | Igual que lectura y escritura, y además la gestión de usuarios y la consulta de los grupos en `/admin/` |
 
 La gestión de usuarios se hace en `/admin/` y no forma parte de la API.
 

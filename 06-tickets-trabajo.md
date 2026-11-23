@@ -551,6 +551,29 @@ Lo hice como el cambio de OpenSpec `hb-08-ajustes-revision`. El hallazgo 8, la C
 
 ---
 
+## Prompt 20 — Usuario
+
+(Tras una segunda revisión adversarial de HB-08, sin bloqueantes y con 1 hallazgo importante y 6 menores:) ¿Hay pendientes para este HB-08? (Tras la respuesta:) Hazlo. (Tras el plan:) Apruebo.
+
+---
+
+## Respuesta 20 — Claude
+
+Antes de responder comprobé por nginx el hallazgo que la revisión dejó sin verificar: **cada intento durante el bloqueo lo reinicia**, porque `axes` renueva la hora del último intento. Lo atendí en el cambio de OpenSpec `hb-08-ajustes-revision-2`:
+
+| Hallazgo | Cambio |
+|---|---|
+| 1. El test de la sesión de 30 minutos solo comprobaba `settings` | Comprueba la `expire_date` real en la base, su renovación con cada petición y la cookie sin `max-age` ni `expires` |
+| 5. El bloqueo se reinicia con cada intento | Tests de los 14 minutos y del reinicio; `bloqueado.html` pide esperar sin volver a intentarlo |
+| 2. `DELETE` de `app_user` en las tablas de `axes` | El test comprueba `INSERT`, `UPDATE` y `DELETE` |
+| 3. ADR-0022 omitía `axes_accesslog` | Lo nombra, con `axes_reset_logs` y el reinicio del bloqueo |
+| 4. "Gestiona grupos" | ADR-0021, el readme y sus anexos: gestiona usuarios y consulta grupos |
+| 6 y 7. Detalles | El Scenario cita el mensaje completo; el *Purpose* de la spec de `accounts`; un control positivo de `_save` |
+
+**Comprobaciones:** 150 tests pasan y 1 se omite, con cobertura del 97.27 %. Solo el test del mensaje nació en rojo; los demás fijan el comportamiento comprobado.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 6)
 
 ## 6. Tickets de Trabajo

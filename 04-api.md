@@ -244,7 +244,7 @@ Se validó con **Redocly CLI** (`npx @redocly/cli lint docs/api/openapi.yaml`): 
 |---|---|
 | `SOLO_LECTURA` | Todos los `GET` |
 | `LECTURA_ESCRITURA` | Todo lo anterior y las operaciones de escritura |
-| `ADMINISTRADOR` | Igual que lectura y escritura, y además la gestión de usuarios y grupos en `/admin/` |
+| `ADMINISTRADOR` | Igual que lectura y escritura, y además la gestión de usuarios y la consulta de los grupos en `/admin/` |
 
 La gestión de usuarios se hace en `/admin/` y no forma parte de la API.
 

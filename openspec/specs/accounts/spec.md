@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define el modelo de usuario propio de la aplicación y cómo se guardan y validan las contraseñas de sus usuarios.
+Define el modelo de usuario propio y sus contraseñas, el inicio y cierre de sesión con la plantilla común, los 2 grupos con sus permisos y un solo grupo por usuario, la gestión de usuarios en el panel solo por el Administrador, y el bloqueo por intentos fallidos con la expiración de la sesión.
 
 ## Requirements
 
@@ -211,7 +211,7 @@ Solo el Administrador (superusuario) DEBE (MUST) ver y gestionar "Usuarios" y ve
 
 ### Requirement: Bloqueo por intentos fallidos y expiración de la sesión
 
-Tras 5 contraseñas incorrectas de un usuario, la cuenta DEBE (MUST) quedar bloqueada 15 minutos, aun con la contraseña correcta, con `429` y un mensaje de cuenta bloqueada. El bloqueo se cuenta por usuario: no afecta a los demás. La sesión DEBE (MUST) expirar tras 30 minutos de inactividad y al cerrar el navegador.
+Tras 5 contraseñas incorrectas de un usuario, la cuenta DEBE (MUST) quedar bloqueada 15 minutos, aun con la contraseña correcta, con `429` y un mensaje de cuenta bloqueada. El bloqueo se cuenta por usuario: no afecta a los demás. Cada intento durante el bloqueo lo reinicia. La sesión DEBE (MUST) expirar tras 30 minutos de inactividad y al cerrar el navegador.
 
 #### Scenario: El sexto intento responde 429 (HB-08, criterio 5)
 
@@ -242,20 +242,40 @@ Tras 5 contraseñas incorrectas de un usuario, la cuenta DEBE (MUST) quedar bloq
 #### Scenario: La sesión dura 30 minutos (revisión de HB-08, hallazgo 2)
 
 - **GIVEN** un usuario que acaba de iniciar sesión
-- **WHEN** se consulta su sesión
-- **THEN** expira en 1800 segundos y al cerrar el navegador
+- **WHEN** se consulta su sesión en la base y la cookie que recibió
+- **THEN** la sesión guardada expira en 1800 segundos
+- **AND** la cookie `sessionid` no tiene `max-age` ni `expires`, así que el navegador la borra al cerrarse (2.ª revisión de HB-08, hallazgo 1)
+
+#### Scenario: Cada petición renueva la sesión (2.ª revisión de HB-08, hallazgo 1)
+
+- **GIVEN** un usuario con sesión iniciada a la que le quedan menos de 30 minutos
+- **WHEN** abre otra página
+- **THEN** la expiración de su sesión vuelve a quedar a 1800 segundos
+
+#### Scenario: El bloqueo sigue antes de los 15 minutos (2.ª revisión de HB-08, hallazgo 5)
+
+- **GIVEN** un usuario bloqueado cuyo último intento fue hace 14 minutos
+- **WHEN** inicia sesión con su contraseña
+- **THEN** la respuesta sigue siendo `429`
+
+#### Scenario: Cada intento durante el bloqueo lo reinicia (2.ª revisión de HB-08, hallazgo 5)
+
+- **GIVEN** un usuario bloqueado cuyo último intento fue hace 14 minutos
+- **WHEN** vuelve a intentarlo
+- **THEN** responde `429` y la cuenta de los 15 minutos empieza de nuevo desde ese intento
 
 #### Scenario: Mensaje de bloqueo (revisión de HB-08, hallazgo 6)
 
 - **GIVEN** un usuario bloqueado
 - **WHEN** intenta iniciar sesión
-- **THEN** la página dice "Demasiados intentos fallidos. La cuenta queda bloqueada 15 minutos: espera y vuelve a intentarlo."
+- **THEN** la página dice "Demasiados intentos fallidos. La cuenta queda bloqueada 15 minutos: espera sin volver a intentarlo, porque cada intento reinicia la espera. Si olvidaste tu contraseña, pide al Administrador que te asigne una nueva."
 
 #### Scenario: app_user escribe en las tablas de axes (revisión de HB-08, hallazgo 11)
 
 - **GIVEN** la base migrada
 - **WHEN** `app_user`, el usuario de base de datos de la aplicación, registra un intento fallido en `axes_accessattempt`
 - **THEN** el registro se guarda: `app_user` tiene permiso de escritura en las tablas de `axes`
+- **AND** también puede actualizarlos y borrarlos, como hace `axes` al reiniciar los intentos tras un login correcto (2.ª revisión de HB-08, hallazgo 2)
 
 ### Requirement: Plantillas con el formato de djLint
 

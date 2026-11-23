@@ -17,6 +17,9 @@ PostgreSQL ('... violates unique constraint "uq_usuario_un_grupo"').
 
 Ajuste de la revisión adversarial de HB-08 (hallazgo 11): app_user, el usuario de base de datos
 de la aplicación, escribe en las tablas de axes (con ejecutar_sql(..., rol="app_user")).
+
+Ajuste de la 2.ª revisión adversarial de HB-08 (hallazgo 2): app_user también actualiza y borra
+en todas las tablas de axes, como hace axes al reiniciar los intentos tras un login correcto.
 """
 
 import pytest
@@ -144,10 +147,14 @@ def test_un_usuario_solo_puede_tener_un_grupo():
 
 
 def test_app_user_escribe_en_las_tablas_de_axes():
-    # Scenario: app_user escribe en las tablas de axes (revisión de HB-08, hallazgo 11)
+    # Scenario: app_user escribe en las tablas de axes (revisión de HB-08, hallazgo 11; 2.ª
+    # revisión de HB-08, hallazgo 2)
     # De regresión: nace en verde, porque app_user recibe los privilegios por defecto de las
     # tablas que crea app_owner. Protege el bloqueo en producción: la aplicación corre como
-    # app_user y, sin escribir en axes_accessattempt, axes no contaría los intentos fallidos
+    # app_user y, sin escribir en axes_accessattempt, axes no contaría los intentos fallidos.
+    # Detecta que se le retire INSERT, UPDATE o DELETE en cualquier tabla axes_* (por ejemplo,
+    # un ALTER DEFAULT PRIVILEGES que solo conceda INSERT): sin DELETE, axes no podría
+    # reiniciar los intentos tras un login correcto
     valores = {
         "user_agent": "pytest",
         "ip_address": "127.0.0.1",
@@ -182,7 +189,18 @@ def test_app_user_escribe_en_las_tablas_de_axes():
         rol="app_user",
     )
     assert fallos == 2
-    # Y app_user puede insertar en todas las tablas de axes (también sus registros de acceso)
+    # axes borra los intentos al reiniciarlos tras un login correcto. Desempacar exige
+    # exactamente 1 fila: se borró el registro insertado, y solo ese
+    [(id_borrado,)] = ejecutar_sql(
+        "DELETE FROM axes_accessattempt WHERE id = %s RETURNING id",
+        [id_intento],
+        rol="app_user",
+    )
+    assert id_borrado == id_intento
+    # Control: el registro ya no está en la base
+    assert ejecutar_sql("SELECT id FROM axes_accessattempt WHERE id = %s", [id_intento]) == []
+    # Y app_user puede insertar, actualizar y borrar en todas las tablas de axes (también en
+    # sus registros de acceso)
     tablas = [
         tabla
         for (tabla,) in ejecutar_sql(
@@ -193,6 +211,11 @@ def test_app_user_escribe_en_las_tablas_de_axes():
     ]
     # Control: la consulta encuentra las tablas de axes; sin ellas, el bucle no probaría nada
     assert "axes_accessattempt" in tablas
+    # Un privilegio por consulta: con varios separados por comas, has_table_privilege devuelve
+    # true si app_user tiene cualquiera de ellos, no todos
     for tabla in tablas:
-        [(puede,)] = ejecutar_sql("SELECT has_table_privilege('app_user', %s, 'INSERT')", [tabla])
-        assert puede, tabla
+        for privilegio in ("INSERT", "UPDATE", "DELETE"):
+            [(puede,)] = ejecutar_sql(
+                "SELECT has_table_privilege('app_user', %s, %s)", [tabla, privilegio]
+            )
+            assert puede, (tabla, privilegio)

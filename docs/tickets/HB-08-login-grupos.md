@@ -761,6 +761,15 @@ dj axes_reset                       # desbloquea las cuentas (solo desarrollo)
 > - **Riesgos documentados en ADR-0022:** el bloqueo malicioso de cualquier cuenta y los datos que guarda `axes`.
 > - **CSP del panel con sesión:** queda para HB-09, que ya la exige en sus criterios de calidad.
 
+> **Segunda revisión** (cambio `hb-08-ajustes-revision-2`):
+>
+> - **Cada intento durante el bloqueo lo reinicia** (comprobado por nginx): `axes` renueva `attempt_time` y la espera de 15 minutos vuelve a empezar. Por eso `bloqueado.html` dice "espera sin volver a intentarlo, porque cada intento reinicia la espera".
+> - **Tests de la sesión real:** la `expire_date` guardada en la base, su renovación con cada petición y la cookie sin `max-age` ni `expires`.
+> - **Tests de los bordes del bloqueo:** a los 14 minutos sigue bloqueado, y un intento durante el bloqueo lo reinicia.
+> - **`app_user` en las tablas de `axes`:** también tiene `UPDATE` y `DELETE`.
+> - **ADR-0022:** nombra `axes_accesslog`, que registra cada inicio de sesión y se limpia con `dj axes_reset_logs`.
+> - **ADR-0021 y el readme:** el Administrador gestiona usuarios y consulta grupos.
+
 ---
 
 ## 6. Lista para el *pull request*

@@ -16,6 +16,10 @@ Se comprueban fuera de pytest:
 Ajustes de la revisión adversarial de HB-08 (hallazgos 1, 2, 6 y 7): la barra de base.html con
 sesión, el bloqueo por usuario y su fin a los 15 minutos, la sesión de 1800 segundos, el 429
 desde el quinto intento fallido y el texto de bloqueado.html.
+
+Ajustes de la 2.ª revisión adversarial de HB-08 (hallazgos 1, 5 y 6): la sesión real en la base
+(1800 segundos, renovada con cada petición, cookie sin max-age ni expires), los bordes del
+bloqueo (sigue a los 14 minutos y cada intento lo reinicia) y el mensaje de bloqueado.html.
 """
 
 import re
@@ -26,6 +30,7 @@ from axes.models import AccessAttempt
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.contrib.sessions.models import Session
 from django.template.loader import render_to_string
 from django.test import RequestFactory
 from django.urls import reverse
@@ -231,16 +236,53 @@ def test_el_bloqueo_termina_a_los_15_minutos(client, operador):
     assert client.session["_auth_user_id"] == str(operador.pk)
 
 
+def segundos_para_expirar(clave_sesion):
+    """Segundos que faltan para la expire_date guardada en django_session."""
+    sesion = Session.objects.get(session_key=clave_sesion)
+    return (sesion.expire_date - timezone.now()).total_seconds()
+
+
 def test_la_sesion_dura_30_minutos_y_expira_al_cerrar_el_navegador(client, operador):
-    # Scenario: La sesión dura 30 minutos (revisión de HB-08, hallazgo 2)
+    # Scenario: La sesión dura 30 minutos (revisión de HB-08, hallazgo 2; 2.ª revisión de
+    # HB-08, hallazgo 1)
     # De regresión: nace en verde, por SESSION_COOKIE_AGE y SESSION_EXPIRE_AT_BROWSER_CLOSE.
-    # Protege que la sesión real (no solo la configuración) tome esos valores
+    # Comprueba la sesión real, no la configuración: detecta un SESSION_COOKIE_AGE distinto de
+    # 1800 (la fila de django_session expiraría en otro momento) y un
+    # SESSION_EXPIRE_AT_BROWSER_CLOSE en False (la cookie llevaría max-age y expires)
     respuesta = entrar(client, "prueba.operador", CLAVE)
     # Control: el login fue correcto y la sesión existe
     assert respuesta.status_code == 302
     assert client.session["_auth_user_id"] == str(operador.pk)
-    assert client.session.get_expiry_age() == 1800
-    assert client.session.get_expire_at_browser_close() is True
+    # La sesión guardada en la base expira en 1800 segundos (margen de 60 s por el reloj)
+    assert abs(segundos_para_expirar(client.session.session_key) - 1800) <= 60
+    # La cookie es de sesión del navegador: sin max-age ni expires, se borra al cerrarlo
+    cookie = respuesta.cookies["sessionid"]
+    # Control: la respuesta del login sí envía la cookie, con la clave de la sesión
+    assert cookie.value == client.session.session_key
+    assert cookie["max-age"] == ""
+    assert cookie["expires"] == ""
+
+
+def test_cada_peticion_renueva_la_sesion(client, operador):
+    # Scenario: Cada petición renueva la sesión (2.ª revisión de HB-08, hallazgo 1)
+    # De regresión: nace en verde, por SESSION_SAVE_EVERY_REQUEST. Detecta que se apague: el
+    # panel no modifica la sesión, así que sin ese ajuste la expire_date no se movería
+    assert entrar(client, "prueba.operador", CLAVE).status_code == 302
+    clave_sesion = client.session.session_key
+    # A la sesión le quedan 100 segundos, como si el usuario llevara casi 30 minutos inactivo
+    actualizadas = Session.objects.filter(session_key=clave_sesion).update(
+        expire_date=timezone.now() + timedelta(seconds=100)
+    )
+    # Control: había una sesión que adelantar, y quedó a 100 segundos
+    assert actualizadas == 1
+    assert abs(segundos_para_expirar(clave_sesion) - 100) <= 60
+    respuesta = client.get(reverse("admin:index"))
+    # Control: la sesión seguía viva y abrió el panel con ella (no con otra nueva)
+    assert respuesta.status_code == 200
+    assert client.session.session_key == clave_sesion
+    assert client.session["_auth_user_id"] == str(operador.pk)
+    # La expiración vuelve a quedar a 1800 segundos
+    assert abs(segundos_para_expirar(clave_sesion) - 1800) <= 60
 
 
 def test_el_quinto_intento_fallido_ya_responde_429(client, operador):
@@ -256,16 +298,66 @@ def test_el_quinto_intento_fallido_ya_responde_429(client, operador):
     assert "registration/bloqueado.html" in plantillas(respuesta)
 
 
-def test_el_mensaje_de_bloqueo_pide_esperar_15_minutos(client, operador):
-    # Scenario: Mensaje de bloqueo (revisión de HB-08, hallazgo 6)
+def test_el_bloqueo_sigue_antes_de_los_15_minutos(client, operador):
+    # Scenario: El bloqueo sigue antes de los 15 minutos (2.ª revisión de HB-08, hallazgo 5)
+    # De regresión: nace en verde, porque AXES_COOLOFF_TIME es de 15 minutos. Detecta un
+    # bloqueo más corto (por ejemplo, de 10 minutos), que dejaría entrar a los 14; con el test
+    # de los 16 minutos, acota el fin del bloqueo entre los 14 y los 16
+    fallar(client, "prueba.operador")
+    actualizados = AccessAttempt.objects.filter(username="prueba.operador").update(
+        attempt_time=timezone.now() - timedelta(minutes=14)
+    )
+    # Control: había intentos registrados que mover; sin ellos, el 429 no vendría de los 14
+    # minutos
+    assert actualizados >= 1
+    respuesta = entrar(client, "prueba.operador", CLAVE)
+    assert respuesta.status_code == 429
+    assert "registration/bloqueado.html" in plantillas(respuesta)
+    assert "_auth_user_id" not in client.session
+
+
+def test_cada_intento_durante_el_bloqueo_lo_reinicia(client, operador):
+    # Scenario: Cada intento durante el bloqueo lo reinicia (2.ª revisión de HB-08, hallazgo 5)
+    # De regresión: nace en verde, porque axes renueva attempt_time en cada intento durante el
+    # bloqueo (AXES_RESET_COOL_OFF_ON_FAILURE_DURING_LOCKOUT, True por defecto). Detecta que
+    # deje de hacerlo: el intento a hace 14 minutos seguiría ahí y el bloqueo terminaría 1
+    # minuto después, y el mensaje de bloqueado.html ("cada intento reinicia la espera") mentiría
+    fallar(client, "prueba.operador")
+    actualizados = AccessAttempt.objects.filter(username="prueba.operador").update(
+        attempt_time=timezone.now() - timedelta(minutes=14)
+    )
+    # Control: había intentos registrados que mover
+    assert actualizados >= 1
+    respuesta = entrar(client, "prueba.operador", CLAVE_INCORRECTA)
+    assert respuesta.status_code == 429
+    intentos = list(
+        AccessAttempt.objects.filter(username="prueba.operador").values_list(
+            "attempt_time", "failures_since_start"
+        )
+    )
+    # Control: el usuario sigue teniendo intentos registrados (axes no los borró)
+    assert intentos
+    # La cuenta de los 15 minutos empieza de nuevo: ningún intento quedó a hace 14 minutos
+    ahora = timezone.now()
+    for momento, _ in intentos:
+        assert abs((ahora - momento).total_seconds()) < 60, momento
+    # Y siguen contando los fallos: el bloqueo no se levantó al reiniciar la espera
+    assert sum(fallos for _, fallos in intentos) >= settings.AXES_FAILURE_LIMIT
+
+
+def test_el_mensaje_de_bloqueo_pide_esperar_sin_reintentar(client, operador):
+    # Scenario: Mensaje de bloqueo (revisión de HB-08, hallazgo 6; 2.ª revisión de HB-08,
+    # hallazgo 5)
     fallar(client, "prueba.operador")
     respuesta = entrar(client, "prueba.operador", CLAVE)
     assert respuesta.status_code == 429
     html = texto(respuesta)
     assert (
-        "Demasiados intentos fallidos. La cuenta queda bloqueada 15 minutos: espera y vuelve a "
-        "intentarlo." in html
+        "Demasiados intentos fallidos. La cuenta queda bloqueada 15 minutos: espera sin volver "
+        "a intentarlo, porque cada intento reinicia la espera. Si olvidaste tu contraseña, pide "
+        "al Administrador que te asigne una nueva." in html
     )
-    assert "pide al Administrador que te asigne una nueva" in html
     # Ya no pide al Administrador que "restablezca" la cuenta
     assert "restablezca" not in html
+    # Ni invita a volver a intentarlo, que reiniciaría el bloqueo
+    assert "y vuelve a intentarlo" not in html
