@@ -1,9 +1,9 @@
 """Pautas: dosis, frecuencia, vigencias sin traslape y solo residentes/medicamentos activos.
 
-Esquema de pautas (D6, HB-07). Corren como app_owner, salvo el de registro, que actúa como
-app_user con ejecutar_sql(rol=...). Antes de TK-01 no hay mock: los datos son los mínimos de la
-guía (un Residente activo, un Medicamento activo con la presentación semilla "tableta" y el
-usuario "prueba.pautas").
+Esquema de pautas (D6, HB-07). Corren como app_owner, salvo los de registro y cierre, que
+actúan como app_user con ejecutar_sql(rol=...). Antes de TK-01 no hay mock: los datos son
+los mínimos de la guía (un Residente activo, un Medicamento activo con la presentación
+semilla "tableta" y el usuario "prueba.pautas").
 ejecutar_sql sin params no interpola, así que el SQL literal de abajo no lleva "%"; el que pasa
 params tampoco lleva "%" literal (se escribiría "%%").
 
@@ -16,6 +16,11 @@ la crea otra migración (0002) y su rojo se distingue del de 0001.
 
 "migrate pautas zero revierte todo" no es un test de pytest: se comprueba con
 ./scripts/migrate.sh pautas zero y ./scripts/migrate.sh en el cierre del ticket.
+
+Ajustes de la revisión de HB-07: la validación del modelo avisa el fin anterior al inicio con
+un ValidationError (no un DataError) y la dosis y la frecuencia con mensajes en español; la
+exclusión no rechaza Pautas de otro Medicamento ni de otro Residente, y app_user cierra una
+Pauta.
 """
 
 from datetime import date
@@ -222,6 +227,37 @@ def test_la_base_rechaza_pautas_invalidas(datos, cambios, restriccion):
             pauta(datos, **cambios).save()
 
 
+def test_la_validacion_del_modelo_avisa_fin_anterior_al_inicio(datos):
+    # Scenario: Fin anterior al inicio en la validación del modelo (revisión de HB-07, hallazgo 1)
+    # Exigir ValidationError ya descarta el DataError de daterange ("range lower bound must be
+    # less than or equal to range upper bound"), que escaparía de pytest.raises
+    with pytest.raises(ValidationError) as error:
+        pauta(datos, fecha_fin=date(2026, 1, 31)).full_clean()
+    # Solo fecha_fin y una sola vez: ni el mensaje de ck_pauta_fechas repetido ni el traslape
+    assert error.value.message_dict == {
+        "fecha_fin": ["La fecha de fin no puede ser anterior a la de inicio."]
+    }
+
+
+@pytest.mark.parametrize(
+    ("cambios", "mensaje"),
+    [
+        ({"dosis": Decimal("0")}, "La dosis debe ser mayor que 0."),
+        ({"frecuencia_horas": 0}, "La frecuencia debe estar entre 1 y 168 horas."),
+        ({"frecuencia_horas": 169}, "La frecuencia debe estar entre 1 y 168 horas."),
+    ],
+    ids=["dosis-0", "frecuencia-0", "frecuencia-169"],
+)
+def test_la_validacion_del_modelo_avisa_dosis_y_frecuencia(datos, cambios, mensaje):
+    # Scenario: Mensajes de la dosis y la frecuencia (revisión de HB-07, hallazgo 2)
+    # Sin violation_error_message, Django avisa con el genérico ('Constraint "ck_pauta_dosis"
+    # is violated.'): exigir el texto exacto lo descarta. Son errores de restricción, no de un
+    # campo, así que se buscan en messages y no en message_dict[campo]
+    with pytest.raises(ValidationError) as error:
+        pauta(datos, **cambios).full_clean()
+    assert mensaje in error.value.messages
+
+
 # --- Vigencias sin traslape ---
 
 
@@ -266,6 +302,48 @@ def test_la_validacion_del_modelo_avisa_el_traslape(datos):
     assert MENSAJE_TRASLAPE in error.value.messages
 
 
+def test_un_residente_puede_tener_pautas_de_medicamentos_distintos(datos):
+    # Scenario: Medicamentos distintos del mismo Residente (revisión de HB-07, hallazgo 7)
+    # De regresión: nace en verde con ex_pauta_sin_traslape de HB-07. Protege contra una
+    # exclusión que compare de menos (sin medicamento_id) y rechace de más
+    _, medicamento, _ = datos
+    otro = Medicamento.objects.create(
+        nombre_comercial="Prueba dos",
+        tipo="GENERICO",
+        concentracion="100 mg",
+        presentacion=Presentacion.objects.get(nombre="tableta"),
+    )
+    pauta(datos).save()  # vigente desde el 1 de febrero, sin fin
+    pauta(datos, medicamento=otro).save()  # mismas fechas, otro Medicamento
+    assert Pauta.objects.count() == 2
+    assert set(Pauta.objects.values_list("medicamento_id", flat=True)) == {
+        medicamento.pk,
+        otro.pk,
+    }
+
+
+def test_el_mismo_medicamento_para_residentes_distintos(datos):
+    # Scenario: El mismo Medicamento para Residentes distintos (revisión de HB-07, hallazgo 7)
+    # De regresión: nace en verde con ex_pauta_sin_traslape de HB-07. Protege contra una
+    # exclusión que compare de menos (sin residente_id) y rechace de más
+    residente, _, _ = datos
+    otro = registrar_residente(
+        Residente(
+            primer_nombre="Segunda",
+            primer_apellido="Pauta",
+            fecha_nacimiento=date(1942, 3, 3),
+            fecha_ingreso=date(2026, 1, 5),
+        )
+    )
+    pauta(datos).save()  # vigente desde el 1 de febrero, sin fin
+    pauta(datos, residente=otro).save()  # mismas fechas, otro Residente activo
+    assert Pauta.objects.count() == 2
+    assert set(Pauta.objects.values_list("residente_id", flat=True)) == {
+        residente.pk,
+        otro.pk,
+    }
+
+
 # --- Solo Residentes y Medicamentos activos ---
 
 
@@ -292,8 +370,8 @@ def test_no_se_registra_pauta_de_un_medicamento_dado_de_baja(datos):
 def test_app_user_registra_una_pauta_valida(datos):
     # Scenario: app_user registra una Pauta válida (HB-07, criterios de revisión de BD)
     residente, medicamento, usuario = datos
-    # Control: no había Pautas antes del INSERT
-    assert not Pauta.objects.exists()
+    # Control: el INSERT agrega exactamente una Pauta a las que hubiera
+    antes = Pauta.objects.count()
     # Sin si_necesario ni creado_en: los pone el DEFAULT de la base
     [(pauta_id,)] = ejecutar_sql(
         "INSERT INTO pauta (residente_id, medicamento_id, dosis, frecuencia_horas, "
@@ -301,6 +379,7 @@ def test_app_user_registra_una_pauta_valida(datos):
         [residente.pk, medicamento.pk, Decimal("1.5"), 8, date(2026, 2, 1), usuario.pk],
         rol="app_user",
     )
+    assert Pauta.objects.count() == antes + 1
     registrada = Pauta.objects.get(pk=pauta_id)
     assert registrada.residente_id == residente.pk
     assert registrada.medicamento_id == medicamento.pk
@@ -309,3 +388,21 @@ def test_app_user_registra_una_pauta_valida(datos):
     assert registrada.fecha_fin is None
     assert registrada.si_necesario is False
     assert registrada.creado_en is not None
+
+
+def test_app_user_cierra_una_pauta(datos):
+    # Scenario: app_user cierra la vigente (revisión de HB-07, hallazgo 7)
+    # De regresión: nace en verde con los privilegios de HB-01/HB-07. Protege contra perder el
+    # UPDATE de app_user sobre pauta (ADR-0006): sin él, ejecutar_sql lanzaría ProgrammingError
+    vigente = pauta(datos)
+    vigente.save()
+    # Control: la Pauta empieza vigente, sin fecha de fin
+    vigente.refresh_from_db()
+    assert vigente.fecha_fin is None
+    ejecutar_sql(
+        "UPDATE pauta SET fecha_fin = %s WHERE id = %s",
+        [date(2026, 2, 28), vigente.pk],
+        rol="app_user",
+    )
+    vigente.refresh_from_db()
+    assert vigente.fecha_fin == date(2026, 2, 28)

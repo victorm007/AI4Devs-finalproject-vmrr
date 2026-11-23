@@ -402,6 +402,15 @@ dpsql -c '\d pauta'
 
 > **Nota sobre los tests de la sección 3** (cambio de OpenSpec `hb-07-pautas`). Los `match` usan el nombre de la restricción entre comillas (`'"ck_pauta_dosis"'`), como en HB-06, y los del *trigger*, el mensaje completo con el id. El PR agrega tests para los nombres y definiciones de las restricciones, los 2 índices y el *trigger* (`pg_constraint`, `pg_indexes`, `pg_trigger`); para que ningún índice tenga solo `residente_id`; para los tipos `numeric(6,2)` y `smallint`, y para una Pauta insertada como `app_user`. `pg_get_indexdef` califica la tabla con su esquema (`ON public.pauta USING btree`), y así lo buscan los tests. La rama fue la de la entrega (`feature/entrega-2-vmrr`), no `feature/HB-07-pautas` (`CLAUDE.md`, sección Git).
 
+> **Ajustes tras la revisión adversarial** (cambio de OpenSpec `hb-07-ajustes-revision`). El código de los pasos 2 y 3 y de la sección 3 es el original. El del repositorio cambia en esto:
+>
+> - **`Pauta.clean()`:** con fin anterior al inicio, `full_clean()` lanzaba `DataError` ("range lower bound must be less than or equal to range upper bound"), porque `ExclusionConstraint.validate()` evalúa `daterange(...)` con los valores de la instancia. Sería un `500` en el futuro formulario o en `/admin/`. Ahora `clean()` avisa en `fecha_fin` y Django ya no evalúa la exclusión. La definición en la base no cambia. Límite conocido: `validate_constraints()` llamado directamente, sin `full_clean()` ni un formulario, sigue fallando.
+> - **Mensajes en español** en `ck_pauta_dosis`, `ck_pauta_frecuencia` y `ck_pauta_fechas`, con la migración `0003_mensajes` (`AlterConstraint`, sin SQL).
+> - **Comentario en `RangoDeFechas`:** la importa `0001_initial`, así que no se renombra ni se mueve.
+> - **Tests de regresión:** la exclusión no rechaza Pautas de otro Medicamento ni de otro Residente, y `app_user` cierra una Pauta.
+>
+> Quedan para la historia de Pautas: los índices que Django crea sobre `medicamento_id` y `registrado_por_id`, un `tg_pauta_validar` que solo actúa en `INSERT` (como define la sección 3.3) y `Pauta.__str__`.
+
 ---
 
 ## 6. Lista para el *pull request*
