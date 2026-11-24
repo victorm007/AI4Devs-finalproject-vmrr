@@ -70,11 +70,19 @@ dtest apps/catalogo/tests/test_admin.py apps/entidades/tests/test_admin.py apps/
 
 Solo deben pasar `test_el_hogar_no_se_edita_en_el_panel` (en `apps/entidades/tests/test_admin.py`), porque `Entidad` nunca se registra en el panel, y los tests de HB-05 que ya estaban en `test_modelos.py`: son de regresión. Los 2 de la sección 3.3 fallan hasta el paso 3b.
 
+`test_formularios.py` (sección 3.4) se ejecuta aparte, porque importa `validadores.py` y `forms.py` al inicio y falla en la recolección hasta el paso 3. En el mismo comando, ese error interrumpiría a los demás archivos:
+
+```bash
+dtest apps/catalogo/tests/test_formularios.py -q
+```
+
+Resultado esperado: `1 error` en la recolección, con `ModuleNotFoundError: No module named 'apps.catalogo.forms'`.
+
 Así avanza el rojo con cada paso:
 
 | Al terminar | Comando | Resultado esperado |
 |---|---|---|
-| Paso 3 (catálogo) | `dtest apps/catalogo/tests/test_admin.py -q` | Todos pasan |
+| Paso 3 (catálogo) | `dtest apps/catalogo/tests/test_admin.py apps/catalogo/tests/test_formularios.py -q` | Todos pasan |
 | Paso 3b (presentaciones) | `dtest apps/catalogo/tests/test_modelos.py -q` | Todos pasan |
 | Paso 4 (residentes) | `dtest apps/entidades/tests/test_admin.py -q` | Todos pasan |
 
@@ -725,6 +733,85 @@ def test_el_formulario_avisa_la_presentacion_duplicada():
         Presentacion(nombre="Tableta").full_clean()
 ```
 
+### 3.4 `apps/catalogo/tests/test_formularios.py`
+
+Para el paso 3: la regla "al menos un principio activo" y el conjunto de renglones, sin pasar por HTTP. El conjunto se arma como lo hace el *inline* del panel (`min_num=1`, `extra=0`), así que el único aviso es el de la regla.
+
+```python
+"""La regla "al menos un principio activo" y el conjunto de renglones del medicamento."""
+
+import pytest
+from django.core.exceptions import ValidationError
+from django.forms.models import inlineformset_factory
+
+from apps.catalogo.forms import PrincipiosActivosFormSet
+from apps.catalogo.models import (
+    Medicamento,
+    MedicamentoPrincipioActivo,
+    Presentacion,
+    PrincipioActivo,
+)
+from apps.catalogo.validadores import SIN_PRINCIPIO_ACTIVO, exigir_principio_activo
+
+pytestmark = pytest.mark.django_db
+PREFIJO = "medicamentoprincipioactivo_set"
+
+ConjuntoDePrincipios = inlineformset_factory(
+    Medicamento,
+    MedicamentoPrincipioActivo,
+    formset=PrincipiosActivosFormSet,
+    fields=["principio_activo"],
+    extra=0,
+    min_num=1,
+    can_delete=False,
+)
+
+
+@pytest.fixture
+def medicamento():
+    return Medicamento.objects.create(
+        nombre_comercial="Cozaar",
+        tipo="GENERICO",
+        concentracion="50 mg",
+        presentacion=Presentacion.objects.get(nombre="tableta"),
+    )
+
+
+def renglones(*principios_activos):
+    datos = {
+        f"{PREFIJO}-TOTAL_FORMS": str(len(principios_activos)),
+        f"{PREFIJO}-INITIAL_FORMS": "0",
+        f"{PREFIJO}-MIN_NUM_FORMS": "1",
+        f"{PREFIJO}-MAX_NUM_FORMS": "1000",
+    }
+    for i, principio_activo in enumerate(principios_activos):
+        datos[f"{PREFIJO}-{i}-principio_activo"] = principio_activo
+    return datos
+
+
+def test_la_regla_rechaza_una_lista_vacia():
+    assert SIN_PRINCIPIO_ACTIVO == "Un medicamento debe tener al menos un principio activo."
+    with pytest.raises(ValidationError) as error:
+        exigir_principio_activo([])
+    assert error.value.code == "sin_principio_activo"
+
+
+def test_la_regla_acepta_un_principio_activo():
+    assert exigir_principio_activo([1]) is None
+
+
+def test_el_conjunto_sin_principio_activo_avisa(medicamento):
+    formset = ConjuntoDePrincipios(renglones(), instance=medicamento, prefix=PREFIJO)
+    assert not formset.is_valid()
+    assert list(formset.non_form_errors()) == [SIN_PRINCIPIO_ACTIVO]
+
+
+def test_el_conjunto_con_un_principio_activo_es_valido(medicamento):
+    losartan = PrincipioActivo.objects.create(nombre="Losartán")
+    formset = ConjuntoDePrincipios(renglones(losartan.pk), instance=medicamento, prefix=PREFIJO)
+    assert formset.is_valid(), formset.errors
+```
+
 ---
 
 ## 4. Criterios de calidad
@@ -843,6 +930,14 @@ dtest -q --cov=apps --cov-fail-under=80
 > **Notas, sin cambio:**
 > - **4.** El contrato no define el mapeo general de los errores de esquema del cuerpo (por ejemplo, `maxItems` → `VALOR_FUERA_DE_RANGO`); solo `principios_activos_ids` documenta `minItems` y `type`. Se decide al implementar la API de escritura (V2), partiendo de lo que ya fija ese campo: `minItems` → `CAMPO_VACIO` y `type` → `TIPO_INVALIDO`.
 > - **6.** `check()` lanza una excepción, en lugar de un `panel.E00x`, si `campos_sin_acentos` contiene `None` o un número. Es improbable y se vería al arrancar (`dj check`).
+>
+> **Ajustes de la sexta revisión adversarial** (cambio de OpenSpec `hb-09-ajustes-revision-6`, solo documentación; la quinta revisión se atendió sin cambio de OpenSpec, en `5f031f4`):
+>
+> | Hallazgo | Cambio |
+> |---|---|
+> | 1. La nota de la V2 decía que el esquema "aplica la misma regla" | Ahora dice que exige lo mismo (al menos uno) y comparte su mensaje (readme, sección 4, y `04-api.md`) |
+> | 2. La spec mezclaba la reutilización de la regla con el esquema de la V2 | La descripción del requisito separa las 2 ideas |
+> | 3. El paso 1 y la tabla del rojo no ejecutaban `test_formularios.py` | Se ejecuta aparte en el paso 1, porque falla en la recolección hasta el paso 3; el paso 3 de la tabla lo incluye, y la sección 3.4 trae su versión base |
 
 ---
 

@@ -154,7 +154,7 @@ El panel `/admin/` DEBE (MUST) mostrar presentaciones, principios activos y medi
 
 ### Requirement: Principios activos en la pantalla del medicamento
 
-El alta y el cambio de un medicamento DEBEN (MUST) incluir sus principios activos en la misma pantalla, al menos uno, elegidos con un buscador (*autocomplete*) que ignora mayúsculas y acentos. Sin ninguno, el formulario no guarda y muestra el mensaje "Un medicamento debe tener al menos un principio activo.", tanto en el alta como en el cambio. La regla se valida fuera de la base y se puede reutilizar fuera del panel: en la V2, el esquema de `POST` y `PATCH /medicamentos` rechaza la lista vacía con `errores[].codigo = CAMPO_VACIO` y el mismo mensaje.
+El alta y el cambio de un medicamento DEBEN (MUST) incluir sus principios activos en la misma pantalla, al menos uno, elegidos con un buscador (*autocomplete*) que ignora mayúsculas y acentos. Sin ninguno, el formulario no guarda y muestra el mensaje "Un medicamento debe tener al menos un principio activo.", tanto en el alta como en el cambio. La regla se valida fuera de la base, así que se puede reutilizar fuera del panel, por ejemplo desde código que guarda sin pasar por un formulario. Aparte, en la V2, el esquema de `POST` y `PATCH /medicamentos` exige lo mismo por su cuenta: rechaza la lista vacía con `errores[].codigo = CAMPO_VACIO` y el mismo mensaje.
 
 #### Scenario: Alta con su principio activo (HB-09, criterio 2)
 

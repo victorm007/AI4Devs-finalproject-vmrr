@@ -758,6 +758,26 @@ Con esto, HB-09 no tiene pendientes de código ni de documentación. Las notas q
 
 ---
 
+## Prompt 29 — Usuario
+
+(Tras la sexta revisión adversarial de HB-09, sin bloqueantes ni mayores y con 3 menores de redacción:) ¿Quedan pendientes para el HB-09? (Tras la respuesta:) Sí, por favor.
+
+---
+
+## Respuesta 29 — Claude
+
+Atendí los 3 menores de la sexta revisión en el cambio de OpenSpec `hb-09-ajustes-revision-6`, solo de documentación:
+
+| Hallazgo | Cambio |
+|---|---|
+| 1. La nota de la V2 decía que el esquema "aplica la misma regla" | Ahora dice que exige lo mismo (al menos uno) y comparte su mensaje, en el readme y en `04-api.md` |
+| 2. La spec mezclaba 2 ideas | La descripción del requisito separa la reutilización de la regla fuera del panel del esquema de la V2, que exige lo mismo por su cuenta |
+| 3. La guía no ejecutaba `test_formularios.py` | El paso 1 lo ejecuta aparte, porque falla en la recolección hasta el paso 3; el paso 3 de la tabla del rojo lo incluye, y la sección 3.4 trae su versión base |
+
+**Comprobaciones:** la versión base de la sección 3.4 pasa con el código actual (4 de 4) y ruff no marca nada.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 6)
 
 ## 6. Tickets de Trabajo
