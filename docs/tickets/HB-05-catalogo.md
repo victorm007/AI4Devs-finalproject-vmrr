@@ -351,6 +351,8 @@ Debes ver `uq_principio_activo_nombre`, `uq_medicamento_nombre_pres_conc` (como 
 > | `presentacion.nombre UNIQUE` | además, `presentacion_nombre_..._like` (`varchar_pattern_ops`) | Django lo crea siempre para un `CharField` único. No es una FK de la tabla puente |
 >
 > También aparece `medicamento_presentacion_id_...`, el índice de la FK `medicamento.presentacion_id`: es correcto, porque esa FK no está en la lista "Índices de FK que Django no debe crear" (sección 3.3).
+>
+> **Cambio posterior (ajustes de la revisión de HB-09):** la migración `catalogo/0004_presentacion_unica` reemplaza el `UNIQUE` literal de `presentacion.nombre`, y su índice `_like`, por `uq_presentacion_nombre`, un índice único sobre `f_unaccent(lower(nombre))` con mensaje. Desde HB-09 el panel da de alta presentaciones, y sin él "Tableta" junto a "tableta" permitiría duplicar un medicamento. El `sqlmigrate catalogo 0002` de este paso sigue mostrando el `UNIQUE` original, porque la 0004 lo cambia después.
 
 ### Paso 5. Presentaciones semilla (≈ 15 min)
 

@@ -6,7 +6,9 @@ el formulario valida antes de guardar.
 """
 
 from django.contrib import admin
+from django.db.models import Q
 
+from apps.catalogo.forms import PrincipiosActivosFormSet
 from apps.catalogo.models import (
     Medicamento,
     MedicamentoPrincipioActivo,
@@ -34,22 +36,22 @@ class PrincipioActivoAdmin(SinBorrarMixin, BusquedaSinAcentosMixin, admin.ModelA
 
 
 class PrincipioActivoEnLinea(admin.TabularInline):
-    """Principios activos en la misma pantalla del medicamento (al menos uno)."""
+    """Principios activos en la misma pantalla del medicamento (al menos uno).
+
+    La regla "al menos uno" la aplica PrincipiosActivosFormSet, con el mensaje de
+    apps.catalogo.validadores, en el alta y en el cambio. min_num y extra solo deciden que se
+    muestre un renglón vacío: sin validate_min, para que el aviso genérico de Django no se
+    sume al de la regla.
+    """
 
     model = MedicamentoPrincipioActivo
+    formset = PrincipiosActivosFormSet
     extra = 0
     min_num = 1
-    validate_min = True
     can_delete = False  # un renglón equivocado se corrige cambiando el principio activo
     autocomplete_fields = ["principio_activo"]
     verbose_name = "principio activo"
     verbose_name_plural = "principios activos"
-
-    def get_formset(self, request, obj=None, **kwargs):
-        # El panel no pasa validate_min a inlineformset_factory (Django 5.2): sin esto,
-        # min_num solo decide cuántos renglones se muestran y el alta sin renglones se guarda
-        kwargs.setdefault("validate_min", self.validate_min)
-        return super().get_formset(request, obj, **kwargs)
 
 
 @admin.register(Medicamento)
@@ -62,3 +64,16 @@ class MedicamentoAdmin(SinBorrarMixin, BusquedaSinAcentosMixin, admin.ModelAdmin
     fields = ("nombre_comercial", "tipo", "presentacion", "concentracion", "activo")
     inlines = [PrincipioActivoEnLinea]
     ordering = ("nombre_comercial",)
+
+    def get_form(self, request, obj=None, change=False, **kwargs):
+        # Sin presentaciones dadas de baja en el alta (ADR-0009). Al cambiar un medicamento
+        # se conserva la suya aunque esté inactiva, para poder guardarlo. get_form() arma una
+        # clase nueva en cada petición: limitar base_fields no afecta a las demás
+        form = super().get_form(request, obj, change=change, **kwargs)
+        if "presentacion" in form.base_fields:  # Solo lectura no tiene el campo editable
+            vigentes = Q(activo=True)
+            if obj is not None:
+                vigentes |= Q(pk=obj.presentacion_id)
+            campo = form.base_fields["presentacion"]
+            campo.queryset = Presentacion.objects.filter(vigentes).order_by("nombre")
+        return form

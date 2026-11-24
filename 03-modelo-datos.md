@@ -248,7 +248,7 @@ erDiagram
     }
     presentacion {
         smallint id PK "IDENTITY"
-        varchar nombre UK "60, NOT NULL: tableta, capsula, jarabe..."
+        varchar nombre UK "60, NOT NULL, unico sin distinguir mayusculas ni acentos: tableta, capsula, jarabe..."
         boolean activo "NOT NULL, DEFAULT true"
     }
     principio_activo {
@@ -388,7 +388,7 @@ erDiagram
 | D6 Pautas | `pauta` |
 | Conteos físicos | `conteo_fisico`, `detalle_conteo` |
 
-**Restricciones avanzadas (DDL PostgreSQL).** Django genera la mayoría con `UniqueConstraint`, `CheckConstraint`, `ExclusionConstraint` y `GeneratedField`. Las demás se agregan en migraciones con `RunSQL`. Los índices únicos por expresión (`uq_medicamento_nombre_pres_conc` y `uq_principio_activo_nombre`) se declaran como `UniqueConstraint` con expresiones en `Meta.constraints`, no con `RunSQL`: así los formularios de Django (incluido `/admin/`) los validan y muestran el error junto al campo, en lugar de un error `500`.
+**Restricciones avanzadas (DDL PostgreSQL).** Django genera la mayoría con `UniqueConstraint`, `CheckConstraint`, `ExclusionConstraint` y `GeneratedField`. Las demás se agregan en migraciones con `RunSQL`. Los índices únicos por expresión (`uq_medicamento_nombre_pres_conc`, `uq_principio_activo_nombre` y `uq_presentacion_nombre`) se declaran como `UniqueConstraint` con expresiones en `Meta.constraints`, no con `RunSQL`: así los formularios de Django (incluido `/admin/`) los validan y muestran el error junto al campo, en lugar de un error `500`.
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS btree_gist;  -- para la restricción de exclusión de pautas
@@ -408,6 +408,7 @@ ALTER TABLE usuario_groups ADD CONSTRAINT uq_usuario_un_grupo UNIQUE (usuario_id
 CREATE UNIQUE INDEX uq_medicamento_nombre_pres_conc
     ON medicamento (f_unaccent(lower(nombre_comercial)), presentacion_id, f_unaccent(lower(concentracion)));
 CREATE UNIQUE INDEX uq_principio_activo_nombre ON principio_activo (f_unaccent(lower(nombre)));
+CREATE UNIQUE INDEX uq_presentacion_nombre     ON presentacion     (f_unaccent(lower(nombre)));
 ALTER TABLE medicamento ADD CONSTRAINT ck_medicamento_tipo CHECK (tipo IN ('GENERICO', 'ORIGINAL'));
 ALTER TABLE medicamento_principio_activo
     ADD CONSTRAINT uq_mpa_medicamento_principio UNIQUE (medicamento_id, principio_activo_id);
@@ -523,7 +524,7 @@ ALTER TABLE detalle_conteo
 | Atributo | Tipo | Restricciones | Descripción |
 |---|---|---|---|
 | `id` | smallint | PK, identity | Identificador |
-| `nombre` | varchar(60) | NOT NULL, UNIQUE | Tableta, cápsula, jarabe, gotas… |
+| `nombre` | varchar(60) | NOT NULL, UNIQUE sin distinguir mayúsculas ni acentos (`uq_presentacion_nombre`) | Tableta, cápsula, jarabe, gotas… |
 | `activo` | boolean | NOT NULL, DEFAULT true | Permite retirar opciones sin borrarlas |
 
 **`principio_activo`**: sustancia activa (ej. *paracetamol*, *losartán*).
@@ -560,7 +561,7 @@ ALTER TABLE detalle_conteo
 | `medicamento_id` | bigint | FK → `medicamento.id`, NOT NULL | Medicamento |
 | `principio_activo_id` | bigint | FK → `principio_activo.id`, NOT NULL | Principio activo |
 
-- UNIQUE (`medicamento_id`, `principio_activo_id`). El "al menos uno" se valida en el formulario.
+- UNIQUE (`medicamento_id`, `principio_activo_id`). El "al menos uno" se valida en la entrada y no en la base, para mantener la flexibilidad (un `CHECK` no puede contar los renglones de la tabla puente): en el MVP, el formulario del panel en el alta y en el cambio del medicamento; en la V2, `POST` y `PATCH /medicamentos`. Las 2 vías usan la misma regla (`apps/catalogo/validadores.py`) y el mensaje "Un medicamento debe tener al menos un principio activo.".
 
 #### D3 — Entidades
 

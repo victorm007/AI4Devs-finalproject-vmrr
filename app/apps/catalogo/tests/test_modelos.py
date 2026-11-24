@@ -6,6 +6,11 @@ ejecutar_sql sin params no interpola, así que el SQL literal de abajo no lleva 
 
 "migrate catalogo zero revierte todo" no es un test de pytest: se comprueba con
 ./scripts/migrate.sh en el cierre del ticket.
+
+Ajustes de la revisión adversarial de HB-09 (hallazgo 2): la presentación es única sin
+mayúsculas ni acentos por el índice uq_presentacion_nombre, que reemplaza al UNIQUE literal de
+HB-05 (sin la restricción presentacion_nombre_key ni su índice _like). Rojo esperado: hoy la
+base acepta "CAPSULA" junto a "cápsula", y el duplicado exacto lo rechaza presentacion_nombre_key.
 """
 
 import pytest
@@ -113,8 +118,21 @@ def test_principio_activo_unico_sin_acentos():
         # Scenario: Principio activo y presentación vacíos
         ("INSERT INTO principio_activo (nombre) VALUES ('  ')", "ck_principio_activo_nombre"),
         ("INSERT INTO presentacion (nombre) VALUES ('')", "ck_presentacion_nombre"),
+        # Scenario: La base rechaza una presentación duplicada sin acentos (revisión de HB-09,
+        # hallazgo 2). La semilla "cápsula" ya existe
+        ("INSERT INTO presentacion (nombre) VALUES ('CAPSULA')", "uq_presentacion_nombre"),
+        # El duplicado exacto también lo rechaza uq_presentacion_nombre, y no el UNIQUE literal
+        # de HB-05 (presentacion_nombre_key), que ya no debe existir
+        ("INSERT INTO presentacion (nombre) VALUES ('tableta')", "uq_presentacion_nombre"),
     ],
-    ids=["nombre-solo-espacios", "tipo-otro", "principio-activo-vacio", "presentacion-vacia"],
+    ids=[
+        "nombre-solo-espacios",
+        "tipo-otro",
+        "principio-activo-vacio",
+        "presentacion-vacia",
+        "presentacion-duplicada",
+        "presentacion-duplicada-exacta",
+    ],
 )
 def test_la_base_rechaza(sql, restriccion):
     # Exigir el nombre de la restricción descarta que falle por otra causa (una FK o un NOT NULL)
@@ -132,6 +150,8 @@ def test_la_base_rechaza(sql, restriccion):
         ("ix_principio_activo_trgm", ["USING gin", "f_unaccent(lower(", "gin_trgm_ops"]),
         ("ix_mpa_principio_medicamento", ["(principio_activo_id, medicamento_id)"]),
         ("uq_medicamento_nombre_pres_conc", ["UNIQUE", "presentacion_id"]),
+        # Scenario: Índice con su definición (revisión de HB-09, hallazgo 2)
+        ("uq_presentacion_nombre", ["UNIQUE", "f_unaccent(lower((nombre)"]),
     ],
 )
 def test_indices_con_su_definicion(indice, fragmentos):
@@ -140,6 +160,30 @@ def test_indices_con_su_definicion(indice, fragmentos):
     [(definicion,)] = ejecutar_sql("SELECT indexdef FROM pg_indexes WHERE indexname = %s", [indice])
     for fragmento in fragmentos:
         assert fragmento in definicion
+
+
+def test_presentacion_sin_unique_literal():
+    # Scenario: Índice con su definición (revisión de HB-09, hallazgo 2): la columna
+    # presentacion.nombre ya no tiene la restricción UNIQUE literal
+    restricciones = ejecutar_sql(
+        "SELECT conname::text, contype::text FROM pg_constraint "
+        "WHERE conrelid = 'presentacion'::regclass"
+    )
+    # Control: la consulta sí ve las restricciones de la tabla (su CHECK de HB-05); sin él, la
+    # lista vacía de abajo no probaría nada
+    assert ("ck_presentacion_nombre", "c") in restricciones
+    assert [nombre for (nombre, tipo) in restricciones if tipo == "u"] == []
+    indices = {
+        nombre
+        for (nombre,) in ejecutar_sql(
+            "SELECT indexname FROM pg_indexes WHERE tablename = 'presentacion'"
+        )
+    }
+    # Control: el índice único por expresión está en la tabla
+    assert "uq_presentacion_nombre" in indices
+    # Ni el índice de la restricción literal (presentacion_nombre_key) ni su índice _like
+    assert [nombre for nombre in indices if nombre.endswith("_like")] == []
+    assert [nombre for nombre in indices if nombre.startswith("presentacion_nombre")] == []
 
 
 def test_las_fk_de_la_tabla_puente_no_tienen_indice_propio():

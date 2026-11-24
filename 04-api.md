@@ -262,6 +262,8 @@ La gestión de usuarios se hace en `/admin/` y no forma parte de la API.
 | 4. Movimientos | `GET /movimientos` · `GET /movimientos/{id}` · `POST /movimientos/entradas` · `POST /movimientos/transferencias` · `POST /movimientos/bajas` · `POST /movimientos/{id}/correccion` | Lectura / escritura | V2 |
 | 6. Conteo físico | `GET /conteos` · `GET /conteos/{id}` · `POST /conteos` · `PUT /conteos/{id}/detalles/{medicamento_id}` · `DELETE /conteos/{id}/detalles/{medicamento_id}` · `POST /conteos/{id}/cierre` | Lectura / escritura | V2 |
 
+> **Nota para la V2: al menos un principio activo.** `POST /medicamentos` y `PATCH /medicamentos/{id}` (cuando trae `principios_activos_ids`) validan, antes de guardar, la misma regla que el formulario del panel: `exigir_principio_activo()` de `apps/catalogo/validadores.py`. Con la lista vacía responden `400 VALIDACION` con `errores[] = { campo: principios_activos_ids, codigo: CAMPO_VACIO, mensaje: "Un medicamento debe tener al menos un principio activo." }`. Así la regla no depende del *inline* de `/admin/` (ajustes de la revisión de HB-09).
+
 #### 4.4. Errores
 
 Todos los errores usan **Problem Details (RFC 9457)**, con el tipo `application/problem+json`. Además del estándar llevan un `code` estable que la aplicación puede usar en sus condiciones, y `errores[]` con el detalle por campo:

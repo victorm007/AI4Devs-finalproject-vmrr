@@ -18,20 +18,38 @@ responden 404 (el fixture maria falla en su POST de alta).
 
 Las búsquedas cuentan los resultados con context["cl"].result_count además de buscar el texto,
 porque el término buscado también se pinta en la página.
+
+Ajustes de la revisión adversarial de HB-09 (hallazgos 1, 6 y 7): búsqueda por nombre y
+apellido juntos y sin espacios sobrantes, el alta como app_user y la CSP (sin <script> en
+línea, <style>, atributos style ni on*=) en el alta, la lista y el cambio. El alta como
+app_user hace SET LOCAL ROLE app_user en línea, en la conexión del test (la misma que usa el
+cliente de Django), después de force_login: el fixture como_app_user nace en TK-01.
+
+Rojo esperado de los ajustes: "maria hernandez" y " hernandez " no encuentran nada. Los de
+app_user y CSP son de regresión: pasan desde el inicio y protegen lo que HB-09 ya entregó.
 """
 
+import re
 from datetime import date
 
 import pytest
 from django.contrib import admin
+from django.contrib.admin.models import ADDITION, LogEntry
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.db import connection
 from django.test import Client
 
 from apps.entidades.models import Entidad, Residente
 
 pytestmark = [pytest.mark.django_db, pytest.mark.http]
 URL = "/admin/entidades/residente/"
+# Lo que la CSP bloquearía: <script> sin src, <style>, atributos style y manejadores on*=
+SCRIPT_EN_LINEA = re.compile(r"<script\b(?![^>]*\bsrc\s*=)[^>]*>", re.IGNORECASE)
+SCRIPT_CON_SRC = re.compile(r"<script\b[^>]*\bsrc\s*=", re.IGNORECASE)
+ETIQUETA_STYLE = re.compile(r"<style\b", re.IGNORECASE)
+ATRIBUTO_STYLE = re.compile(r"<[^>]*\sstyle\s*=", re.IGNORECASE)
+MANEJADOR_ON = re.compile(r"<[^>]*\son[a-z]+\s*=", re.IGNORECASE)
 ALTA = {
     "primer_nombre": "María",
     "segundo_nombre": "Guadalupe",
@@ -42,6 +60,22 @@ ALTA = {
 }
 AVISO_SIN_FECHA = "La fecha de baja es obligatoria"
 AVISO_FECHA_ANTERIOR = "La fecha de baja no puede ser anterior al ingreso."
+
+
+def codigo_en_linea(html):
+    """Las coincidencias de todos los patrones de código en línea."""
+    return [
+        coincidencia
+        for patron in (SCRIPT_EN_LINEA, ETIQUETA_STYLE, ATRIBUTO_STYLE, MANEJADOR_ON)
+        for coincidencia in patron.findall(html)
+    ]
+
+
+def rol_actual():
+    """El rol con el que corre ahora la conexión del test (y la del cliente de Django)."""
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT current_user")
+        return cursor.fetchone()[0]
 
 
 def con_sesion(cliente, nombre, grupo):
@@ -169,6 +203,67 @@ def test_la_busqueda_ignora_acentos(operador, maria):
     assert respuesta.status_code == 200
     assert respuesta.context["cl"].result_count == 0
     assert "Hernández" not in respuesta.content.decode()
+
+
+def test_la_busqueda_por_nombre_y_apellido(operador, maria):
+    # Scenario: Nombre y apellido juntos (revisión de HB-09, hallazgo 1)
+    for termino in ("maria hernandez", " hernandez "):
+        respuesta = operador.get(URL, {"q": termino})
+        assert respuesta.status_code == 200
+        assert respuesta.context["cl"].result_count == 1
+        assert "Hernández" in respuesta.content.decode()
+    # Una palabra que no coincide la deja fuera, aunque la otra sí coincida
+    respuesta = operador.get(URL, {"q": "maria torres"})
+    assert respuesta.status_code == 200
+    assert respuesta.context["cl"].result_count == 0
+    assert "Hernández" not in respuesta.content.decode()
+
+
+def test_alta_de_un_residente_como_app_user():
+    # Scenario: Alta de un residente como app_user (revisión de HB-09, hallazgo 6)
+    # Regresión: el alta de HB-09 ya funciona con los permisos de app_user. Protege que el
+    # panel, registrar_residente() y el historial de cambios (django_admin_log) no necesiten
+    # los de app_owner
+    cliente = con_sesion(Client(), "prueba.alta", "Lectura y escritura")  # antes del rol
+    # Control: los tests corren como app_owner hasta el SET LOCAL ROLE
+    assert rol_actual() != "app_user"
+    with connection.cursor() as cursor:
+        cursor.execute("SET LOCAL ROLE app_user")
+    assert rol_actual() == "app_user"
+    assert not Residente.objects.filter(primer_apellido="Hernández").exists()
+    entidades = Entidad.objects.count()
+    assert cliente.post(f"{URL}add/", ALTA).status_code == 302
+    # La petición corrió en la misma conexión, que sigue como app_user
+    assert rol_actual() == "app_user"
+    maria = Residente.objects.select_related("entidad").get(primer_apellido="Hernández")
+    assert maria.entidad.tipo == Entidad.Tipo.RESIDENTE
+    assert maria.estado == Residente.Estado.ACTIVO
+    assert Entidad.objects.count() == entidades + 1
+    assert LogEntry.objects.filter(
+        content_type__model="residente",
+        action_flag=ADDITION,
+        object_id=str(maria.pk),
+    ).exists()
+
+
+@pytest.mark.parametrize("pagina", ["alta", "lista", "cambio"])
+def test_las_paginas_de_residentes_no_tienen_codigo_en_linea(operador, maria, pagina):
+    # Scenario: Alta, lista y cambio de residentes sin código en línea (revisión de HB-09,
+    # hallazgo 7). Regresión: HB-09 ya cumple la CSP en estas páginas
+    url, control = {
+        "alta": (f"{URL}add/", 'name="primer_apellido"'),
+        "lista": (URL, "Hernández"),
+        "cambio": (f"{URL}{maria.pk}/change/", 'name="_save"'),
+    }[pagina]
+    respuesta = operador.get(url)
+    assert respuesta.status_code == 200
+    assert respuesta.headers.get("Content-Security-Policy")
+    html = respuesta.content.decode()
+    # Control: es la página de verdad (el formulario, la lista con María o el cambio editable)
+    # y carga scripts externos; así, la ausencia de código en línea no se debe a una página vacía
+    assert control in html
+    assert SCRIPT_CON_SRC.search(html)
+    assert codigo_en_linea(html) == []
 
 
 @pytest.mark.parametrize("quien", ["administrador", "lectura-escritura"])

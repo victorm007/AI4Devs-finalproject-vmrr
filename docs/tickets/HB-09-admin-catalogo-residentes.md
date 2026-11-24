@@ -147,12 +147,16 @@ class PrincipioActivoAdmin(SinBorrarMixin, BusquedaSinAcentosMixin, admin.ModelA
 
 
 class PrincipioActivoEnLinea(admin.TabularInline):
-    """Principios activos en la misma pantalla del medicamento (al menos uno)."""
+    """Principios activos en la misma pantalla del medicamento (al menos uno).
+
+    La regla la aplica PrincipiosActivosFormSet (apps/catalogo/forms.py) en el alta y en el
+    cambio; min_num y extra solo muestran un renglón vacío para capturar.
+    """
 
     model = MedicamentoPrincipioActivo
+    formset = PrincipiosActivosFormSet  # from apps.catalogo.forms import PrincipiosActivosFormSet
     extra = 0
     min_num = 1
-    validate_min = True
     can_delete = False  # un renglón equivocado se corrige cambiando el principio activo
     autocomplete_fields = ["principio_activo"]
     verbose_name = "principio activo"
@@ -170,6 +174,8 @@ class MedicamentoAdmin(SinBorrarMixin, BusquedaSinAcentosMixin, admin.ModelAdmin
     inlines = [PrincipioActivoEnLinea]
     ordering = ("nombre_comercial",)
 ```
+
+> **Al menos un principio activo** (ajuste 2 de la revisión): la regla vive en `apps/catalogo/validadores.py` (`exigir_principio_activo()` y el mensaje "Un medicamento debe tener al menos un principio activo."), y `apps/catalogo/forms.py` la aplica a los renglones con `PrincipiosActivosFormSet.clean()`. No se valida en la base, para mantener la flexibilidad. En la V2, `POST` y `PATCH /medicamentos` llaman a la misma función (readme, sección 4; `openapi.yaml`, `principios_activos_ids`). No uses `validate_min`: el panel no lo pasa al formulario, y su aviso genérico se sumaría al de la regla.
 
 > **Pendiente para TK-01:** desmarcar `activo` en un medicamento con existencias debe dar un mensaje ("No se puede dar de baja: hay existencias de este medicamento"). Esa validación necesita la tabla `existencia`, así que la agrega TK-01 junto con el *trigger* `tg_medicamento_baja`.
 
@@ -310,7 +316,10 @@ def test_lectura_y_escritura_da_de_alta_con_su_principio_activo(entrar_como, los
 def test_sin_principio_activo_el_formulario_avisa(entrar_como, losartan):
     respuesta = entrar_como("Lectura y escritura").post(f"{URL}add/", formulario(losartan, filas=0))
     assert respuesta.status_code == 200
+    assert SIN_PRINCIPIO_ACTIVO in respuesta.content.decode()  # from apps.catalogo.validadores
     assert not Medicamento.objects.exists()
+    # El cambio sin principio activo también avisa: test_el_cambio_sin_principio_activo_avisa
+    # (apps/catalogo/tests/test_admin.py), y la regla sin HTTP, en test_formularios.py
 
 
 def test_el_duplicado_sin_acentos_da_un_mensaje_y_no_un_500(entrar_como, losartan):
@@ -456,8 +465,8 @@ dtest -q --cov=apps --cov-fail-under=80
 
 > **Diferencias con lo que trae esta guía** (cambio de OpenSpec `hb-09-admin-catalogo-residentes`):
 >
-> - **`validate_min = True` no basta en el panel:** en Django 5.2 `InlineModelAdmin.get_formset()` no pasa `validate_min` a `inlineformset_factory`. Con el código del paso 3, un medicamento sin principio activo se guardaba. `PrincipioActivoEnLinea.get_formset()` lo pasa con `kwargs.setdefault("validate_min", self.validate_min)`.
-> - **`alias()` en lugar de `annotate()`** en `BusquedaSinAcentosMixin`: la expresión va solo al `WHERE`, así `distinct()` quita los repetidos de un medicamento con 2 principios activos (lo usa el *autocomplete*).
+> - **`validate_min = True` no basta en el panel:** en Django 5.2 `InlineModelAdmin.get_formset()` no pasa `validate_min` a `inlineformset_factory`. Con el código del paso 3, un medicamento sin principio activo se guardaba. `PrincipioActivoEnLinea.get_formset()` lo pasaba con `kwargs.setdefault("validate_min", self.validate_min)`. En el segundo ajuste lo sustituye `PrincipiosActivosFormSet` (ver el paso 3).
+> - **Sin `annotate()`** en `BusquedaSinAcentosMixin`: la expresión va solo al `WHERE`, así `distinct()` quita los repetidos de un medicamento con 2 principios activos (lo usa el *autocomplete*). Primero fue `alias()`; tras la revisión, un `filter()` por palabra (tabla de ajustes, abajo).
 > - **Búsqueda del panel sin mínimo de 3 caracteres ni `UNION`:** quedó como precisión en ADR-0017. Esas 2 reglas son de la búsqueda de existencias; el panel conserva `f_unaccent(lower(campo))`.
 > - **Orden de residentes sin acentos:** `ordering` y la columna "Nombre" usan `sin_acentos("primer_apellido")` y `sin_acentos("primer_nombre")`, la expresión de `ix_residente_nombre`.
 > - **Tests añadidos:**
@@ -473,6 +482,24 @@ dtest -q --cov=apps --cov-fail-under=80
 > - **Revisión en el navegador:** se hizo con Chrome *headless* por CDP, detrás de nginx, como un usuario de *Lectura y escritura*: alta con el botón **+** y el *autocomplete*, duplicado, búsqueda, alta y egreso de un residente. No hay violaciones de CSP; el único mensaje de la consola es el 404 de `/favicon.ico`. Capturas en `docs/capturas/HB-09/`.
 > - **Etiquetas sin acento, aceptadas:** el panel muestra "Presentacion", "Concentracion", "Fecha ingreso" o "Fecha baja" porque los modelos de HB-05 y HB-06 no tienen `verbose_name`. Corregirlo generaría migraciones, y el panel es provisional hasta las pantallas propias de la V2 (ADR-0020).
 > - **Rama:** `feature/entrega-2-vmrr`, por la regla de ramas de `CLAUDE.md`.
+>
+> **Ajustes de la revisión adversarial** (cambio de OpenSpec `hb-09-ajustes-revision`):
+>
+> | Hallazgo | Cambio |
+> |---|---|
+> | 1. La búsqueda no separaba palabras ni recortaba espacios | `palabras_de_busqueda()` divide el término con `smart_split`; un `filter()` por palabra (`OR` entre campos, `AND` entre palabras), así "losartan hidroclorotiazida" encuentra Hyzaar |
+> | 2. Presentaciones duplicadas sin acentos | `uq_presentacion_nombre` sobre `f_unaccent(lower(nombre))` en lugar del `UNIQUE` literal (migración `catalogo/0004_presentacion_unica`), con el mensaje "Ya existe esa presentación…" |
+> | 3. El alta ofrecía presentaciones dadas de baja | `MedicamentoAdmin.get_form()` ofrece las activas y, al cambiar, la del medicamento |
+> | 6. Ningún test del panel corría como `app_user` | Altas de un medicamento y de un residente con `SET LOCAL ROLE app_user`, comprobando el rol y el `LogEntry` |
+> | 7. El test de CSP no detectaba `<style>` ni `on*=` | Patrón ampliado, en el alta, la lista y el cambio de medicamentos y residentes |
+> | 8. *Solo lectura* en presentaciones y principios activos | `403` al cambiar y búsqueda en sus listas |
+> | 9. El *mixin* sin campos devolvía todas las filas | `check()` da el error `panel.E001` |
+>
+> **Hallazgo 4, atendido en un segundo ajuste** (cambio `hb-09-ajustes-revision-2`): la regla "al menos un principio activo" se conserva y se valida en el formulario, no en la base, para mantener la flexibilidad. Se valida en el alta y en el cambio, con el mensaje "Un medicamento debe tener al menos un principio activo.", desde `apps/catalogo/validadores.py`, que la V2 reutilizará en `POST` y `PATCH /medicamentos`. Sustituye a `validate_min` y al `get_formset()` del primer ajuste. Al editar un medicamento sin principios activos, por ejemplo para darlo de baja, hay que elegir uno: es lo deseado.
+>
+> **Pendientes, sin cambio** (hallazgos que no se atendieron):
+> - **5.** No hay reglas de transición de estado del residente (de `FALLECIDO` a `ACTIVO`, `fecha_baja` futura) ni protección contra residentes duplicados. El ticket no lo exige.
+> - **10.** Los títulos del panel no tienen test, `accounts` no usa `SinBorrarMixin`, y `CLAUDE.md` conserva la frase "Todavía no hay funcionalidad de la aplicación".
 
 ---
 

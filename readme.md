@@ -789,7 +789,7 @@ erDiagram
     }
     presentacion {
         smallint id PK "IDENTITY"
-        varchar nombre UK "60, NOT NULL: tableta, capsula, jarabe..."
+        varchar nombre UK "60, NOT NULL, unico sin distinguir mayusculas ni acentos: tableta, capsula, jarabe..."
         boolean activo "NOT NULL, DEFAULT true"
     }
     principio_activo {
@@ -929,7 +929,7 @@ erDiagram
 | D6 Pautas | `pauta` |
 | Conteos físicos | `conteo_fisico`, `detalle_conteo` |
 
-**Restricciones avanzadas (DDL PostgreSQL).** Django genera la mayoría con `UniqueConstraint`, `CheckConstraint`, `ExclusionConstraint` y `GeneratedField`. Las demás se agregan en migraciones con `RunSQL`. Los índices únicos por expresión (`uq_medicamento_nombre_pres_conc` y `uq_principio_activo_nombre`) se declaran como `UniqueConstraint` con expresiones en `Meta.constraints`, no con `RunSQL`: así los formularios de Django (incluido `/admin/`) los validan y muestran el error junto al campo, en lugar de un error `500`.
+**Restricciones avanzadas (DDL PostgreSQL).** Django genera la mayoría con `UniqueConstraint`, `CheckConstraint`, `ExclusionConstraint` y `GeneratedField`. Las demás se agregan en migraciones con `RunSQL`. Los índices únicos por expresión (`uq_medicamento_nombre_pres_conc`, `uq_principio_activo_nombre` y `uq_presentacion_nombre`) se declaran como `UniqueConstraint` con expresiones en `Meta.constraints`, no con `RunSQL`: así los formularios de Django (incluido `/admin/`) los validan y muestran el error junto al campo, en lugar de un error `500`.
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS btree_gist;  -- para la restricción de exclusión de pautas
@@ -949,6 +949,7 @@ ALTER TABLE usuario_groups ADD CONSTRAINT uq_usuario_un_grupo UNIQUE (usuario_id
 CREATE UNIQUE INDEX uq_medicamento_nombre_pres_conc
     ON medicamento (f_unaccent(lower(nombre_comercial)), presentacion_id, f_unaccent(lower(concentracion)));
 CREATE UNIQUE INDEX uq_principio_activo_nombre ON principio_activo (f_unaccent(lower(nombre)));
+CREATE UNIQUE INDEX uq_presentacion_nombre     ON presentacion     (f_unaccent(lower(nombre)));
 ALTER TABLE medicamento ADD CONSTRAINT ck_medicamento_tipo CHECK (tipo IN ('GENERICO', 'ORIGINAL'));
 ALTER TABLE medicamento_principio_activo
     ADD CONSTRAINT uq_mpa_medicamento_principio UNIQUE (medicamento_id, principio_activo_id);
@@ -1064,7 +1065,7 @@ ALTER TABLE detalle_conteo
 | Atributo | Tipo | Restricciones | Descripción |
 |---|---|---|---|
 | `id` | smallint | PK, identity | Identificador |
-| `nombre` | varchar(60) | NOT NULL, UNIQUE | Tableta, cápsula, jarabe, gotas… |
+| `nombre` | varchar(60) | NOT NULL, UNIQUE sin distinguir mayúsculas ni acentos (`uq_presentacion_nombre`) | Tableta, cápsula, jarabe, gotas… |
 | `activo` | boolean | NOT NULL, DEFAULT true | Permite retirar opciones sin borrarlas |
 
 **`principio_activo`**: sustancia activa (ej. *paracetamol*, *losartán*).
@@ -1101,7 +1102,7 @@ ALTER TABLE detalle_conteo
 | `medicamento_id` | bigint | FK → `medicamento.id`, NOT NULL | Medicamento |
 | `principio_activo_id` | bigint | FK → `principio_activo.id`, NOT NULL | Principio activo |
 
-- UNIQUE (`medicamento_id`, `principio_activo_id`). El "al menos uno" se valida en el formulario.
+- UNIQUE (`medicamento_id`, `principio_activo_id`). El "al menos uno" se valida en la entrada y no en la base, para mantener la flexibilidad (un `CHECK` no puede contar los renglones de la tabla puente): en el MVP, el formulario del panel en el alta y en el cambio del medicamento; en la V2, `POST` y `PATCH /medicamentos`. Las 2 vías usan la misma regla (`apps/catalogo/validadores.py`) y el mensaje "Un medicamento debe tener al menos un principio activo.".
 
 #### D3 — Entidades
 
@@ -1723,6 +1724,8 @@ La gestión de usuarios se hace en `/admin/` y no forma parte de la API.
 | 3. Entidades y residentes | `GET /entidades` · `GET /residentes` · `GET /residentes/{id}` · `POST /residentes` · `PATCH /residentes/{id}` · `POST /residentes/{id}/egreso` | Lectura / escritura | V2 |
 | 4. Movimientos | `GET /movimientos` · `GET /movimientos/{id}` · `POST /movimientos/entradas` · `POST /movimientos/transferencias` · `POST /movimientos/bajas` · `POST /movimientos/{id}/correccion` | Lectura / escritura | V2 |
 | 6. Conteo físico | `GET /conteos` · `GET /conteos/{id}` · `POST /conteos` · `PUT /conteos/{id}/detalles/{medicamento_id}` · `DELETE /conteos/{id}/detalles/{medicamento_id}` · `POST /conteos/{id}/cierre` | Lectura / escritura | V2 |
+
+> **Nota para la V2: al menos un principio activo.** `POST /medicamentos` y `PATCH /medicamentos/{id}` (cuando trae `principios_activos_ids`) validan, antes de guardar, la misma regla que el formulario del panel: `exigir_principio_activo()` de `apps/catalogo/validadores.py`. Con la lista vacía responden `400 VALIDACION` con `errores[] = { campo: principios_activos_ids, codigo: CAMPO_VACIO, mensaje: "Un medicamento debe tener al menos un principio activo." }`. Así la regla no depende del *inline* de `/admin/` (ajustes de la revisión de HB-09).
 
 #### 4.4. Errores
 
@@ -3125,15 +3128,16 @@ Dejan lista la base sobre la que se construyen TK-01 a TK-07: contenedores, cone
 | Depende de | HB-08 |
 | Guía | [`docs/tickets/HB-09-admin-catalogo-residentes.md`](docs/tickets/HB-09-admin-catalogo-residentes.md) |
 
-**Descripción técnica.** Registra en el panel `Presentacion`, `PrincipioActivo`, `Medicamento` (con sus principios activos en línea, al menos uno, con *autocomplete*) y `Residente`, con los "Controles" de la sección 5: sin la acción "Eliminar" (la baja es lógica), búsqueda sin mayúsculas ni acentos con `f_unaccent(lower(...))`, filtros por estado, tipo y presentación, y sin consultas N+1 en las listas. El alta de residentes llama a `registrar_residente()` y no pide el estado; el egreso o la defunción se registran cambiando `estado` y `fecha_baja`. `Entidad` no se registra: el Hogar es fijo. Las reglas comunes viven en `apps/panel.py`.
+**Descripción técnica.** Registra en el panel `Presentacion`, `PrincipioActivo`, `Medicamento` (con sus principios activos en línea, al menos uno, con *autocomplete*) y `Residente`, con los "Controles" de la sección 5: sin la acción "Eliminar" (la baja es lógica), búsqueda sin mayúsculas ni acentos con `f_unaccent(lower(...))`, filtros por estado, tipo y presentación, y sin consultas N+1 en las listas. El alta de residentes llama a `registrar_residente()` y no pide el estado; el egreso o la defunción se registran cambiando `estado` y `fecha_baja`. `Entidad` no se registra: el Hogar es fijo. Las reglas comunes viven en `apps/panel.py`, y la búsqueda divide el término en palabras: cada una debe aparecer en algún campo. Como desde el panel se dan de alta presentaciones, el `UNIQUE` literal de `presentacion.nombre` (HB-05) se reemplaza por `uq_presentacion_nombre` sobre `f_unaccent(lower(nombre))` (migración `catalogo/0004_presentacion_unica`), para que "Tableta" no duplique "tableta" ni, con ella, un medicamento; el alta de un medicamento solo ofrece presentaciones activas.
 
 **Criterios de aceptación**
 - [ ] *Solo lectura* consulta el catálogo y los residentes (`200`), pero no da de alta ni cambia nada (`403`).
-- [ ] *Lectura y escritura* da de alta un medicamento con su principio activo en la misma pantalla; sin principio activo, el formulario avisa.
+- [ ] *Lectura y escritura* da de alta un medicamento con su principio activo en la misma pantalla; sin principio activo, en el alta o en el cambio, el formulario muestra "Un medicamento debe tener al menos un principio activo." y no guarda.
 - [ ] Un duplicado sin acentos y un egreso sin fecha de baja muestran un mensaje junto al formulario, nunca un `500`.
 - [ ] Desmarcar `activo` da de baja un medicamento; nadie puede borrar (`403`, incluido el Administrador).
 - [ ] Buscar "losartan" encuentra "Losartán" por nombre y por principio activo; "hernandez" encuentra "Hernández".
 - [ ] El alta de un residente crea su entidad `RESIDENTE` y lo deja `ACTIVO`.
+- [ ] Una presentación duplicada sin acentos ("Tableta" con "tableta") muestra un mensaje en el panel, y la base la rechaza por `uq_presentacion_nombre`.
 
 **Definición de hecho**
 - [ ] Capturas del alta de un medicamento y del mensaje de duplicado en el PR.

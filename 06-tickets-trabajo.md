@@ -591,6 +591,80 @@ Los otros 3 menores quedan anotados en la guía, sin cambio: el título de un re
 
 ---
 
+## Prompt 22 — Usuario
+
+Implementar HB-09. (Tras el plan:) Apruebo.
+
+---
+
+## Respuesta 22 — Claude
+
+Implementé HB-09 con la skill `implementar-ticket`, en el cambio de OpenSpec `hb-09-admin-catalogo-residentes`:
+
+| Paso | Archivos |
+|---|---|
+| Reglas comunes del panel | `apps/panel.py`: `SinBorrarMixin` y `BusquedaSinAcentosMixin` (`f_unaccent(lower(...))`) |
+| Catálogo | `apps/catalogo/admin.py`: presentaciones, principios activos y medicamentos con sus principios activos en línea y *autocomplete* |
+| Residentes | `apps/entidades/admin.py`: el alta llama a `registrar_residente()` y no pide el estado; `Entidad` no se registra |
+| Títulos | `config/urls.py` |
+
+**Decisiones aprobadas:** la búsqueda del panel no exige 3 caracteres ni usa `UNION` (precisión en ADR-0017), y los residentes se ordenan sin acentos.
+
+**Hallazgo de la guía:** en Django 5.2 el panel no pasa `validate_min` al formulario en línea, y un medicamento sin principio activo se guardaba. Lo corrige `get_formset()`.
+
+**Comprobaciones:**
+- 36 tests nuevos; la suite da 187 pasan y 1 omitido, con 99,20 % de cobertura.
+- Chrome *headless* por CDP, detrás de nginx y con los 2 grupos: el flujo completo funciona y no hay violaciones de CSP.
+
+**Aceptado por el usuario:** las etiquetas sin acento del panel ("Presentacion", "Concentracion"), porque corregirlas requiere migraciones y el panel es provisional.
+
+---
+
+## Prompt 23 — Usuario
+
+(Tras la revisión adversarial de HB-09, sin bloqueantes y con 2 mayores y 8 menores:) ¿Algún pendiente para el HB-09? (Tras la respuesta:) Incluye los ajustes mayores y los menores baratos. Para presentaciones duplicadas: no podemos duplicar 2 veces el mismo medicamento; si toca el modelo de HB-05, ¿qué cambios propones para mantener también la documentación viva? (Tras el plan:) Apruebo.
+
+---
+
+## Respuesta 23 — Claude
+
+Atendí la revisión en el cambio de OpenSpec `hb-09-ajustes-revision`:
+
+| Hallazgo | Cambio |
+|---|---|
+| 2. Presentaciones duplicadas sin acentos ("Tableta" junto a "tableta"), que permitían duplicar un medicamento | El `UNIQUE` literal de `presentacion.nombre` (HB-05) se reemplaza por `uq_presentacion_nombre` sobre `f_unaccent(lower(nombre))`, con mensaje. Migración `catalogo/0004_presentacion_unica`, reversible |
+| 1. La búsqueda no separaba palabras ni recortaba espacios | Cada palabra debe aparecer en algún campo; un `filter()` por palabra, así "losartan hidroclorotiazida" encuentra Hyzaar |
+| 3. El alta ofrecía presentaciones dadas de baja | Solo las activas; al cambiar, se conserva la del medicamento |
+| 6, 7, 8 y 9 | Altas como `app_user`, CSP sin `<style>` ni `on*=`, *Solo lectura* en presentaciones y principios activos, y el *check* `panel.E001` |
+
+**Documentación viva:** readme 3.1 (Mermaid, DDL y restricciones avanzadas), 3.2 (D2) y la ficha de HB-09 con un criterio nuevo, con los anexos de `03-modelo-datos.md` y de este archivo. También ADR-0017, las guías de HB-05 y HB-09 y `CLAUDE.md`. La ficha de HB-05 no cambia, porque describe lo que entregó ese ticket. El PNG del modelo de datos de `diagramas/` lo regenera el usuario.
+
+**Pendientes anotados en la guía de HB-09:** el mínimo de un principio activo al guardar (4), las transiciones de estado del residente (5) y detalles de documentación (10).
+
+**Comprobaciones:** 10 tests nacieron en rojo y los de regresión, en verde; la suite da 211 pasan y 1 omitido, con 98,54 % de cobertura. `\d presentacion` muestra solo `uq_presentacion_nombre`, y la reversión a `catalogo 0003` devuelve el `UNIQUE` original.
+
+---
+
+## Prompt 24 — Usuario
+
+Revisado. Para el hallazgo 4, metamos la validación a nivel formulario, en la edición de Medicamento y en la API V2 cuando exista `POST /medicamentos`, devolviendo un error legible al usuario antes de guardar (pon una nota en el plan del `readme.md`). En el ticket HB-09, paso 3, y en el `readme.md`, D2, se indica "al menos uno". Para mantener flexibilidad, hagamos la validación en el formulario. Actualiza los criterios de aceptación y las pruebas de HB-09, y anótalo para el futuro `POST /medicamentos`, para que no solo dependamos del *inline* de `/admin`. (Tras el plan:) Apruebo.
+
+---
+
+## Respuesta 24 — Claude
+
+Atendí el hallazgo 4 en el cambio de OpenSpec `hb-09-ajustes-revision-2`:
+
+- **Una sola regla:** `apps/catalogo/validadores.py` define `exigir_principio_activo()` y el mensaje "Un medicamento debe tener al menos un principio activo." (código `sin_principio_activo`). No toca la base, así que la regla sigue siendo flexible.
+- **Formulario del panel:** `PrincipiosActivosFormSet` (`apps/catalogo/forms.py`) la aplica en el alta y en el cambio, antes de guardar. Sustituye a `validate_min`, cuyo aviso era el genérico de Django.
+- **V2:** `POST` y `PATCH /medicamentos` llamarán a la misma función y responderán `400 VALIDACION` con `CAMPO_VACIO` y el mismo mensaje. Quedó anotado en el readme (sección 4) y en `openapi.yaml` (`principios_activos_ids`).
+
+**Documentación:** readme D2 (dónde y por qué se valida "al menos uno"), la nota de la V2 y el criterio 2 de HB-09, con los anexos de `03`, `04` y este archivo; la guía de HB-09 (paso 3, tests y el hallazgo 4 atendido).
+
+**Comprobaciones:** los 2 archivos de tests nacieron en rojo, porque aún no existían los módulos que importan. La suite da 220 pasan y 1 omitido, con 98,61 % de cobertura, y el contrato pasa el lint de Redocly sin errores nuevos.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 6)
 
 ## 6. Tickets de Trabajo
@@ -1388,15 +1462,16 @@ Dejan lista la base sobre la que se construyen TK-01 a TK-07: contenedores, cone
 | Depende de | HB-08 |
 | Guía | [`docs/tickets/HB-09-admin-catalogo-residentes.md`](docs/tickets/HB-09-admin-catalogo-residentes.md) |
 
-**Descripción técnica.** Registra en el panel `Presentacion`, `PrincipioActivo`, `Medicamento` (con sus principios activos en línea, al menos uno, con *autocomplete*) y `Residente`, con los "Controles" de la sección 5: sin la acción "Eliminar" (la baja es lógica), búsqueda sin mayúsculas ni acentos con `f_unaccent(lower(...))`, filtros por estado, tipo y presentación, y sin consultas N+1 en las listas. El alta de residentes llama a `registrar_residente()` y no pide el estado; el egreso o la defunción se registran cambiando `estado` y `fecha_baja`. `Entidad` no se registra: el Hogar es fijo. Las reglas comunes viven en `apps/panel.py`.
+**Descripción técnica.** Registra en el panel `Presentacion`, `PrincipioActivo`, `Medicamento` (con sus principios activos en línea, al menos uno, con *autocomplete*) y `Residente`, con los "Controles" de la sección 5: sin la acción "Eliminar" (la baja es lógica), búsqueda sin mayúsculas ni acentos con `f_unaccent(lower(...))`, filtros por estado, tipo y presentación, y sin consultas N+1 en las listas. El alta de residentes llama a `registrar_residente()` y no pide el estado; el egreso o la defunción se registran cambiando `estado` y `fecha_baja`. `Entidad` no se registra: el Hogar es fijo. Las reglas comunes viven en `apps/panel.py`, y la búsqueda divide el término en palabras: cada una debe aparecer en algún campo. Como desde el panel se dan de alta presentaciones, el `UNIQUE` literal de `presentacion.nombre` (HB-05) se reemplaza por `uq_presentacion_nombre` sobre `f_unaccent(lower(nombre))` (migración `catalogo/0004_presentacion_unica`), para que "Tableta" no duplique "tableta" ni, con ella, un medicamento; el alta de un medicamento solo ofrece presentaciones activas.
 
 **Criterios de aceptación**
 - [ ] *Solo lectura* consulta el catálogo y los residentes (`200`), pero no da de alta ni cambia nada (`403`).
-- [ ] *Lectura y escritura* da de alta un medicamento con su principio activo en la misma pantalla; sin principio activo, el formulario avisa.
+- [ ] *Lectura y escritura* da de alta un medicamento con su principio activo en la misma pantalla; sin principio activo, en el alta o en el cambio, el formulario muestra "Un medicamento debe tener al menos un principio activo." y no guarda.
 - [ ] Un duplicado sin acentos y un egreso sin fecha de baja muestran un mensaje junto al formulario, nunca un `500`.
 - [ ] Desmarcar `activo` da de baja un medicamento; nadie puede borrar (`403`, incluido el Administrador).
 - [ ] Buscar "losartan" encuentra "Losartán" por nombre y por principio activo; "hernandez" encuentra "Hernández".
 - [ ] El alta de un residente crea su entidad `RESIDENTE` y lo deja `ACTIVO`.
+- [ ] Una presentación duplicada sin acentos ("Tableta" con "tableta") muestra un mensaje en el panel, y la base la rechaza por `uq_presentacion_nombre`.
 
 **Definición de hecho**
 - [ ] Capturas del alta de un medicamento y del mensaje de duplicado en el PR.

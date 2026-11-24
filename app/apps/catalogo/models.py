@@ -16,7 +16,7 @@ class Presentacion(models.Model):
     """Forma farmacéutica: tableta, cápsula, jarabe..."""
 
     id = models.SmallAutoField(primary_key=True)
-    nombre = models.CharField(max_length=60, unique=True)
+    nombre = models.CharField(max_length=60)
     # default para los formularios y db_default para la base (INSERT directo, mock)
     activo = models.BooleanField(default=True, db_default=True)
 
@@ -25,6 +25,14 @@ class Presentacion(models.Model):
         verbose_name = "presentación"
         verbose_name_plural = "presentaciones"
         constraints = [
+            # Índice único por expresión, en lugar del UNIQUE literal de HB-05: "Tableta" =
+            # "tableta" = "TABLETA"; sin él, se podría duplicar también el medicamento
+            models.UniqueConstraint(
+                sin_acentos("nombre"),
+                name="uq_presentacion_nombre",
+                violation_error_message="Ya existe esa presentación "
+                "(sin distinguir mayúsculas ni acentos).",
+            ),
             models.CheckConstraint(condition=no_vacio("nombre"), name="ck_presentacion_nombre"),
         ]
 
