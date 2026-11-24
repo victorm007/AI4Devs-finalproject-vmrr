@@ -2392,6 +2392,7 @@ components:
             `errores[] = { campo: principios_activos_ids, codigo: CAMPO_VACIO,
             mensaje: "Un medicamento debe tener al menos un principio activo." }`. Es la misma regla
             que el formulario del panel (`exigir_principio_activo()` de `apps/catalogo/validadores.py`).
+            La API traduce su código `sin_principio_activo` a `CAMPO_VACIO`; `null` no es un array y responde `TIPO_INVALIDO`.
           type: array
           minItems: 1
           maxItems: 5
@@ -2422,6 +2423,7 @@ components:
             `errores[] = { campo: principios_activos_ids, codigo: CAMPO_VACIO,
             mensaje: "Un medicamento debe tener al menos un principio activo." }`. Es la misma regla
             que el formulario del panel (`exigir_principio_activo()` de `apps/catalogo/validadores.py`).
+            La API traduce su código `sin_principio_activo` a `CAMPO_VACIO`; `null` no es un array y responde `TIPO_INVALIDO`.
           type: array
           minItems: 1
           maxItems: 5

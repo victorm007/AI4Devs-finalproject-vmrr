@@ -7,6 +7,7 @@ a los del panel:
 """
 
 from django.core import checks
+from django.core.exceptions import FieldDoesNotExist
 from django.db.models import Q, Value
 from django.db.models.lookups import Contains
 from django.utils.text import smart_split, unescape_string_literal
@@ -25,14 +26,23 @@ class SinBorrarMixin:
         return False
 
 
+# Cada palabra agrega un filter() con su propia unión a la tabla puente (principios activos):
+# el tope evita una consulta enorme con cientos de palabras, y 8 sobran para nombre,
+# concentración y principios activos
+MAXIMO_PALABRAS = 8
+
+
 def palabras_de_busqueda(search_term: str) -> list[str]:
     """Divide el término en palabras, como el panel de Django: "cozaar losartan" da 2.
 
     Una frase entre comillas cuenta como una sola palabra, sin las comillas. Los espacios
-    sobrantes no cuentan: " losartan " da ["losartan"] y " " no da ninguna.
+    sobrantes no cuentan: " losartan " da ["losartan"] y " " no da ninguna. Devuelve como
+    mucho las primeras MAXIMO_PALABRAS palabras, en su orden; las demás se ignoran sin avisar.
     """
     palabras = []
     for bit in smart_split(search_term):
+        if len(palabras) == MAXIMO_PALABRAS:
+            break
         if len(bit) > 1 and bit[0] in "\"'" and bit[0] == bit[-1]:
             bit = unescape_string_literal(bit)
         if bit.strip():
@@ -66,7 +76,34 @@ class BusquedaSinAcentosMixin:
                     id="panel.E001",
                 )
             )
+        for campo in getattr(self, "campos_sin_acentos", ()):
+            if not self._campo_existe(campo):
+                errores.append(
+                    checks.Error(
+                        f"{self.__class__.__name__}.campos_sin_acentos incluye {campo!r}, que "
+                        f"no existe en {self.model.__name__}: la búsqueda fallaría con un 500.",
+                        hint="Escribe el campo como en un filter(), por ejemplo "
+                        '"nombre" o "principios_activos__nombre".',
+                        obj=self.__class__,
+                        id="panel.E002",
+                    )
+                )
         return errores
+
+    def _campo_existe(self, campo: str) -> bool:
+        """Recorre los tramos de campo ("a__b__c") desde self.model, como haría filter()."""
+        modelo = self.model
+        tramos = campo.split("__")
+        for posicion, tramo in enumerate(tramos):
+            try:
+                field = modelo._meta.get_field(tramo)
+            except FieldDoesNotExist:
+                return False
+            if posicion < len(tramos) - 1:
+                modelo = field.related_model
+                if modelo is None:
+                    return False
+        return True
 
     def get_search_results(self, request, queryset, search_term):
         palabras = palabras_de_busqueda(search_term)

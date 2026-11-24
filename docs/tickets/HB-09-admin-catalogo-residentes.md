@@ -113,6 +113,79 @@ class BusquedaSinAcentosMixin:
 
 ### Paso 3. Catálogo en el panel (≈ 45 min)
 
+Primero la regla "al menos un principio activo", que no depende del panel (la reutiliza la V2 de la API). `app/apps/catalogo/validadores.py`:
+
+```python
+"""Reglas de validación de entrada del catálogo, sin acceso a la base.
+
+"Al menos un principio activo" no se puede expresar con un CHECK, porque los principios
+activos viven en la tabla puente medicamento_principio_activo (readme, sección 3.2). Por eso
+la regla se valida en la entrada, con un solo texto:
+
+- En el MVP, el alta y el cambio del medicamento en /admin/ (PrincipiosActivosFormSet de
+  apps.catalogo.forms).
+- En la V2, POST /medicamentos y PATCH /medicamentos/{id} (si trae principios_activos_ids) la
+  llamarán antes de guardar y responderán 400 VALIDACION con
+  errores[] = {campo: principios_activos_ids, codigo: CAMPO_VACIO, mensaje: SIN_PRINCIPIO_ACTIVO}.
+"""
+
+from django.core.exceptions import ValidationError
+
+SIN_PRINCIPIO_ACTIVO = "Un medicamento debe tener al menos un principio activo."
+
+
+def exigir_principio_activo(principios_activos) -> None:
+    """Lanza ValidationError(code="sin_principio_activo") si la colección está vacía o es None.
+
+    Acepta cualquier colección: los principios activos elegidos en el formulario, una lista de
+    ids (principios_activos_ids de la V2) o un QuerySet (se evalúa una sola vez). None se
+    rechaza como la colección vacía: en la V2, si principios_activos_ids falta en un PATCH no
+    se llama a la regla, y un null explícito significa "sin principios activos". Un texto (str
+    o bytes) lanza TypeError: es un error de programación, porque list("abc") daría 3
+    elementos y la regla pasaría por error. La V2 traduce code="sin_principio_activo" a
+    errores[].codigo = CAMPO_VACIO.
+    """
+    if isinstance(principios_activos, (str, bytes)):
+        raise TypeError(
+            "exigir_principio_activo: se esperaba una colección de principios activos, no un "
+            f"texto ({type(principios_activos).__name__})."
+        )
+    if principios_activos is None or not list(principios_activos):
+        raise ValidationError(SIN_PRINCIPIO_ACTIVO, code="sin_principio_activo")
+```
+
+`app/apps/catalogo/forms.py`, el conjunto de renglones que la aplica en el alta y en el cambio:
+
+```python
+"""Formularios del catálogo para /admin/ (HB-09)."""
+
+from django.forms.models import BaseInlineFormSet
+
+from apps.catalogo.validadores import exigir_principio_activo
+
+
+class PrincipiosActivosFormSet(BaseInlineFormSet):
+    """Renglones de principios activos de un medicamento: exige al menos uno.
+
+    El aviso es el de apps.catalogo.validadores y aparece como error del conjunto
+    (non_form_errors), arriba de los renglones. Sustituye a validate_min, cuyo aviso es el
+    genérico de Django.
+    """
+
+    def clean(self):
+        super().clean()
+        # Aunque algún renglón tenga errores, la regla se revisa igual: así el aviso aparece
+        # también cuando el único renglón está vacío. Un renglón que no validó puede no tener
+        # cleaned_data, o no tener la clave principio_activo
+        principios_activos = []
+        for form in self.forms:
+            datos = getattr(form, "cleaned_data", None) or {}
+            principio_activo = datos.get("principio_activo")
+            if principio_activo and not datos.get("DELETE"):
+                principios_activos.append(principio_activo)
+        exigir_principio_activo(principios_activos)
+```
+
 `app/apps/catalogo/admin.py`:
 
 ```python
@@ -120,6 +193,7 @@ class BusquedaSinAcentosMixin:
 
 from django.contrib import admin
 
+from apps.catalogo.forms import PrincipiosActivosFormSet
 from apps.catalogo.models import (
     Medicamento,
     MedicamentoPrincipioActivo,
@@ -154,7 +228,7 @@ class PrincipioActivoEnLinea(admin.TabularInline):
     """
 
     model = MedicamentoPrincipioActivo
-    formset = PrincipiosActivosFormSet  # from apps.catalogo.forms import PrincipiosActivosFormSet
+    formset = PrincipiosActivosFormSet
     extra = 0
     min_num = 1
     can_delete = False  # un renglón equivocado se corrige cambiando el principio activo
@@ -452,7 +526,7 @@ def test_nadie_borra_residentes(operador, maria):
 ```bash
 # 1. Calidad del código
 docker compose exec web ruff check . && docker compose exec web ruff format --check .
-dj check && dj makemigrations --check --dry-run      # No changes detected: el panel no crea migraciones
+dj check && dj makemigrations --check --dry-run      # No changes detected: la única migración del ticket es catalogo/0004_presentacion_unica (ajustes)
 
 # 2. Tests (toda la suite de habilitación)
 dtest apps/catalogo apps/entidades -q
@@ -500,6 +574,29 @@ dtest -q --cov=apps --cov-fail-under=80
 > **Pendientes, sin cambio** (hallazgos que no se atendieron):
 > - **5.** No hay reglas de transición de estado del residente (de `FALLECIDO` a `ACTIVO`, `fecha_baja` futura) ni protección contra residentes duplicados. El ticket no lo exige.
 > - **10.** Los títulos del panel no tienen test, `accounts` no usa `SinBorrarMixin`, y `CLAUDE.md` conserva la frase "Todavía no hay funcionalidad de la aplicación".
+>
+> **Ajustes de la segunda revisión adversarial** (cambio de OpenSpec `hb-09-ajustes-revision-3`):
+>
+> | Hallazgo | Cambio |
+> |---|---|
+> | 1. La búsqueda con varios principios activos no tenía test | Tests: "Hyzaar" (Losartán e Hidroclorotiazida) aparece una vez con "losartan hidroclorotiazida", y `%` y `_` se buscan como texto |
+> | 2. El paso 3 de esta guía no se podía seguir | El *import* de `PrincipiosActivosFormSet` y el código de `validadores.py` y `forms.py` en el paso 3; la sección 5 nombra la migración `0004` |
+> | 3. ADR-0005 listaba 2 índices únicos por expresión | Lista los 3, con `uq_presentacion_nombre` |
+> | 4. `None` y texto en la regla | `None` se rechaza como la lista vacía; un texto lanza `TypeError`; la V2 traduce `sin_principio_activo` a `CAMPO_VACIO` (readme, sección 4, y `openapi.yaml`) |
+> | 5. El test de presentaciones inactivas no miraba el HTML | También comprueba el `<option>` del campo |
+> | 7. Un campo de búsqueda mal escrito daba un `500` | `check()` da `panel.E002`, que nombra el campo |
+> | 9. La búsqueda no tenía tope | Usa como mucho las primeras 8 palabras (`MAXIMO_PALABRAS`); las demás se ignoran |
+> | 10. `CLAUDE.md` no mencionaba la regla | Nombra `validadores.py` y `forms.py` |
+>
+> **Notas, sin cambio de código:**
+> - **6. El botón + de presentación.** Desde el alta de un medicamento, el botón **+** del campo presentación abre el alta de una presentación, que incluye la casilla `activo`. Si se desmarca, la presentación nueva no aparece en el campo, porque el alta solo ofrece las activas. Basta con dejarla activa.
+> - **8. Antes de aplicar `catalogo/0004` en el servidor del hogar** (despliegue, semana 6): si el panel de `6c345f0` ya se usó ahí, puede haber presentaciones duplicadas sin acentos, y `uq_presentacion_nombre` no se podría crear. Compruébalo antes de migrar; debe devolver 0 filas:
+>
+>   ```sql
+>   SELECT f_unaccent(lower(nombre)) AS nombre, count(*) FROM presentacion GROUP BY 1 HAVING count(*) > 1;
+>   ```
+>
+>   Si devuelve filas, se renombra la presentación sobrante, o se reasignan sus medicamentos a la otra, y se da de baja (`activo = False`) antes de migrar.
 
 ---
 

@@ -37,6 +37,16 @@ muestran el mensaje legible de apps.catalogo.validadores (SIN_PRINCIPIO_ACTIVO) 
 error del conjunto de renglones, en lugar del aviso genérico de min_num, y no guardan. Rojo
 esperado: apps.catalogo.validadores no existe, así que falla la importación de todo el módulo
 (sin ella, el panel solo daría el aviso genérico de Django).
+
+Ajuste 3 (segunda revisión de HB-09, hallazgos 1, 4, 5, 7 y 9): la búsqueda con un medicamento
+de 2 principios activos (cada palabra coincide con uno distinto y el medicamento sale una sola
+vez), los comodines % y _ buscados como texto, el tope de 8 palabras (MAXIMO_PALABRAS y
+palabras_de_busqueda de apps.panel), panel.E002 para un campo de búsqueda que no existe, y el
+<option> de la presentación dada de baja en el HTML del alta (ausente) y del cambio (presente).
+Rojo esperado: con 9 palabras se usan todas y no se encuentra nada; MAXIMO_PALABRAS no existe
+(se importa dentro de su test para no tumbar el módulo), y panel.E002 tampoco. Los de varios
+principios activos, comodines y el <option> de las presentaciones son de regresión: HB-09 ya
+filtra palabra por palabra, escapa los comodines y limita el alta a las presentaciones activas.
 """
 
 import re
@@ -95,6 +105,23 @@ def rol_actual():
 def campo_presentacion(respuesta):
     """El campo presentación del formulario del medicamento que pintó el panel."""
     return respuesta.context["adminform"].form.fields["presentacion"]
+
+
+SELECT_PRESENTACION = re.compile(
+    r'<select\b[^>]*\bname="presentacion"[^>]*>(.*?)</select>', re.IGNORECASE | re.DOTALL
+)
+
+
+def html_de_presentaciones(respuesta):
+    """Las opciones del <select> de presentación tal como llegan en el HTML.
+
+    Solo ese <select>: así un <option> de otro campo (el principio activo del renglón) con el
+    mismo valor no cuenta.
+    """
+    coincidencia = SELECT_PRESENTACION.search(respuesta.content.decode())
+    # Control: la página pinta el <select> de presentación
+    assert coincidencia, "la página no tiene el <select> de presentación"
+    return coincidencia.group(1)
 
 
 @pytest.fixture
@@ -489,6 +516,11 @@ def test_el_alta_no_ofrece_una_presentacion_dada_de_baja(entrar_como, losartan):
     # Control positivo: ofrece las activas, como "tableta"
     assert opciones.filter(pk=tableta.pk).exists()
     assert not opciones.filter(pk=parche.pk).exists()
+    # Ajuste 3 (segunda revisión de HB-09, hallazgo 5): también en el HTML que ve el usuario,
+    # no solo en la lista interna del campo. Control positivo: la opción de "tableta" sí está
+    opciones_html = html_de_presentaciones(respuesta)
+    assert f'<option value="{tableta.pk}"' in opciones_html
+    assert f'<option value="{parche.pk}"' not in opciones_html
     # Enviar el alta con "parche" de todos modos: el formulario avisa en ese campo
     respuesta = cliente.post(f"{URL}add/", formulario(losartan, presentacion=parche.pk))
     assert respuesta.status_code == 200
@@ -512,6 +544,8 @@ def test_el_cambio_conserva_la_presentacion_dada_de_baja(entrar_como, losartan):
     respuesta = cliente.get(url)
     assert respuesta.status_code == 200
     assert campo_presentacion(respuesta).queryset.filter(pk=parche.pk).exists()
+    # Ajuste 3 (segunda revisión de HB-09, hallazgo 5): también en el HTML que ve el usuario
+    assert f'<option value="{parche.pk}"' in html_de_presentaciones(respuesta)
     datos = formulario_de_cambio(
         medicamento, losartan, presentacion=parche.pk, concentracion="100 mg"
     )
@@ -635,3 +669,108 @@ def test_la_busqueda_en_presentaciones_y_principios_activos(entrar_como, losarta
     html = respuesta.content.decode()
     assert "Losartán" in html
     assert "Metformina" not in html
+
+
+def registrar_hyzaar_y_cozaar(losartan):
+    """Hyzaar con Losartán e Hidroclorotiazida, y Cozaar solo con Losartán (ambos en tableta)."""
+    hidroclorotiazida = PrincipioActivo.objects.create(nombre="Hidroclorotiazida")
+    hyzaar = registrar("Hyzaar", losartan, concentracion="50 mg / 12.5 mg")
+    MedicamentoPrincipioActivo.objects.create(
+        medicamento=hyzaar, principio_activo=hidroclorotiazida
+    )
+    registrar("Cozaar", losartan)
+
+
+def test_la_busqueda_con_varios_principios_activos(entrar_como, losartan):
+    # Scenario: Cada palabra puede coincidir con un principio activo distinto (segunda revisión
+    # de HB-09, hallazgo 1). Regresión: HB-09 ya aplica un filter() por palabra; protege que
+    # cada palabra pueda coincidir con un renglón distinto de la tabla puente
+    registrar_hyzaar_y_cozaar(losartan)
+    cliente = entrar_como("Lectura y escritura")
+    respuesta = cliente.get(URL, {"q": "losartan hidroclorotiazida"})
+    assert respuesta.status_code == 200
+    # Una sola vez: ni duplicado por los 2 renglones de la tabla puente, ni Cozaar
+    assert respuesta.context["cl"].result_count == 1
+    assert len(respuesta.context["cl"].result_list) == 1
+    html = respuesta.content.decode()
+    assert "Hyzaar" in html
+    assert "Cozaar" not in html
+    # Control: con una sola palabra salen los 2 medicamentos con Losartán
+    respuesta = cliente.get(URL, {"q": "losartan"})
+    assert respuesta.status_code == 200
+    assert respuesta.context["cl"].result_count == 2
+
+
+@pytest.mark.parametrize("comodin", ["%", "_"], ids=["porcentaje", "guion-bajo"])
+def test_los_comodines_se_buscan_como_texto(entrar_como, losartan, comodin):
+    # Scenario: Los comodines se buscan como texto (segunda revisión de HB-09, hallazgo 1).
+    # Regresión: HB-09 ya escapa % y _ en la búsqueda
+    registrar_hyzaar_y_cozaar(losartan)
+    cliente = entrar_como("Lectura y escritura")
+    # Control: sin término, la lista muestra los 2; la lista vacía de abajo se debe al comodín
+    respuesta = cliente.get(URL)
+    assert respuesta.status_code == 200
+    assert respuesta.context["cl"].result_count == 2
+    respuesta = cliente.get(URL, {"q": comodin})
+    assert respuesta.status_code == 200
+    assert respuesta.context["cl"].result_count == 0
+
+
+def test_la_busqueda_usa_como_mucho_8_palabras(entrar_como, losartan):
+    # Scenario: Tope de 8 palabras (segunda revisión de HB-09, hallazgo 9)
+    registrar("Cozaar", losartan)
+    cliente = entrar_como("Lectura y escritura")
+    # Control: con 8 palabras, "paracetamol" sí se usa y deja fuera a Cozaar
+    ocho = " ".join(["cozaar"] * 7 + ["paracetamol"])
+    respuesta = cliente.get(URL, {"q": ocho})
+    assert respuesta.status_code == 200
+    assert respuesta.context["cl"].result_count == 0
+    # Con 9, la novena ("paracetamol") no se usa
+    nueve = " ".join(["cozaar"] * 8 + ["paracetamol"])
+    respuesta = cliente.get(URL, {"q": nueve})
+    assert respuesta.status_code == 200
+    assert respuesta.context["cl"].result_count == 1
+    assert "Cozaar" in respuesta.content.decode()
+
+
+def test_palabras_de_busqueda_corta_en_8():
+    # Scenario: Tope de 8 palabras (segunda revisión de HB-09, hallazgo 9), en la función que
+    # divide el término. Se importa aquí: MAXIMO_PALABRAS es nueva, y su ausencia no debe
+    # tumbar los demás tests del módulo
+    from apps.panel import MAXIMO_PALABRAS, palabras_de_busqueda
+
+    assert MAXIMO_PALABRAS == 8
+    palabras = list(palabras_de_busqueda(" ".join(str(i) for i in range(20))))
+    # Las primeras 8, en su orden
+    assert len(palabras) == MAXIMO_PALABRAS
+    assert palabras == [str(i) for i in range(8)]
+
+
+@pytest.mark.parametrize(
+    ("campos", "mal_escrito"),
+    [
+        (("nombre_comercial", "principio_activos__nombre"), "principio_activos__nombre"),
+        (("nombre_comercial", "no_existe"), "no_existe"),
+        (("nombre_comercial__nombre",), "nombre_comercial__nombre"),
+    ],
+    ids=["relacion-mal-escrita", "campo-simple", "tramo-sin-relacion"],
+)
+def test_un_campo_de_busqueda_que_no_existe_da_error(campos, mal_escrito):
+    # Scenario: Un campo de búsqueda que no existe (segunda revisión de HB-09, hallazgo 7)
+    CampoMal = type(
+        "CampoMal", (BusquedaSinAcentosMixin, admin.ModelAdmin), {"campos_sin_acentos": campos}
+    )
+    errores = CampoMal(Medicamento, admin.AdminSite()).check()
+    e002 = [error for error in errores if error.id == "panel.E002"]
+    assert e002, errores
+    # El mensaje nombra el campo mal escrito
+    assert any(mal_escrito in error.msg for error in e002)
+    # Control: los mismos campos bien escritos no dan panel.E002
+    CampoBien = type(
+        "CampoBien",
+        (BusquedaSinAcentosMixin, admin.ModelAdmin),
+        {"campos_sin_acentos": ("nombre_comercial", "principios_activos__nombre")},
+    )
+    errores = CampoBien(Medicamento, admin.AdminSite()).check()
+    assert "panel.E002" not in [error.id for error in errores]
+    assert [error for error in errores if error.is_serious()] == []

@@ -665,6 +665,33 @@ Atendí el hallazgo 4 en el cambio de OpenSpec `hb-09-ajustes-revision-2`:
 
 ---
 
+## Prompt 25 — Usuario
+
+(Tras la segunda revisión adversarial de HB-09, sin bloqueantes y con 2 mayores y 8 menores:) ¿Hay algo pendiente para HB-09? (Tras la respuesta:) Hazlos, por favor. (Tras el plan:) Del punto 9, ajustar el tope de la búsqueda a 32 caracteres, ¿tendría algún impacto negativo? (Tras la respuesta:) No, mejor déjalo en 8 palabras, como estaba originalmente, y apruebo el plan original.
+
+---
+
+## Respuesta 25 — Claude
+
+Atendí la segunda revisión en el cambio de OpenSpec `hb-09-ajustes-revision-3`:
+
+| Hallazgo | Cambio |
+|---|---|
+| 1. La búsqueda con varios principios activos no tenía test | Tests: "Hyzaar" aparece una vez con "losartan hidroclorotiazida", y `%` y `_` se buscan como texto |
+| 2. El paso 3 de la guía no se podía seguir | El *import* y el código de `validadores.py` y `forms.py` en la guía; la sección 5 nombra la migración `0004` |
+| 4. `None` y texto en la regla | `None` se rechaza como la lista vacía y un texto lanza `TypeError`; la V2 traduce `sin_principio_activo` a `CAMPO_VACIO` (readme 4 y `openapi.yaml`) |
+| 7. Campo de búsqueda mal escrito | `check()` da `panel.E002` |
+| 9. Sin tope de palabras | Como mucho 8 palabras (`MAXIMO_PALABRAS`) |
+| 3, 5 y 10 | ADR-0005 con 3 índices únicos por expresión, el `<option>` del HTML en el test y `CLAUDE.md` |
+
+**Sobre el tope de 32 caracteres:** no tenía impacto negativo importante. Acotaba las uniones (a lo sumo 16 palabras) y, como la búsqueda es "contiene", cortar no hace perder resultados. El único caso a cuidar era una frase entre comillas cortada en el límite. Se quedó el tope de 8 palabras, por decisión del usuario.
+
+**Notas en la guía, sin código:** el botón **+** puede crear una presentación inactiva que después no se puede elegir (6), y la consulta de duplicados sin acentos que hay que correr antes de aplicar la `0004` en el servidor del hogar (8).
+
+**Comprobaciones:** 9 tests nacieron en rojo y los de regresión, en verde. La suite da 232 pasan y 1 omitido, con 98,72 % de cobertura, y el contrato pasa el lint de Redocly.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 6)
 
 ## 6. Tickets de Trabajo

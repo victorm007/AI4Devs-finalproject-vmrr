@@ -14,6 +14,12 @@ medicamento en la presentación semilla "tableta" (la crea la migración de cata
 
 Rojo esperado: apps.catalogo.validadores y apps.catalogo.forms no existen, así que falla la
 importación del módulo.
+
+Ajuste 3 (segunda revisión de HB-09, hallazgos 1, 4, 5, 7 y 9): la regla con None (sin
+colección) se rechaza con la misma ValidationError que la lista vacía, y un texto (str o bytes)
+en lugar de una colección es un TypeError, un error de programación y no una regla de negocio.
+Rojo esperado: hoy None da TypeError, "abc" y b"x" pasan la regla (list() les da elementos) y ""
+da ValidationError.
 """
 
 import pytest
@@ -98,6 +104,25 @@ def test_la_regla_acepta_un_principio_activo(losartan):
     # la V2) o de objetos (como los elige el formulario)
     assert exigir_principio_activo([1]) is None
     assert exigir_principio_activo([losartan]) is None
+
+
+def test_la_regla_rechaza_sin_coleccion():
+    # Scenario: La regla se puede reutilizar fuera del panel (segunda revisión de HB-09,
+    # hallazgo 4): sin colección (None) se rechaza con el mismo mensaje y código
+    with pytest.raises(ValidationError) as error:
+        exigir_principio_activo(None)
+    assert error.value.code == "sin_principio_activo"
+    assert error.value.messages == [MENSAJE]
+
+
+@pytest.mark.parametrize("texto", ["abc", "", b"x"], ids=["texto", "texto-vacio", "bytes"])
+def test_un_texto_no_es_una_coleccion(texto):
+    # Scenario: La regla se puede reutilizar fuera del panel (segunda revisión de HB-09,
+    # hallazgo 4): un texto en lugar de una colección es un error de programación (TypeError),
+    # no una regla de negocio. ValidationError no hereda de TypeError, así que el texto vacío
+    # no pasa por rechazarse como lista vacía
+    with pytest.raises(TypeError):
+        exigir_principio_activo(texto)
 
 
 def test_el_conjunto_sin_renglones_avisa(medicamento):
