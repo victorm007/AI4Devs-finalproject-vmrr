@@ -1,9 +1,10 @@
 """La regla "al menos un principio activo" y el conjunto de renglones del medicamento.
 
 Revisión adversarial de HB-09, hallazgo 4. Capa de formularios: la regla de
-apps.catalogo.validadores (exigir_principio_activo, que no toca la base y reutilizará la API
-de escritura de la V2) y el conjunto de renglones de apps.catalogo.forms
-(PrincipiosActivosFormSet), sin pasar por HTTP. El panel /admin/ se prueba en test_admin.py.
+apps.catalogo.validadores (exigir_principio_activo, que no toca la base y cuyo mensaje
+comparte el esquema de la API de escritura de la V2) y el conjunto de renglones de
+apps.catalogo.forms (PrincipiosActivosFormSet), sin pasar por HTTP. El panel /admin/ se prueba
+en test_admin.py.
 
 El conjunto se arma con inlineformset_factory, como lo hace el inline del panel (min_num=1,
 extra=0 y sin validate_min), así que el único aviso por falta de principio activo es el de la

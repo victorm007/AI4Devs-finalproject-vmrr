@@ -740,6 +740,24 @@ Hice una última pasada, solo de documentación, en el cambio de OpenSpec `hb-09
 
 ---
 
+## Prompt 28 — Usuario
+
+(Tras la quinta revisión adversarial de HB-09, sin bloqueantes ni mayores y con 3 menores de documentación:) Quiero confirmar que no existen pendientes para el HB-09. (Tras la respuesta:) Excelente, hazlas.
+
+---
+
+## Respuesta 28 — Claude
+
+Atendí los 3 menores de la quinta revisión, solo de documentación:
+
+- **1. Frases que decían que la V2 "llama" o "reutiliza" `exigir_principio_activo()`.** Ahora dicen que la V2 comparte su mensaje: el esquema rechaza la lista vacía, y la función protege a quien guarde sin pasar por él. Corregí 8 sitios: `CLAUDE.md`, el readme (D2) con su anexo en `03-modelo-datos.md`, 4 lugares de la guía de HB-09 y el *docstring* de `test_formularios.py`.
+- **2.** La tabla "Así avanza el rojo" de la guía tiene la fila del paso 3b.
+- **3.** La nota del hallazgo 4 dice que el mapeo general de la V2 parte de lo que ya fija `principios_activos_ids`: `minItems` → `CAMPO_VACIO` y `type` → `TIPO_INVALIDO`.
+
+Con esto, HB-09 no tiene pendientes de código ni de documentación. Las notas que el usuario aceptó quedan anotadas en la guía.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 6)
 
 ## 6. Tickets de Trabajo

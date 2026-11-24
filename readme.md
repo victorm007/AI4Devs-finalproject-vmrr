@@ -1102,7 +1102,7 @@ ALTER TABLE detalle_conteo
 | `medicamento_id` | bigint | FK → `medicamento.id`, NOT NULL | Medicamento |
 | `principio_activo_id` | bigint | FK → `principio_activo.id`, NOT NULL | Principio activo |
 
-- UNIQUE (`medicamento_id`, `principio_activo_id`). El "al menos uno" se valida en la entrada y no en la base, para mantener la flexibilidad (un `CHECK` no puede contar los renglones de la tabla puente): en el MVP, el formulario del panel en el alta y en el cambio del medicamento; en la V2, `POST` y `PATCH /medicamentos`. Las 2 vías usan la misma regla (`apps/catalogo/validadores.py`) y el mensaje "Un medicamento debe tener al menos un principio activo.".
+- UNIQUE (`medicamento_id`, `principio_activo_id`). El "al menos uno" se valida en la entrada y no en la base, para mantener la flexibilidad (un `CHECK` no puede contar los renglones de la tabla puente): en el MVP, el formulario del panel en el alta y en el cambio del medicamento; en la V2, `POST` y `PATCH /medicamentos`. Las 2 vías dan el mismo mensaje, definido en `apps/catalogo/validadores.py`: "Un medicamento debe tener al menos un principio activo.".
 
 #### D3 — Entidades
 

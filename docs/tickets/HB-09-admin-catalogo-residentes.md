@@ -42,7 +42,7 @@ app/
     ├── catalogo/
     │   ├── admin.py                       # NUEVO
     │   ├── forms.py                       # NUEVO: renglones de principios activos (al menos uno)
-    │   ├── validadores.py                 # NUEVO: regla "al menos un principio activo" (también la V2)
+    │   ├── validadores.py                 # NUEVO: regla "al menos un principio activo" (su mensaje lo comparte la V2)
     │   ├── models.py                      # MODIFICAR: uq_presentacion_nombre (paso 3b)
     │   ├── migrations/0004_presentacion_unica.py   # NUEVO (paso 3b)
     │   └── tests/
@@ -75,6 +75,7 @@ Así avanza el rojo con cada paso:
 | Al terminar | Comando | Resultado esperado |
 |---|---|---|
 | Paso 3 (catálogo) | `dtest apps/catalogo/tests/test_admin.py -q` | Todos pasan |
+| Paso 3b (presentaciones) | `dtest apps/catalogo/tests/test_modelos.py -q` | Todos pasan |
 | Paso 4 (residentes) | `dtest apps/entidades/tests/test_admin.py -q` | Todos pasan |
 
 ### Paso 2. Reglas comunes del panel (≈ 30 min)
@@ -225,7 +226,7 @@ class BusquedaSinAcentosMixin:
 
 ### Paso 3. Catálogo en el panel (≈ 45 min)
 
-Primero la regla "al menos un principio activo", que no depende del panel (la reutiliza la V2 de la API). `app/apps/catalogo/validadores.py`:
+Primero la regla "al menos un principio activo", que no depende del panel. La V2 de la API comparte su mensaje: allí el esquema rechaza la lista vacía, y la función protege a quien guarde sin pasar por él. `app/apps/catalogo/validadores.py`:
 
 ```python
 """Reglas de validación de entrada del catálogo, sin acceso a la base.
@@ -387,7 +388,7 @@ class MedicamentoAdmin(SinBorrarMixin, BusquedaSinAcentosMixin, admin.ModelAdmin
         return form
 ```
 
-> **Al menos un principio activo** (ajuste 2 de la revisión): la regla vive en `apps/catalogo/validadores.py` (`exigir_principio_activo()` y el mensaje "Un medicamento debe tener al menos un principio activo."), y `apps/catalogo/forms.py` la aplica a los renglones con `PrincipiosActivosFormSet.clean()`. No se valida en la base, para mantener la flexibilidad. En la V2, `POST` y `PATCH /medicamentos` llaman a la misma función (readme, sección 4; `openapi.yaml`, `principios_activos_ids`). No uses `validate_min`: el panel no lo pasa al formulario, y su aviso genérico se sumaría al de la regla.
+> **Al menos un principio activo** (ajuste 2 de la revisión): la regla vive en `apps/catalogo/validadores.py` (`exigir_principio_activo()` y el mensaje "Un medicamento debe tener al menos un principio activo."), y `apps/catalogo/forms.py` la aplica a los renglones con `PrincipiosActivosFormSet.clean()`. No se valida en la base, para mantener la flexibilidad. En la V2, el esquema de `POST` y `PATCH /medicamentos` rechaza la lista vacía con el mismo mensaje (readme, sección 4; `openapi.yaml`, `principios_activos_ids`), y la función protege a quien guarde sin pasar por el esquema. No uses `validate_min`: el panel no lo pasa al formulario, y su aviso genérico se sumaría al de la regla.
 
 > **Pendiente para TK-01:** desmarcar `activo` en un medicamento con existencias debe dar un mensaje ("No se puede dar de baja: hay existencias de este medicamento"). Esa validación necesita la tabla `existencia`, así que la agrega TK-01 junto con el *trigger* `tg_medicamento_baja`.
 
@@ -787,7 +788,7 @@ dtest -q --cov=apps --cov-fail-under=80
 > | 8. *Solo lectura* en presentaciones y principios activos | `403` al cambiar y búsqueda en sus listas |
 > | 9. El *mixin* sin campos devolvía todas las filas | `check()` da el error `panel.E001` |
 >
-> **Hallazgo 4, atendido en un segundo ajuste** (cambio `hb-09-ajustes-revision-2`): la regla "al menos un principio activo" se conserva y se valida en el formulario, no en la base, para mantener la flexibilidad. Se valida en el alta y en el cambio, con el mensaje "Un medicamento debe tener al menos un principio activo.", desde `apps/catalogo/validadores.py`, que la V2 reutilizará en `POST` y `PATCH /medicamentos`. Sustituye a `validate_min` y al `get_formset()` del primer ajuste. Al editar un medicamento sin principios activos, por ejemplo para darlo de baja, hay que elegir uno: es lo deseado.
+> **Hallazgo 4, atendido en un segundo ajuste** (cambio `hb-09-ajustes-revision-2`): la regla "al menos un principio activo" se conserva y se valida en el formulario, no en la base, para mantener la flexibilidad. Se valida en el alta y en el cambio, con el mensaje "Un medicamento debe tener al menos un principio activo.", desde `apps/catalogo/validadores.py`, cuyo mensaje comparte el esquema de `POST` y `PATCH /medicamentos` en la V2. Sustituye a `validate_min` y al `get_formset()` del primer ajuste. Al editar un medicamento sin principios activos, por ejemplo para darlo de baja, hay que elegir uno: es lo deseado.
 >
 > **Pendientes, sin cambio** (hallazgos que no se atendieron):
 > - **5.** No hay reglas de transición de estado del residente (de `FALLECIDO` a `ACTIVO`, `fecha_baja` futura) ni protección contra residentes duplicados. El ticket no lo exige.
@@ -840,7 +841,7 @@ dtest -q --cov=apps --cov-fail-under=80
 > | 7. `CLAUDE.md` no nombraba `panel.E003` | Lo nombra |
 >
 > **Notas, sin cambio:**
-> - **4.** El contrato no define el mapeo general de los errores de esquema del cuerpo (por ejemplo, `maxItems` → `VALOR_FUERA_DE_RANGO`); solo `principios_activos_ids` documenta `minItems` y `type`. Se decide al implementar la API de escritura (V2).
+> - **4.** El contrato no define el mapeo general de los errores de esquema del cuerpo (por ejemplo, `maxItems` → `VALOR_FUERA_DE_RANGO`); solo `principios_activos_ids` documenta `minItems` y `type`. Se decide al implementar la API de escritura (V2), partiendo de lo que ya fija ese campo: `minItems` → `CAMPO_VACIO` y `type` → `TIPO_INVALIDO`.
 > - **6.** `check()` lanza una excepción, en lugar de un `panel.E00x`, si `campos_sin_acentos` contiene `None` o un número. Es improbable y se vería al arrancar (`dj check`).
 
 ---
