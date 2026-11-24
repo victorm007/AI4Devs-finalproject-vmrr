@@ -19,6 +19,7 @@ Los usuarios buscan Medicamentos por nombre comercial o por principio activo, y 
 - La búsqueda exige **al menos 3 caracteres**, como requiere trigram. En la API, `q` con menos de 3 responde `400` con `LONGITUD_INVALIDA`.
 - La búsqueda por nombre o principio activo une las 2 ramas con **`UNION` en lugar de `OR`**, para que cada rama use su propio índice.
 - La unicidad del catálogo tampoco distingue mayúsculas ni acentos (`uq_medicamento_nombre_pres_conc` y `uq_principio_activo_nombre`).
+- **Precisión (HB-09), sin cambiar la decisión:** el mínimo de 3 caracteres y la `UNION` son de la búsqueda de Existencias (consulta 1, `q` de la API y la pantalla de HU-02). La búsqueda del panel `/admin/` ([ADR-0020](0020-habilitadores-en-panel-admin.md), `apps/panel.py`) usa la misma expresión `f_unaccent(lower(campo))`, pero une los campos con `OR` y no exige mínimo. Busca también entre los Medicamentos dados de baja, que el índice parcial `ix_medicamento_nombre_trgm` no cubre, en un catálogo de cientos de filas.
 
 ## Alternativas consideradas
 

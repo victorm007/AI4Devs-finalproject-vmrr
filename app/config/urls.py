@@ -5,6 +5,11 @@ from django.contrib.auth import views as auth_views
 from django.urls import path
 from django.views.generic import RedirectView
 
+# Títulos del panel /admin/ (HB-09)
+admin.site.site_header = "Medicamentos del Hogar · Administración"
+admin.site.site_title = "Medicamentos del Hogar"
+admin.site.index_title = "Catálogo, residentes y usuarios"
+
 urlpatterns = [
     path("", RedirectView.as_view(pattern_name="login")),  # TK-03 la apunta a existencias
     path(

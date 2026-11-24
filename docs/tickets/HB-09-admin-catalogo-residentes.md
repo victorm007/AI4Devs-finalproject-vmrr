@@ -454,6 +454,26 @@ dtest -q --cov=apps --cov-fail-under=80
 #    desde el panel como Administrador y repetir el paso 6 con cada uno.
 ```
 
+> **Diferencias con lo que trae esta guía** (cambio de OpenSpec `hb-09-admin-catalogo-residentes`):
+>
+> - **`validate_min = True` no basta en el panel:** en Django 5.2 `InlineModelAdmin.get_formset()` no pasa `validate_min` a `inlineformset_factory`. Con el código del paso 3, un medicamento sin principio activo se guardaba. `PrincipioActivoEnLinea.get_formset()` lo pasa con `kwargs.setdefault("validate_min", self.validate_min)`.
+> - **`alias()` en lugar de `annotate()`** en `BusquedaSinAcentosMixin`: la expresión va solo al `WHERE`, así `distinct()` quita los repetidos de un medicamento con 2 principios activos (lo usa el *autocomplete*).
+> - **Búsqueda del panel sin mínimo de 3 caracteres ni `UNION`:** quedó como precisión en ADR-0017. Esas 2 reglas son de la búsqueda de existencias; el panel conserva `f_unaccent(lower(campo))`.
+> - **Orden de residentes sin acentos:** `ordering` y la columna "Nombre" usan `sin_acentos("primer_apellido")` y `sin_acentos("primer_nombre")`, la expresión de `ix_residente_nombre`.
+> - **Tests añadidos:**
+>   - *Solo lectura* en los 4 modelos (lista `200`, alta `403`) y el `403` al cambiar un medicamento o un residente;
+>   - *Lectura y escritura* abre el alta de los 3 modelos del catálogo;
+>   - el *autocomplete* de principios activos sin acentos y el principio activo duplicado;
+>   - el borrado con `403` para el Administrador y *Lectura y escritura* en los 4 modelos, y la lista sin la acción "Eliminar";
+>   - la búsqueda por nombre comercial y los controles negativos;
+>   - sin N+1 en la lista de medicamentos (`django_assert_num_queries`);
+>   - el alta del medicamento sin código en línea (CSP);
+>   - la fecha de baja anterior al ingreso y la defunción.
+> - **`test_el_hogar_no_se_edita_en_el_panel`** está en `apps/entidades/tests/test_admin.py`, con controles de `Residente`, así que nace en rojo.
+> - **Revisión en el navegador:** se hizo con Chrome *headless* por CDP, detrás de nginx, como un usuario de *Lectura y escritura*: alta con el botón **+** y el *autocomplete*, duplicado, búsqueda, alta y egreso de un residente. No hay violaciones de CSP; el único mensaje de la consola es el 404 de `/favicon.ico`. Capturas en `docs/capturas/HB-09/`.
+> - **Etiquetas sin acento, aceptadas:** el panel muestra "Presentacion", "Concentracion", "Fecha ingreso" o "Fecha baja" porque los modelos de HB-05 y HB-06 no tienen `verbose_name`. Corregirlo generaría migraciones, y el panel es provisional hasta las pantallas propias de la V2 (ADR-0020).
+> - **Rama:** `feature/entrega-2-vmrr`, por la regla de ramas de `CLAUDE.md`.
+
 ---
 
 ## 6. Lista para el *pull request*
