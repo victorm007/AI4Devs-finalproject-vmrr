@@ -47,6 +47,12 @@ Rojo esperado: con 9 palabras se usan todas y no se encuentra nada; MAXIMO_PALAB
 (se importa dentro de su test para no tumbar el módulo), y panel.E002 tampoco. Los de varios
 principios activos, comodines y el <option> de las presentaciones son de regresión: HB-09 ya
 filtra palabra por palabra, escapa los comodines y limita el alta a las presentaciones activas.
+
+Ajuste 4 (tercera revisión de HB-09, hallazgos 4, 6 y 7): campos_sin_acentos declarado como un
+texto ("nombre") da un solo panel.E003 y ningún panel.E002, y una relación inversa válida
+(medicamentos__nombre_comercial en el registro de principios activos) no da panel.E002. Rojo
+esperado: hoy el texto se recorre letra por letra (6 panel.E002) y panel.E003 no existe. El de la
+relación inversa es de regresión: la comprobación de panel.E002 ya sigue las relaciones inversas.
 """
 
 import re
@@ -774,3 +780,50 @@ def test_un_campo_de_busqueda_que_no_existe_da_error(campos, mal_escrito):
     errores = CampoBien(Medicamento, admin.AdminSite()).check()
     assert "panel.E002" not in [error.id for error in errores]
     assert [error for error in errores if error.is_serious()] == []
+
+
+def ids_del_panel(errores):
+    """Los ids de los errores de configuración propios del panel (panel.*), en su orden."""
+    return [error.id for error in errores if error.id and error.id.startswith("panel.")]
+
+
+def test_campos_declarados_como_texto_dan_un_solo_error():
+    # Scenario: Campos declarados como texto (tercera revisión de HB-09, hallazgo 6)
+    CamposTexto = type(
+        "CamposTexto",
+        (BusquedaSinAcentosMixin, admin.ModelAdmin),
+        {"campos_sin_acentos": "nombre"},
+    )
+    errores = CamposTexto(Presentacion, admin.AdminSite()).check()
+    # Un solo panel.E003, y ningún panel.E002 por cada letra de "nombre"
+    assert ids_del_panel(errores) == ["panel.E003"], errores
+    # Control: el mismo campo declarado como tupla no da errores del panel; el panel.E003 se
+    # debe a que es un texto y no a que "nombre" no exista en Presentacion
+    CamposTupla = type(
+        "CamposTupla",
+        (BusquedaSinAcentosMixin, admin.ModelAdmin),
+        {"campos_sin_acentos": ("nombre",)},
+    )
+    assert ids_del_panel(CamposTupla(Presentacion, admin.AdminSite()).check()) == []
+
+
+def test_una_relacion_inversa_valida_no_da_error():
+    # Scenario: Una relación inversa válida (tercera revisión de HB-09, hallazgo 7)
+    # Regresión: la comprobación de panel.E002 ya sigue las relaciones inversas; protege que un
+    # ajuste de check() (como el de panel.E003) no las marque como campos que no existen
+    RelacionInversa = type(
+        "RelacionInversa",
+        (BusquedaSinAcentosMixin, admin.ModelAdmin),
+        {"campos_sin_acentos": ("nombre", "medicamentos__nombre_comercial")},
+    )
+    errores = RelacionInversa(PrincipioActivo, admin.AdminSite()).check()
+    assert "panel.E002" not in [error.id for error in errores], errores
+    # Control: en el mismo modelo, un tramo mal escrito tras la relación inversa sí da
+    # panel.E002; así, su ausencia de arriba no se debe a que check() no revise los campos
+    TramoMal = type(
+        "TramoMal",
+        (BusquedaSinAcentosMixin, admin.ModelAdmin),
+        {"campos_sin_acentos": ("nombre", "medicamentos__no_existe")},
+    )
+    errores = TramoMal(PrincipioActivo, admin.AdminSite()).check()
+    assert "panel.E002" in [error.id for error in errores], errores

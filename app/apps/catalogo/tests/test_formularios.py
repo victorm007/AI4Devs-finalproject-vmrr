@@ -20,6 +20,10 @@ colección) se rechaza con la misma ValidationError que la lista vacía, y un te
 en lugar de una colección es un TypeError, un error de programación y no una regla de negocio.
 Rojo esperado: hoy None da TypeError, "abc" y b"x" pasan la regla (list() les da elementos) y ""
 da ValidationError.
+
+Ajuste 4 (tercera revisión de HB-09, hallazgos 4, 6 y 7): las demás secuencias de bytes
+(bytearray y memoryview) en lugar de una colección también son un TypeError. Rojo esperado: hoy
+bytearray(b"x") y memoryview(b"x") pasan la regla (list() les da un elemento).
 """
 
 import pytest
@@ -115,12 +119,17 @@ def test_la_regla_rechaza_sin_coleccion():
     assert error.value.messages == [MENSAJE]
 
 
-@pytest.mark.parametrize("texto", ["abc", "", b"x"], ids=["texto", "texto-vacio", "bytes"])
+@pytest.mark.parametrize(
+    "texto",
+    ["abc", "", b"x", bytearray(b"x"), memoryview(b"x")],
+    ids=["texto", "texto-vacio", "bytes", "bytearray", "memoryview"],
+)
 def test_un_texto_no_es_una_coleccion(texto):
     # Scenario: La regla se puede reutilizar fuera del panel (segunda revisión de HB-09,
     # hallazgo 4): un texto en lugar de una colección es un error de programación (TypeError),
     # no una regla de negocio. ValidationError no hereda de TypeError, así que el texto vacío
-    # no pasa por rechazarse como lista vacía
+    # no pasa por rechazarse como lista vacía. Ajuste 4 (tercera revisión de HB-09, hallazgo
+    # 4): también bytearray y memoryview
     with pytest.raises(TypeError):
         exigir_principio_activo(texto)
 

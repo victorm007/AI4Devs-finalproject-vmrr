@@ -692,6 +692,28 @@ Atendí la segunda revisión en el cambio de OpenSpec `hb-09-ajustes-revision-3`
 
 ---
 
+## Prompt 26 — Usuario
+
+(Tras la tercera revisión adversarial de HB-09, sin bloqueantes y con 2 mayores y 5 menores:) ¿Hay pendientes para el HB-09? (Tras la respuesta:) Sí, por favor, hazlo así. (Tras el plan:) Apruebo.
+
+---
+
+## Respuesta 26 — Claude
+
+Atendí la tercera revisión en el cambio de OpenSpec `hb-09-ajustes-revision-4`:
+
+| Hallazgo | Cambio |
+|---|---|
+| 1. La guía no se podía seguir completa | La sección 1 lista todos los archivos; los pasos 2, 3 y 4 traen el código vigente, y un paso 3b crea `uq_presentacion_nombre` y la migración `0004`. Lo comprobé: los bloques coinciden con los archivos, y los tests base de la sección 3 pasan con ese código (14 de 14) |
+| 2. `null` en la V2, descrito de 2 formas | Una sola, en orden: el esquema rechaza lo que no es *array*, incluido `null` (`TIPO_INVALIDO`), y la lista vacía (`CAMPO_VACIO`); después se aplica la regla, con su código traducido a `CAMPO_VACIO`. En `exigir_principio_activo()`, `None` es un caso defensivo |
+| 3, 4, 6 y 7 | La traducción pasa a la descripción del requisito; `bytearray` y `memoryview` lanzan `TypeError`; `panel.E003` para los campos escritos como texto; test de una relación inversa |
+
+**Nota en la guía (5):** `panel.E002` marca `"pk"` como inexistente; se usa `id`.
+
+**Comprobaciones:** 3 tests nacieron en rojo y el de la relación inversa, en verde. La suite da 236 pasan y 1 omitido, con 98,74 % de cobertura, y el contrato pasa el lint de Redocly.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 6)
 
 ## 6. Tickets de Trabajo

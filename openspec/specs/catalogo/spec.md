@@ -154,7 +154,7 @@ El panel `/admin/` DEBE (MUST) mostrar presentaciones, principios activos y medi
 
 ### Requirement: Principios activos en la pantalla del medicamento
 
-El alta y el cambio de un medicamento DEBEN (MUST) incluir sus principios activos en la misma pantalla, al menos uno, elegidos con un buscador (*autocomplete*) que ignora mayúsculas y acentos. Sin ninguno, el formulario no guarda y muestra el mensaje "Un medicamento debe tener al menos un principio activo.", tanto en el alta como en el cambio. La regla se valida fuera de la base y se puede reutilizar fuera del panel.
+El alta y el cambio de un medicamento DEBEN (MUST) incluir sus principios activos en la misma pantalla, al menos uno, elegidos con un buscador (*autocomplete*) que ignora mayúsculas y acentos. Sin ninguno, el formulario no guarda y muestra el mensaje "Un medicamento debe tener al menos un principio activo.", tanto en el alta como en el cambio. La regla se valida fuera de la base y se puede reutilizar fuera del panel: en la V2, `POST` y `PATCH /medicamentos` traducen su código `sin_principio_activo` a `errores[].codigo = CAMPO_VACIO`.
 
 #### Scenario: Alta con su principio activo (HB-09, criterio 2)
 
@@ -184,9 +184,8 @@ El alta y el cambio de un medicamento DEBEN (MUST) incluir sus principios activo
 - **WHEN** se valida una lista vacía de principios activos, como la que llegaría en `POST /medicamentos` de la V2
 - **THEN** se rechaza con el mensaje "Un medicamento debe tener al menos un principio activo." y el código `sin_principio_activo`
 - **AND** una lista con un principio activo se acepta
-- **AND** sin colección (`None`) se rechaza con el mismo mensaje y código
-- **AND** un texto en lugar de una colección es un error de programación (`TypeError`), no una regla de negocio
-- **AND** la V2 traduce el código `sin_principio_activo` a `errores[].codigo = CAMPO_VACIO`
+- **AND** sin colección (`None`) se rechaza con el mismo mensaje y código, como caso defensivo
+- **AND** un texto o una secuencia de bytes (`str`, `bytes`, `bytearray`, `memoryview`) en lugar de una colección es un error de programación (`TypeError`), no una regla de negocio
 
 #### Scenario: El buscador de principios activos ignora los acentos (HB-09, descripción técnica)
 
@@ -357,7 +356,7 @@ El alta de un medicamento en el panel DEBE (MUST) ofrecer solo las presentacione
 
 ### Requirement: Configuración de la búsqueda del panel comprobada
 
-Un registro del panel que usa la búsqueda sin acentos sin declarar los campos donde buscar, o que declara un campo que no existe, DEBE (MUST) producir un error de configuración en la comprobación del sistema, en lugar de devolver todas las filas.
+Un registro del panel que usa la búsqueda sin acentos sin declarar los campos donde buscar, que declara un campo que no existe, o que los declara como un texto en lugar de una tupla, DEBE (MUST) producir un error de configuración en la comprobación del sistema, en lugar de devolver todas las filas.
 
 #### Scenario: Sin campos de búsqueda, error de configuración (revisión de HB-09, hallazgo 9)
 
@@ -371,6 +370,18 @@ Un registro del panel que usa la búsqueda sin acentos sin declarar los campos d
 - **GIVEN** un registro del panel con la búsqueda sin acentos y el campo `principio_activos__nombre`, mal escrito
 - **WHEN** se ejecuta su comprobación del sistema
 - **THEN** devuelve el error `panel.E002`, que nombra el campo
+
+#### Scenario: Campos declarados como texto (tercera revisión de HB-09, hallazgo 6)
+
+- **GIVEN** un registro del panel con `campos_sin_acentos = "nombre"` (un texto, no una tupla)
+- **WHEN** se ejecuta su comprobación del sistema
+- **THEN** devuelve un solo error `panel.E003`, y ningún `panel.E002` por cada letra
+
+#### Scenario: Una relación inversa válida (tercera revisión de HB-09, hallazgo 7)
+
+- **GIVEN** un registro de principios activos con los campos `nombre` y `medicamentos__nombre_comercial`
+- **WHEN** se ejecuta su comprobación del sistema
+- **THEN** no devuelve `panel.E002`
 
 ### Requirement: Alta del catálogo con los permisos de app_user
 

@@ -41,7 +41,14 @@ app/
     ├── panel.py                           # NUEVO: reglas comunes del panel (sin borrado, búsqueda sin acentos)
     ├── catalogo/
     │   ├── admin.py                       # NUEVO
-    │   └── tests/test_admin.py            # NUEVO
+    │   ├── forms.py                       # NUEVO: renglones de principios activos (al menos uno)
+    │   ├── validadores.py                 # NUEVO: regla "al menos un principio activo" (también la V2)
+    │   ├── models.py                      # MODIFICAR: uq_presentacion_nombre (paso 3b)
+    │   ├── migrations/0004_presentacion_unica.py   # NUEVO (paso 3b)
+    │   └── tests/
+    │       ├── test_admin.py              # NUEVO
+    │       ├── test_formularios.py        # NUEVO
+    │       └── test_modelos.py            # MODIFICAR: uq_presentacion_nombre
     └── entidades/
         ├── admin.py                       # NUEVO
         └── tests/test_admin.py            # NUEVO
@@ -75,40 +82,145 @@ Así avanza el rojo con cada paso:
 `app/apps/panel.py`:
 
 ```python
-"""Reglas comunes del panel /admin/ (readme, sección 5, "Controles")."""
+"""Reglas comunes del panel /admin/ (readme, sección 5, "Controles"; HB-09).
 
+Los mixins van antes de admin.ModelAdmin en la herencia, para que sus métodos reemplacen
+a los del panel:
+
+    class MedicamentoAdmin(SinBorrarMixin, BusquedaSinAcentosMixin, admin.ModelAdmin): ...
+"""
+
+from django.core import checks
+from django.core.exceptions import FieldDoesNotExist
 from django.db.models import Q, Value
+from django.db.models.lookups import Contains
+from django.utils.text import smart_split, unescape_string_literal
 
 from apps.expresiones import sin_acentos
 
 
 class SinBorrarMixin:
-    """Sin la acción "Eliminar": la baja es lógica (activo o estado)."""
+    """Sin la acción "Eliminar": la baja es lógica (activo o estado).
+
+    El panel quita la acción de la lista y el botón de la página, y responde 403 en
+    .../delete/, también al Administrador (superusuario).
+    """
 
     def has_delete_permission(self, request, obj=None):
         return False
 
 
+# Cada palabra agrega un filter() con su propia unión a la tabla puente (principios activos):
+# el tope evita una consulta enorme con cientos de palabras, y 8 sobran para nombre,
+# concentración y principios activos
+MAXIMO_PALABRAS = 8
+
+
+def palabras_de_busqueda(search_term: str) -> list[str]:
+    """Divide el término en palabras, como el panel de Django: "cozaar losartan" da 2.
+
+    Una frase entre comillas cuenta como una sola palabra, sin las comillas. Los espacios
+    sobrantes no cuentan: " losartan " da ["losartan"] y " " no da ninguna. Devuelve como
+    mucho las primeras MAXIMO_PALABRAS palabras, en su orden; las demás se ignoran sin avisar.
+    """
+    palabras = []
+    for bit in smart_split(search_term):
+        if len(palabras) == MAXIMO_PALABRAS:
+            break
+        if len(bit) > 1 and bit[0] in "\"'" and bit[0] == bit[-1]:
+            bit = unescape_string_literal(bit)
+        if bit.strip():
+            palabras.append(bit.strip())
+    return palabras
+
+
 class BusquedaSinAcentosMixin:
     """La búsqueda ignora mayúsculas y acentos: "losartan" encuentra "Losartán".
 
-    Compara f_unaccent(lower(campo)) contra f_unaccent(lower(término)), la misma expresión
-    de los índices trigram (sección 3.3). La subclase define campos_sin_acentos.
+    Compara f_unaccent(lower(campo)) contra f_unaccent(lower(palabra)), la misma expresión
+    de los índices trigram (sección 3.3, ADR-0017). Cada palabra debe aparecer en alguno de
+    los campos, y todas las palabras deben coincidir. La subclase define campos_sin_acentos
+    como tupla (sin ellos, check() da panel.E001; como texto, panel.E003; con un campo que no
+    existe, panel.E002); search_fields sigue declarado solo para que
+    el panel muestre el buscador y permita el autocomplete. Sin mínimo de caracteres ni
+    UNION: eso es de la búsqueda de existencias.
     """
 
     campos_sin_acentos: tuple[str, ...] = ()
 
+    def check(self, **kwargs):
+        errores = super().check(**kwargs)
+        campos = getattr(self, "campos_sin_acentos", ())
+        if isinstance(campos, str):
+            # Un texto se recorrería letra por letra: un solo error, sin revisar los campos
+            errores.append(
+                checks.Error(
+                    f"{self.__class__.__name__}.campos_sin_acentos es un texto ({campos!r}) y "
+                    "debe ser una tupla: se recorrería letra por letra.",
+                    hint='Declara una tupla, por ejemplo ("nombre",), con la coma final.',
+                    obj=self.__class__,
+                    id="panel.E003",
+                )
+            )
+            return errores
+        if not campos:
+            errores.append(
+                checks.Error(
+                    f"{self.__class__.__name__} usa BusquedaSinAcentosMixin y no declara "
+                    "campos_sin_acentos: su búsqueda devolvería todas las filas.",
+                    hint="Declara campos_sin_acentos con los campos donde buscar, por "
+                    'ejemplo ("nombre",).',
+                    obj=self.__class__,
+                    id="panel.E001",
+                )
+            )
+        for campo in campos:
+            if not self._campo_existe(campo):
+                errores.append(
+                    checks.Error(
+                        f"{self.__class__.__name__}.campos_sin_acentos incluye {campo!r}, que "
+                        f"no existe en {self.model.__name__}: la búsqueda fallaría con un 500.",
+                        hint="Escribe el campo como en un filter(), por ejemplo "
+                        '"nombre" o "principios_activos__nombre".',
+                        obj=self.__class__,
+                        id="panel.E002",
+                    )
+                )
+        return errores
+
+    def _campo_existe(self, campo: str) -> bool:
+        """Recorre los tramos de campo ("a__b__c") desde self.model, como haría filter()."""
+        modelo = self.model
+        tramos = campo.split("__")
+        for posicion, tramo in enumerate(tramos):
+            try:
+                field = modelo._meta.get_field(tramo)
+            except FieldDoesNotExist:
+                return False
+            if posicion < len(tramos) - 1:
+                modelo = field.related_model
+                if modelo is None:
+                    return False
+        return True
+
     def get_search_results(self, request, queryset, search_term):
-        if not search_term:
+        palabras = palabras_de_busqueda(search_term)
+        if not palabras:
             return queryset, False
-        termino = sin_acentos(Value(search_term))
-        condicion = Q()
-        for posicion, campo in enumerate(self.campos_sin_acentos):
-            alias = f"_busqueda_{posicion}"
-            queryset = queryset.annotate(**{alias: sin_acentos(campo)})
-            condicion |= Q(**{f"{alias}__contains": termino})
+        for palabra in palabras:
+            termino = sin_acentos(Value(palabra))
+            # Un filter() por palabra, como el panel de Django: en los campos de varios
+            # valores (principios_activos__nombre) cada palabra tiene su propia unión con la
+            # tabla puente, y "losartan hidroclorotiazida" encuentra Hyzaar. Las expresiones
+            # van al WHERE, no al SELECT, y así distinct() quita de verdad los duplicados
+            queryset = queryset.filter(
+                Q(
+                    *(Contains(sin_acentos(campo), termino) for campo in self.campos_sin_acentos),
+                    _connector=Q.OR,
+                )
+            )
         # distinct(): buscar por principio activo une con la tabla puente
-        return queryset.filter(condicion).distinct(), True
+        return queryset.distinct(), True
 ```
 
 ### Paso 3. Catálogo en el panel (≈ 45 min)
@@ -138,17 +250,22 @@ def exigir_principio_activo(principios_activos) -> None:
     """Lanza ValidationError(code="sin_principio_activo") si la colección está vacía o es None.
 
     Acepta cualquier colección: los principios activos elegidos en el formulario, una lista de
-    ids (principios_activos_ids de la V2) o un QuerySet (se evalúa una sola vez). None se
-    rechaza como la colección vacía: en la V2, si principios_activos_ids falta en un PATCH no
-    se llama a la regla, y un null explícito significa "sin principios activos". Un texto (str
-    o bytes) lanza TypeError: es un error de programación, porque list("abc") daría 3
-    elementos y la regla pasaría por error. La V2 traduce code="sin_principio_activo" a
-    errores[].codigo = CAMPO_VACIO.
+    ids (principios_activos_ids de la V2) o un QuerySet (se evalúa una sola vez). None es un
+    caso defensivo para quien la llame desde dentro: se rechaza como la colección vacía.
+
+    En la V2, el esquema de principios_activos_ids (array, minItems: 1) rechaza antes de llegar
+    aquí: la lista vacía se traduce a errores[].codigo = CAMPO_VACIO con el mensaje de esta
+    regla, y un valor que no es array (incluido null) a TIPO_INVALIDO. Si el campo falta en un
+    PATCH no se llama a la regla; si no, la V2 la llama con la lista ya validada, antes de
+    guardar, y traduce code="sin_principio_activo" a CAMPO_VACIO.
+
+    Un texto o una secuencia de bytes (str, bytes, bytearray o memoryview) lanza TypeError: es
+    un error de programación, porque list("abc") daría 3 elementos y la regla pasaría por error.
     """
-    if isinstance(principios_activos, (str, bytes)):
+    if isinstance(principios_activos, (str, bytes, bytearray, memoryview)):
         raise TypeError(
             "exigir_principio_activo: se esperaba una colección de principios activos, no un "
-            f"texto ({type(principios_activos).__name__})."
+            f"texto ni bytes ({type(principios_activos).__name__})."
         )
     if principios_activos is None or not list(principios_activos):
         raise ValidationError(SIN_PRINCIPIO_ACTIVO, code="sin_principio_activo")
@@ -189,9 +306,15 @@ class PrincipiosActivosFormSet(BaseInlineFormSet):
 `app/apps/catalogo/admin.py`:
 
 ```python
-"""Catálogo de medicamentos en /admin/ (readme, sección 5, "Habilitadores")."""
+"""Catálogo de medicamentos en /admin/ (readme, sección 5, "Habilitadores"; HB-09).
+
+Nadie borra: la baja de un medicamento o de una presentación es activo = False. Los
+mensajes de duplicado salen del violation_error_message de las restricciones de HB-05, que
+el formulario valida antes de guardar.
+"""
 
 from django.contrib import admin
+from django.db.models import Q
 
 from apps.catalogo.forms import PrincipiosActivosFormSet
 from apps.catalogo.models import (
@@ -215,7 +338,7 @@ class PresentacionAdmin(SinBorrarMixin, BusquedaSinAcentosMixin, admin.ModelAdmi
 @admin.register(PrincipioActivo)
 class PrincipioActivoAdmin(SinBorrarMixin, BusquedaSinAcentosMixin, admin.ModelAdmin):
     list_display = ("nombre", "creado_en")
-    search_fields = ("nombre",)
+    search_fields = ("nombre",)  # también habilita el autocomplete del medicamento
     campos_sin_acentos = ("nombre",)
     ordering = ("nombre",)
 
@@ -223,8 +346,10 @@ class PrincipioActivoAdmin(SinBorrarMixin, BusquedaSinAcentosMixin, admin.ModelA
 class PrincipioActivoEnLinea(admin.TabularInline):
     """Principios activos en la misma pantalla del medicamento (al menos uno).
 
-    La regla la aplica PrincipiosActivosFormSet (apps/catalogo/forms.py) en el alta y en el
-    cambio; min_num y extra solo muestran un renglón vacío para capturar.
+    La regla "al menos uno" la aplica PrincipiosActivosFormSet, con el mensaje de
+    apps.catalogo.validadores, en el alta y en el cambio. min_num y extra solo deciden que se
+    muestre un renglón vacío: sin validate_min, para que el aviso genérico de Django no se
+    sume al de la regla.
     """
 
     model = MedicamentoPrincipioActivo
@@ -247,31 +372,94 @@ class MedicamentoAdmin(SinBorrarMixin, BusquedaSinAcentosMixin, admin.ModelAdmin
     fields = ("nombre_comercial", "tipo", "presentacion", "concentracion", "activo")
     inlines = [PrincipioActivoEnLinea]
     ordering = ("nombre_comercial",)
+
+    def get_form(self, request, obj=None, change=False, **kwargs):
+        # Sin presentaciones dadas de baja en el alta (ADR-0009). Al cambiar un medicamento
+        # se conserva la suya aunque esté inactiva, para poder guardarlo. get_form() arma una
+        # clase nueva en cada petición: limitar base_fields no afecta a las demás
+        form = super().get_form(request, obj, change=change, **kwargs)
+        if "presentacion" in form.base_fields:  # Solo lectura no tiene el campo editable
+            vigentes = Q(activo=True)
+            if obj is not None:
+                vigentes |= Q(pk=obj.presentacion_id)
+            campo = form.base_fields["presentacion"]
+            campo.queryset = Presentacion.objects.filter(vigentes).order_by("nombre")
+        return form
 ```
 
 > **Al menos un principio activo** (ajuste 2 de la revisión): la regla vive en `apps/catalogo/validadores.py` (`exigir_principio_activo()` y el mensaje "Un medicamento debe tener al menos un principio activo."), y `apps/catalogo/forms.py` la aplica a los renglones con `PrincipiosActivosFormSet.clean()`. No se valida en la base, para mantener la flexibilidad. En la V2, `POST` y `PATCH /medicamentos` llaman a la misma función (readme, sección 4; `openapi.yaml`, `principios_activos_ids`). No uses `validate_min`: el panel no lo pasa al formulario, y su aviso genérico se sumaría al de la regla.
 
 > **Pendiente para TK-01:** desmarcar `activo` en un medicamento con existencias debe dar un mensaje ("No se puede dar de baja: hay existencias de este medicamento"). Esa validación necesita la tabla `existencia`, así que la agrega TK-01 junto con el *trigger* `tg_medicamento_baja`.
 
+### Paso 3b. Presentaciones sin duplicados sin acentos (≈ 15 min)
+
+Desde este ticket el panel da de alta presentaciones. Por eso el `UNIQUE` literal de `presentacion.nombre` (HB-05) se reemplaza por un índice único sobre `f_unaccent(lower(nombre))`, como `uq_principio_activo_nombre`. Sin él, "Tableta" junto a "tableta" permitiría registrar 2 veces el mismo medicamento. En `app/apps/catalogo/models.py`, `Presentacion` queda así:
+
+```python
+class Presentacion(models.Model):
+    """Forma farmacéutica: tableta, cápsula, jarabe..."""
+
+    id = models.SmallAutoField(primary_key=True)
+    nombre = models.CharField(max_length=60)
+    # default para los formularios y db_default para la base (INSERT directo, mock)
+    activo = models.BooleanField(default=True, db_default=True)
+
+    class Meta:
+        db_table = "presentacion"
+        verbose_name = "presentación"
+        verbose_name_plural = "presentaciones"
+        constraints = [
+            # Índice único por expresión, en lugar del UNIQUE literal de HB-05: "Tableta" =
+            # "tableta" = "TABLETA"; sin él, se podría duplicar también el medicamento
+            models.UniqueConstraint(
+                sin_acentos("nombre"),
+                name="uq_presentacion_nombre",
+                violation_error_message="Ya existe esa presentación "
+                "(sin distinguir mayúsculas ni acentos).",
+            ),
+            models.CheckConstraint(condition=no_vacio("nombre"), name="ck_presentacion_nombre"),
+        ]
+
+    def __str__(self) -> str:
+        return self.nombre
+```
+
+Genera la migración y aplícala como `app_owner`:
+
+```bash
+dj makemigrations catalogo --name presentacion_unica   # AlterField (sin unique) y AddConstraint
+./scripts/migrate.sh
+dpsql -c '\d presentacion'   # "uq_presentacion_nombre" UNIQUE, btree (f_unaccent(lower(nombre::text))), sin UNIQUE literal ni índice _like
+```
+
+Reversión: `./scripts/migrate.sh catalogo 0003`, que devuelve el `UNIQUE` literal, y otra vez `./scripts/migrate.sh`.
+
 ### Paso 4. Residentes en el panel (≈ 30 min)
 
 `app/apps/entidades/admin.py`:
 
 ```python
-"""Residentes en /admin/ (readme, sección 5, "Habilitadores").
+"""Residentes en /admin/ (readme, sección 5, "Habilitadores"; HB-09).
 
-El Hogar es fijo (lo crea la migración): Entidad no se registra en el panel.
+El Hogar es fijo (lo crea la migración): Entidad no se registra en el panel. El alta pasa
+por registrar_residente(), que crea la entidad y el residente juntos. Nadie borra: el
+egreso o la defunción se registran con el estado y la fecha de baja.
 """
 
 from django.contrib import admin
 
 from apps.entidades.models import Residente
 from apps.entidades.services import registrar_residente
+from apps.expresiones import sin_acentos
 from apps.panel import BusquedaSinAcentosMixin, SinBorrarMixin
 
 CAMPOS_ALTA = (
-    "primer_nombre", "segundo_nombre", "primer_apellido", "segundo_apellido",
-    "fecha_nacimiento", "fecha_ingreso",
+    "primer_nombre",
+    "segundo_nombre",
+    "primer_apellido",
+    "segundo_apellido",
+    "fecha_nacimiento",
+    "fecha_ingreso",
 )
 
 
@@ -279,9 +467,15 @@ CAMPOS_ALTA = (
 class ResidenteAdmin(SinBorrarMixin, BusquedaSinAcentosMixin, admin.ModelAdmin):
     list_display = ("nombre_completo", "estado", "fecha_ingreso", "fecha_baja")
     list_filter = ("estado",)
-    search_fields = ("primer_apellido",)
-    campos_sin_acentos = ("primer_nombre", "segundo_nombre", "primer_apellido", "segundo_apellido")
-    ordering = ("primer_apellido", "primer_nombre")
+    search_fields = ("primer_apellido",)  # muestra el buscador; la búsqueda real es sin acentos
+    campos_sin_acentos = (
+        "primer_nombre",
+        "segundo_nombre",
+        "primer_apellido",
+        "segundo_apellido",
+    )
+    # Por apellido y nombre sin acentos: la misma expresión de ix_residente_nombre (consulta 3)
+    ordering = (sin_acentos("primer_apellido").asc(), sin_acentos("primer_nombre").asc())
 
     def get_fields(self, request, obj=None):
         # En el alta no se elige el estado: todo residente nuevo empieza ACTIVO
@@ -289,11 +483,11 @@ class ResidenteAdmin(SinBorrarMixin, BusquedaSinAcentosMixin, admin.ModelAdmin):
 
     def save_model(self, request, obj, form, change):
         if change:
-            obj.save()  # cambio de datos, egreso o defunción (lo validan las restricciones)
+            obj.save()  # cambio de datos, egreso o defunción (el formulario ya validó las reglas)
         else:
             registrar_residente(obj)  # crea la entidad y el residente juntos
 
-    @admin.display(description="Nombre", ordering="primer_apellido")
+    @admin.display(description="Nombre", ordering=sin_acentos("primer_apellido"))
     def nombre_completo(self, residente):
         return residente.nombre_completo
 ```
@@ -329,6 +523,8 @@ Comprueba que los tests de la sección 3 pasan, ejecuta la sección 5 y abre el 
 
 ## 3. Tests requeridos
 
+> Los bloques de esta sección son la base del ticket. Los tests completos, con los añadidos de las 3 revisiones adversariales, están en `app/apps/catalogo/tests/` (`test_admin.py`, `test_formularios.py` y `test_modelos.py`) y en `app/apps/entidades/tests/test_admin.py`. Con el código de la sección 2, los 2 conjuntos pasan.
+
 ### 3.1 `apps/catalogo/tests/test_admin.py`
 
 ```python
@@ -340,6 +536,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 
 from apps.catalogo.models import Medicamento, Presentacion, PrincipioActivo
+from apps.catalogo.validadores import SIN_PRINCIPIO_ACTIVO
 from apps.entidades.models import Entidad
 
 pytestmark = [pytest.mark.django_db, pytest.mark.http]
@@ -390,7 +587,7 @@ def test_lectura_y_escritura_da_de_alta_con_su_principio_activo(entrar_como, los
 def test_sin_principio_activo_el_formulario_avisa(entrar_como, losartan):
     respuesta = entrar_como("Lectura y escritura").post(f"{URL}add/", formulario(losartan, filas=0))
     assert respuesta.status_code == 200
-    assert SIN_PRINCIPIO_ACTIVO in respuesta.content.decode()  # from apps.catalogo.validadores
+    assert SIN_PRINCIPIO_ACTIVO in respuesta.content.decode()
     assert not Medicamento.objects.exists()
     # El cambio sin principio activo también avisa: test_el_cambio_sin_principio_activo_avisa
     # (apps/catalogo/tests/test_admin.py), y la regla sin HTTP, en test_formularios.py
@@ -597,6 +794,19 @@ dtest -q --cov=apps --cov-fail-under=80
 >   ```
 >
 >   Si devuelve filas, se renombra la presentación sobrante, o se reasignan sus medicamentos a la otra, y se da de baja (`activo = False`) antes de migrar.
+>
+> **Ajustes de la tercera revisión adversarial** (cambio de OpenSpec `hb-09-ajustes-revision-4`):
+>
+> | Hallazgo | Cambio |
+> |---|---|
+> | 1. La guía no se podía seguir completa | La sección 1 lista todos los archivos; los pasos 2, 3 y 4 traen el código vigente (copiado de los archivos y comprobado); el paso 3b crea `uq_presentacion_nombre` y la migración `0004`; el test base de la sección 3 importa `SIN_PRINCIPIO_ACTIVO` |
+> | 2. `null` en la V2 se describía de 2 formas | Una sola: el esquema rechaza la lista vacía (`minItems`, `CAMPO_VACIO` con el mensaje de la regla) y lo que no es *array*, incluido `null` (`TIPO_INVALIDO`); en `exigir_principio_activo()`, `None` es un caso defensivo |
+> | 3. Escenario no verificable en el MVP | La traducción a `CAMPO_VACIO` pasa a la descripción del requisito |
+> | 4. `bytearray` y `memoryview` pasaban la regla | También lanzan `TypeError` |
+> | 6. `campos_sin_acentos` escrito como texto | Un solo error `panel.E003` |
+> | 7. Sin test de relación inversa | `medicamentos__nombre_comercial` desde `PrincipioActivo` no da `panel.E002` |
+>
+> **Nota, sin cambio de código (hallazgo 5):** `panel.E002` marca `"pk"` como campo inexistente, porque `_meta.get_field("pk")` no lo resuelve, aunque `filter(pk=...)` sí funciona. Ningún registro busca por `pk`; si hiciera falta, usa el nombre real del campo (`id`).
 
 ---
 

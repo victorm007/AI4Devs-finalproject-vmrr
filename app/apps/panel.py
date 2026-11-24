@@ -56,7 +56,8 @@ class BusquedaSinAcentosMixin:
     Compara f_unaccent(lower(campo)) contra f_unaccent(lower(palabra)), la misma expresión
     de los índices trigram (sección 3.3, ADR-0017). Cada palabra debe aparecer en alguno de
     los campos, y todas las palabras deben coincidir. La subclase define campos_sin_acentos
-    (sin ellos, check() da el error panel.E001); search_fields sigue declarado solo para que
+    como tupla (sin ellos, check() da panel.E001; como texto, panel.E003; con un campo que no
+    existe, panel.E002); search_fields sigue declarado solo para que
     el panel muestre el buscador y permita el autocomplete. Sin mínimo de caracteres ni
     UNION: eso es de la búsqueda de existencias.
     """
@@ -65,7 +66,20 @@ class BusquedaSinAcentosMixin:
 
     def check(self, **kwargs):
         errores = super().check(**kwargs)
-        if not getattr(self, "campos_sin_acentos", ()):
+        campos = getattr(self, "campos_sin_acentos", ())
+        if isinstance(campos, str):
+            # Un texto se recorrería letra por letra: un solo error, sin revisar los campos
+            errores.append(
+                checks.Error(
+                    f"{self.__class__.__name__}.campos_sin_acentos es un texto ({campos!r}) y "
+                    "debe ser una tupla: se recorrería letra por letra.",
+                    hint='Declara una tupla, por ejemplo ("nombre",), con la coma final.',
+                    obj=self.__class__,
+                    id="panel.E003",
+                )
+            )
+            return errores
+        if not campos:
             errores.append(
                 checks.Error(
                     f"{self.__class__.__name__} usa BusquedaSinAcentosMixin y no declara "
@@ -76,7 +90,7 @@ class BusquedaSinAcentosMixin:
                     id="panel.E001",
                 )
             )
-        for campo in getattr(self, "campos_sin_acentos", ()):
+        for campo in campos:
             if not self._campo_existe(campo):
                 errores.append(
                     checks.Error(
