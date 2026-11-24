@@ -154,7 +154,7 @@ El panel `/admin/` DEBE (MUST) mostrar presentaciones, principios activos y medi
 
 ### Requirement: Principios activos en la pantalla del medicamento
 
-El alta y el cambio de un medicamento DEBEN (MUST) incluir sus principios activos en la misma pantalla, al menos uno, elegidos con un buscador (*autocomplete*) que ignora mayúsculas y acentos. Sin ninguno, el formulario no guarda y muestra el mensaje "Un medicamento debe tener al menos un principio activo.", tanto en el alta como en el cambio. La regla se valida fuera de la base y se puede reutilizar fuera del panel: en la V2, `POST` y `PATCH /medicamentos` traducen su código `sin_principio_activo` a `errores[].codigo = CAMPO_VACIO`.
+El alta y el cambio de un medicamento DEBEN (MUST) incluir sus principios activos en la misma pantalla, al menos uno, elegidos con un buscador (*autocomplete*) que ignora mayúsculas y acentos. Sin ninguno, el formulario no guarda y muestra el mensaje "Un medicamento debe tener al menos un principio activo.", tanto en el alta como en el cambio. La regla se valida fuera de la base y se puede reutilizar fuera del panel: en la V2, el esquema de `POST` y `PATCH /medicamentos` rechaza la lista vacía con `errores[].codigo = CAMPO_VACIO` y el mismo mensaje.
 
 #### Scenario: Alta con su principio activo (HB-09, criterio 2)
 
@@ -181,7 +181,7 @@ El alta y el cambio de un medicamento DEBEN (MUST) incluir sus principios activo
 #### Scenario: La regla se puede reutilizar fuera del panel (revisión de HB-09, hallazgo 4)
 
 - **GIVEN** la regla de al menos un principio activo
-- **WHEN** se valida una lista vacía de principios activos, como la que llegaría en `POST /medicamentos` de la V2
+- **WHEN** se valida una lista vacía de principios activos fuera del panel, por ejemplo desde código que guarda sin pasar por un formulario
 - **THEN** se rechaza con el mensaje "Un medicamento debe tener al menos un principio activo." y el código `sin_principio_activo`
 - **AND** una lista con un principio activo se acepta
 - **AND** sin colección (`None`) se rechaza con el mismo mensaje y código, como caso defensivo

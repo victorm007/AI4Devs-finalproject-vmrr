@@ -65,10 +65,10 @@ El orden sigue TDD (`CLAUDE.md`): primero los tests en rojo, después la impleme
 Escribe los tests de la sección 3 y ejecútalos **antes** de implementar:
 
 ```bash
-dtest apps/catalogo/tests/test_admin.py apps/entidades/tests/test_admin.py -q
+dtest apps/catalogo/tests/test_admin.py apps/entidades/tests/test_admin.py apps/catalogo/tests/test_modelos.py -q
 ```
 
-Solo debe pasar `test_el_hogar_no_se_edita_en_el_panel`, porque `Entidad` nunca se registra en el panel: es un test de regresión.
+Solo deben pasar `test_el_hogar_no_se_edita_en_el_panel` (en `apps/entidades/tests/test_admin.py`), porque `Entidad` nunca se registra en el panel, y los tests de HB-05 que ya estaban en `test_modelos.py`: son de regresión. Los 2 de la sección 3.3 fallan hasta el paso 3b.
 
 Así avanza el rojo con cada paso:
 
@@ -236,9 +236,10 @@ la regla se valida en la entrada, con un solo texto:
 
 - En el MVP, el alta y el cambio del medicamento en /admin/ (PrincipiosActivosFormSet de
   apps.catalogo.forms).
-- En la V2, POST /medicamentos y PATCH /medicamentos/{id} (si trae principios_activos_ids) la
-  llamarán antes de guardar y responderán 400 VALIDACION con
-  errores[] = {campo: principios_activos_ids, codigo: CAMPO_VACIO, mensaje: SIN_PRINCIPIO_ACTIVO}.
+- En la V2, en POST /medicamentos y PATCH /medicamentos/{id} la lista vacía la rechaza el
+  esquema de principios_activos_ids (minItems: 1) con 400 VALIDACION y
+  errores[] = {campo: principios_activos_ids, codigo: CAMPO_VACIO, mensaje: SIN_PRINCIPIO_ACTIVO}:
+  el mensaje es el de esta regla. La función protege a quien guarde sin pasar por ese esquema.
 """
 
 from django.core.exceptions import ValidationError
@@ -253,11 +254,10 @@ def exigir_principio_activo(principios_activos) -> None:
     ids (principios_activos_ids de la V2) o un QuerySet (se evalúa una sola vez). None es un
     caso defensivo para quien la llame desde dentro: se rechaza como la colección vacía.
 
-    En la V2, el esquema de principios_activos_ids (array, minItems: 1) rechaza antes de llegar
-    aquí: la lista vacía se traduce a errores[].codigo = CAMPO_VACIO con el mensaje de esta
-    regla, y un valor que no es array (incluido null) a TIPO_INVALIDO. Si el campo falta en un
-    PATCH no se llama a la regla; si no, la V2 la llama con la lista ya validada, antes de
-    guardar, y traduce code="sin_principio_activo" a CAMPO_VACIO.
+    En la V2, el esquema de principios_activos_ids (array, minItems: 1) responde antes: la lista
+    vacía con CAMPO_VACIO y el mensaje SIN_PRINCIPIO_ACTIVO, y un valor que no es array
+    (incluido null) con TIPO_INVALIDO. Esta función no la necesita la API para esos casos: es
+    la misma regla para el panel y para cualquier código que guarde sin pasar por el esquema.
 
     Un texto o una secuencia de bytes (str, bytes, bytearray o memoryview) lanza TypeError: es
     un error de programación, porque list("abc") daría 3 elementos y la regla pasaría por error.
@@ -432,7 +432,7 @@ dj makemigrations catalogo --name presentacion_unica   # AlterField (sin unique)
 dpsql -c '\d presentacion'   # "uq_presentacion_nombre" UNIQUE, btree (f_unaccent(lower(nombre::text))), sin UNIQUE literal ni índice _like
 ```
 
-Reversión: `./scripts/migrate.sh catalogo 0003`, que devuelve el `UNIQUE` literal, y otra vez `./scripts/migrate.sh`.
+Verifica con `dtest apps/catalogo/tests/test_modelos.py -q`: los 2 tests de la sección 3.3 pasan. Reversión: `./scripts/migrate.sh catalogo 0003`, que devuelve el `UNIQUE` literal, y otra vez `./scripts/migrate.sh`.
 
 ### Paso 4. Residentes en el panel (≈ 30 min)
 
@@ -523,7 +523,7 @@ Comprueba que los tests de la sección 3 pasan, ejecuta la sección 5 y abre el 
 
 ## 3. Tests requeridos
 
-> Los bloques de esta sección son la base del ticket. Los tests completos, con los añadidos de las 3 revisiones adversariales, están en `app/apps/catalogo/tests/` (`test_admin.py`, `test_formularios.py` y `test_modelos.py`) y en `app/apps/entidades/tests/test_admin.py`. Con el código de la sección 2, los 2 conjuntos pasan.
+> Los bloques de esta sección son la base del ticket. Los tests completos, con los añadidos de las revisiones adversariales, están en `app/apps/catalogo/tests/` (`test_admin.py`, `test_formularios.py` y `test_modelos.py`) y en `app/apps/entidades/tests/test_admin.py`. Con el código de la sección 2, los 2 conjuntos pasan.
 
 ### 3.1 `apps/catalogo/tests/test_admin.py`
 
@@ -531,13 +531,10 @@ Comprueba que los tests de la sección 3 pasan, ejecuta la sección 5 y abre el 
 """Catálogo en /admin/: permisos por grupo, principio activo en línea, sin borrado y búsqueda."""
 
 import pytest
-from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 
 from apps.catalogo.models import Medicamento, Presentacion, PrincipioActivo
-from apps.catalogo.validadores import SIN_PRINCIPIO_ACTIVO
-from apps.entidades.models import Entidad
 
 pytestmark = [pytest.mark.django_db, pytest.mark.http]
 URL = "/admin/catalogo/medicamento/"
@@ -585,6 +582,10 @@ def test_lectura_y_escritura_da_de_alta_con_su_principio_activo(entrar_como, los
 
 
 def test_sin_principio_activo_el_formulario_avisa(entrar_como, losartan):
+    # Dentro del test: hasta el paso 3 el módulo no existe, y un import al inicio tumbaría
+    # todo el archivo en la recolección
+    from apps.catalogo.validadores import SIN_PRINCIPIO_ACTIVO
+
     respuesta = entrar_como("Lectura y escritura").post(f"{URL}add/", formulario(losartan, filas=0))
     assert respuesta.status_code == 200
     assert SIN_PRINCIPIO_ACTIVO in respuesta.content.decode()
@@ -632,10 +633,6 @@ def test_la_busqueda_ignora_mayusculas_y_acentos(entrar_como, losartan):
     cliente.post(f"{URL}add/", formulario(losartan, nombre_comercial="Cozaar"))
     assert "Cozaar" in cliente.get(URL, {"q": "COZAAR"}).content.decode()
     assert "Cozaar" in cliente.get(URL, {"q": "losartan"}).content.decode()  # por principio activo
-
-
-def test_el_hogar_no_se_edita_en_el_panel():
-    assert Entidad not in admin.site._registry
 ```
 
 ### 3.2 `apps/entidades/tests/test_admin.py`
@@ -644,6 +641,7 @@ def test_el_hogar_no_se_edita_en_el_panel():
 """Residentes en /admin/: alta con el servicio, egreso validado y búsqueda sin acentos."""
 
 import pytest
+from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 
@@ -701,6 +699,29 @@ def test_la_busqueda_ignora_acentos(operador, maria):
 
 def test_nadie_borra_residentes(operador, maria):
     assert operador.get(f"{URL}{maria.pk}/delete/").status_code == 403
+
+
+def test_el_hogar_no_se_edita_en_el_panel():
+    assert Entidad not in admin.site._registry
+```
+
+### 3.3 `apps/catalogo/tests/test_modelos.py` (agregar al archivo de HB-05)
+
+Para el paso 3b: presentaciones sin duplicados sin acentos. Agrega `Presentacion` a los *imports* de `apps.catalogo.models` si no está.
+
+```python
+def test_presentacion_duplicada_sin_acentos():
+    # La base rechaza "CAPSULA" si existe la semilla "cápsula" (uq_presentacion_nombre)
+    with pytest.raises(IntegrityError, match="uq_presentacion_nombre"):
+        with transaction.atomic():
+            Presentacion.objects.create(nombre="CAPSULA")
+
+
+def test_el_formulario_avisa_la_presentacion_duplicada():
+    # El formulario del panel avisa antes de llegar a la base, con el mensaje de la restricción
+    Presentacion(nombre="supositorio").full_clean()  # control: un nombre nuevo sí pasa
+    with pytest.raises(ValidationError, match="Ya existe esa presentación"):
+        Presentacion(nombre="Tableta").full_clean()
 ```
 
 ---
@@ -749,7 +770,7 @@ dtest -q --cov=apps --cov-fail-under=80
 >   - sin N+1 en la lista de medicamentos (`django_assert_num_queries`);
 >   - el alta del medicamento sin código en línea (CSP);
 >   - la fecha de baja anterior al ingreso y la defunción.
-> - **`test_el_hogar_no_se_edita_en_el_panel`** está en `apps/entidades/tests/test_admin.py`, con controles de `Residente`, así que nace en rojo.
+> - **`test_el_hogar_no_se_edita_en_el_panel`** está en `apps/entidades/tests/test_admin.py`. La versión base de la sección 3.2 es de regresión; la del repositorio lleva además controles de `Residente` y nace en rojo.
 > - **Revisión en el navegador:** se hizo con Chrome *headless* por CDP, detrás de nginx, como un usuario de *Lectura y escritura*: alta con el botón **+** y el *autocomplete*, duplicado, búsqueda, alta y egreso de un residente. No hay violaciones de CSP; el único mensaje de la consola es el 404 de `/favicon.ico`. Capturas en `docs/capturas/HB-09/`.
 > - **Etiquetas sin acento, aceptadas:** el panel muestra "Presentacion", "Concentracion", "Fecha ingreso" o "Fecha baja" porque los modelos de HB-05 y HB-06 no tienen `verbose_name`. Corregirlo generaría migraciones, y el panel es provisional hasta las pantallas propias de la V2 (ADR-0020).
 > - **Rama:** `feature/entrega-2-vmrr`, por la regla de ramas de `CLAUDE.md`.
@@ -807,6 +828,20 @@ dtest -q --cov=apps --cov-fail-under=80
 > | 7. Sin test de relación inversa | `medicamentos__nombre_comercial` desde `PrincipioActivo` no da `panel.E002` |
 >
 > **Nota, sin cambio de código (hallazgo 5):** `panel.E002` marca `"pk"` como campo inexistente, porque `_meta.get_field("pk")` no lo resuelve, aunque `filter(pk=...)` sí funciona. Ningún registro busca por `pk`; si hiciera falta, usa el nombre real del campo (`id`).
+>
+> **Ajustes de la cuarta revisión adversarial** (cambio de OpenSpec `hb-09-ajustes-revision-5`, solo documentación):
+>
+> | Hallazgo | Cambio |
+> |---|---|
+> | 1. El paso 1 no se cumplía: el *import* de `SIN_PRINCIPIO_ACTIVO` tumbaba el módulo | El *import* va dentro de su test, en la sección 3.1 |
+> | 2. Dónde estaba el test del Hogar | Pasa a la sección 3.2 (`entidades`), como en el repositorio |
+> | 3. Una rama de la V2 que nunca se ejecuta | La nota del readme, `openapi.yaml`, el *docstring* de `validadores.py` y el escenario de la spec dicen una sola cosa: el esquema rechaza la lista vacía con `CAMPO_VACIO` y el mensaje de la regla, y la función protege a quien guarde sin pasar por el esquema |
+> | 5. El paso 3b no tenía test en rojo | Sección 3.3 y su verificación en el paso 3b |
+> | 7. `CLAUDE.md` no nombraba `panel.E003` | Lo nombra |
+>
+> **Notas, sin cambio:**
+> - **4.** El contrato no define el mapeo general de los errores de esquema del cuerpo (por ejemplo, `maxItems` → `VALOR_FUERA_DE_RANGO`); solo `principios_activos_ids` documenta `minItems` y `type`. Se decide al implementar la API de escritura (V2).
+> - **6.** `check()` lanza una excepción, en lugar de un `panel.E00x`, si `campos_sin_acentos` contiene `None` o un número. Es improbable y se vería al arrancar (`dj check`).
 
 ---
 

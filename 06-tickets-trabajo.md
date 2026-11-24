@@ -714,6 +714,32 @@ Atendí la tercera revisión en el cambio de OpenSpec `hb-09-ajustes-revision-4`
 
 ---
 
+## Prompt 27 — Usuario
+
+(Tras la cuarta revisión adversarial de HB-09, sin bloqueantes ni mayores y con 7 menores:) ¿Hay pendientes del HB-09? (Tras la respuesta:) Hazlo, por favor.
+
+---
+
+## Respuesta 27 — Claude
+
+Hice una última pasada, solo de documentación, en el cambio de OpenSpec `hb-09-ajustes-revision-5`:
+
+| Hallazgo | Cambio |
+|---|---|
+| 1. El paso 1 de la guía no se cumplía | El *import* de `SIN_PRINCIPIO_ACTIVO` va dentro de su test, así el módulo no falla antes del paso 3 |
+| 2. El test del Hogar estaba en el archivo equivocado | Pasa a la sección 3.2 (`entidades`), como en el repositorio |
+| 3. Una rama de la V2 que nunca se ejecuta | Una sola capa en la nota del readme, `openapi.yaml`, el *docstring* de `validadores.py` y el escenario de la spec: el esquema rechaza la lista vacía con `CAMPO_VACIO` y el mensaje de la regla |
+| 5. El paso 3b no tenía test en rojo | Sección 3.3 con los tests de `uq_presentacion_nombre` |
+| 7. `CLAUDE.md` | Nombra `panel.E003` |
+
+**Notas en la guía, sin cambio:**
+- **4.** El mapeo general de los errores de esquema se decide al implementar la V2.
+- **6.** `check()` no cubre `None` ni números en `campos_sin_acentos`.
+
+**Comprobaciones:** los 5 bloques de código de la guía coinciden con los archivos, y sus tests base (3.1, 3.2 y 3.3) pasan con el código actual (16 de 16). La suite da 236 pasan y 1 omitido, y el contrato pasa el lint de Redocly.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 6)
 
 ## 6. Tickets de Trabajo

@@ -6,9 +6,10 @@ la regla se valida en la entrada, con un solo texto:
 
 - En el MVP, el alta y el cambio del medicamento en /admin/ (PrincipiosActivosFormSet de
   apps.catalogo.forms).
-- En la V2, POST /medicamentos y PATCH /medicamentos/{id} (si trae principios_activos_ids) la
-  llamarán antes de guardar y responderán 400 VALIDACION con
-  errores[] = {campo: principios_activos_ids, codigo: CAMPO_VACIO, mensaje: SIN_PRINCIPIO_ACTIVO}.
+- En la V2, en POST /medicamentos y PATCH /medicamentos/{id} la lista vacía la rechaza el
+  esquema de principios_activos_ids (minItems: 1) con 400 VALIDACION y
+  errores[] = {campo: principios_activos_ids, codigo: CAMPO_VACIO, mensaje: SIN_PRINCIPIO_ACTIVO}:
+  el mensaje es el de esta regla. La función protege a quien guarde sin pasar por ese esquema.
 """
 
 from django.core.exceptions import ValidationError
@@ -23,11 +24,10 @@ def exigir_principio_activo(principios_activos) -> None:
     ids (principios_activos_ids de la V2) o un QuerySet (se evalúa una sola vez). None es un
     caso defensivo para quien la llame desde dentro: se rechaza como la colección vacía.
 
-    En la V2, el esquema de principios_activos_ids (array, minItems: 1) rechaza antes de llegar
-    aquí: la lista vacía se traduce a errores[].codigo = CAMPO_VACIO con el mensaje de esta
-    regla, y un valor que no es array (incluido null) a TIPO_INVALIDO. Si el campo falta en un
-    PATCH no se llama a la regla; si no, la V2 la llama con la lista ya validada, antes de
-    guardar, y traduce code="sin_principio_activo" a CAMPO_VACIO.
+    En la V2, el esquema de principios_activos_ids (array, minItems: 1) responde antes: la lista
+    vacía con CAMPO_VACIO y el mensaje SIN_PRINCIPIO_ACTIVO, y un valor que no es array
+    (incluido null) con TIPO_INVALIDO. Esta función no la necesita la API para esos casos: es
+    la misma regla para el panel y para cualquier código que guarde sin pasar por el esquema.
 
     Un texto o una secuencia de bytes (str, bytes, bytearray o memoryview) lanza TypeError: es
     un error de programación, porque list("abc") daría 3 elementos y la regla pasaría por error.
