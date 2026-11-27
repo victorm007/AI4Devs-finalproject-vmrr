@@ -1220,6 +1220,55 @@ Después hice el commit de todo el trabajo de HB-10 y ADR-0026.
 
 ---
 
+## Prompt 44 — Usuario
+
+¿Qué pendientes tenemos para el HB-10-despliegue-hogar.md? (Tras la respuesta, que proponía empezar por el hallazgo mayor de la revisión de `af5c714`:) Sí.
+
+---
+
+## Respuesta 44 — Claude
+
+Corregí el hallazgo mayor (M1) de la revisión de `af5c714` y el menor m2, los dos en el hook de secretos.
+
+**M1.** Las 4 entradas que agregué a `secretos-permitidos.txt` durante HB-10 (`git@github.com` en la respuesta 42 y las contraseñas de prueba del CI `owner-ci`, `app-ci` y `postgres-ci`) debilitaban el hook. La lista se compara por subcadena, así que dejaba pasar valores reales como `hogar-app-cifrado1`, un correo en `app-cielo.mx` o cualquier usuario `...git@github.com`. La causa del bloqueo original era otra: en Markdown, la comilla invertida queda pegada al valor (`` `DB_OWNER_PASSWORD: owner-ci` ``) y el marcador `ci` ya no lo reconocía.
+
+| Cambio | Dónde |
+|---|---|
+| La comilla invertida cierra el valor, como las otras comillas | `RE_ASIGNACION` |
+| `git@github.com`, anclado al correo completo | `CORREOS_PERMITIDOS` |
+| Las 4 entradas, fuera, con una advertencia sobre la comparación por subcadena | `secretos-permitidos.txt` y `CLAUDE.md` |
+
+**m2.** `RE_ASIGNACION` también reconoce `PASSPHRASE`, por las frases de paso de GPG, LUKS y la CA de HB-10.
+
+**Verificación:**
+- Tests primero: 5 casos nuevos que deben bloquear y 3 que deben pasar. En rojo, 4 failed; los que deben pasar solo pasaban por la lista de permitidos.
+- Con el cambio, `pytest tests`: 56 passed. `verificar.py --herramientas`, limpio.
+- Comparé el hook anterior con el nuevo sobre todas las líneas del repositorio: ninguna cambia de resultado y ninguna queda bloqueada.
+
+Quedan los menores m1, m3 (que esta entrada cubre), m4 y m5.
+
+---
+
+## Prompt 45 — Usuario
+
+Hazlos ahora.
+
+---
+
+## Respuesta 45 — Claude
+
+Apliqué los 3 menores que quedaban de la revisión de `af5c714`. Todos son de documentación.
+
+| Hallazgo | Cambio |
+|---|---|
+| m1 | La sección 0.5 de la guía ya no dice que no queda ningún hallazgo abierto, y suma 3 pendientes: la rama de `RESPALDOS_EXIGIR=1` que hace fallar la recolección, el paso 6 completo con el `Makefile` real y la vuelta atrás de la sección 8.2. La lista del PR (sección 6) exige cerrar cada fila de la 0.5 con su evidencia, o anotarla como pendiente con su motivo |
+| m4 | La fila "Operación" de `implementar-ticket`, `implementer.md` y `openspec/config.yaml` nombran también `tests/test_candado.py` y el caso de ShellCheck de `tests/test_verificar.py`. `implementer` termina HB-10 con `python -m pytest tests -q` y `verificar.py --herramientas` |
+| m5 | Nota en el paso 15: la demo no se presenta conectada a una red ajena, porque nginx publica los puertos 80 y 443 en todas las interfaces y las credenciales del mock son públicas |
+
+Para m5 no cambié `docker-compose.yml` para publicar los puertos solo en `127.0.0.1`. Es configuración de la aplicación, así que iría con `implementar-ticket`, y además dejaría al servidor del hogar sin acceso desde la red local. La nota basta, porque la demo no necesita red.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 6)
 
 ## 6. Tickets de Trabajo

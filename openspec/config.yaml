@@ -107,8 +107,9 @@ rules:
       Excepción de TDD: HB-01 y HB-02 no tienen pytest. Su tarea "rojo" ejecuta los comandos
       con resultado esperado de la sección 3 de la guía antes de crear los archivos, y la de
       implementación los deja con ese resultado. Su último grupo no exige dtest ni cobertura.
-      HB-10: la parte A (scripts de respaldo y restauración) sigue el ciclo completo con
-      tests/test_respaldos.py, que corre en el equipo con python -m pytest, no con dtest. Las
+      HB-10: la parte A (scripts de respaldo y restauración, candado del Makefile y ShellCheck)
+      sigue el ciclo completo con tests/test_respaldos.py, tests/test_candado.py y el caso de
+      ShellCheck de tests/test_verificar.py, que corren en el equipo con python -m pytest, no con dtest. Las
       partes B y C (servidor del hogar y máquina de la demo) se verifican con los comandos con
       resultado esperado de la sección 5 de su guía, sin dtest ni cobertura.
     - >-

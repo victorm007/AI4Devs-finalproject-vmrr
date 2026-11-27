@@ -50,9 +50,11 @@ ALTA = [
 ]
 
 # Media: depende del valor; se exceptúa si el valor parece de ejemplo.
+# PASSPHRASE: las frases de paso de GPG, LUKS y la CA (HB-10). La comilla invertida cierra el valor,
+# como las otras comillas: en Markdown queda pegada a él (`CLAVE: valor`).
 RE_ASIGNACION = re.compile(
-    r"(?i)\b[A-Z0-9_-]*(?:PASSWORD|PASSWD|PWD|SECRET|TOKEN|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY)[A-Z0-9_]*\b"
-    r"""["']?\s*[:=]\s*(["']?)([^\s"'#,;]{8,})"""
+    r"(?i)\b[A-Z0-9_-]*(?:PASSWORD|PASSWD|PASSPHRASE|PWD|SECRET|TOKEN|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY)"
+    r"""[A-Z0-9_]*\b["'`]?\s*[:=]\s*(["'`]?)([^\s"'`#,;]{8,})"""
 )
 RE_URL_CRED = re.compile(r"""\b[a-z][a-z0-9+.-]*://[^/\s:@"']+:([^@\s/"']+)@""", re.I)
 RE_HASH = re.compile(
@@ -80,8 +82,10 @@ PERSONALES = [
 RE_TARJETA = re.compile(r"\b[3-6]\d{3}([ -]?)\d{4}\1\d{4}\1\d{1,7}\b")
 
 DOMINIOS_EJEMPLO = re.compile(r"(?i)(?:^|\.)(?:example\.(?:com|org|net)|example|test|invalid|localhost|local)$")
+# git@github.com: el usuario SSH de GitHub en las URLs de clonación (guía de HB-10, paso 8). Va aquí,
+# anclado, y no en secretos-permitidos.txt, que compara por subcadena y dejaría pasar cualquier correo que termine igual.
 CORREOS_PERMITIDOS = re.compile(
-    r"(?i)^(?:noreply@anthropic\.com|noreply@github\.com|[^@]+@users\.noreply\.github\.com)$"
+    r"(?i)^(?:noreply@anthropic\.com|noreply@github\.com|[^@]+@users\.noreply\.github\.com|git@github\.com)$"
 )
 MARCADORES_EJEMPLO = re.compile(
     r"(?i)ejemplo|example|ficticio|ficticia|dummy|placeholder|fake|sample|demo|cambia|changeme|"

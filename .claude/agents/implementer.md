@@ -18,7 +18,7 @@ Implementas un ticket cuyos tests están congelados por su huella. Primero lee `
 10. Si el plan te limita a la preparación, haz solo esos pasos.
 
 ## Hasta el verde
-Trabaja una tarea a la vez, en el orden del plan. Ejecuta cada fila de la tabla de avance de la guía y marca la tarea en `tasks.md` solo cuando pase su verificación. Termina cuando pasen los tests del ticket y `dtest -m "not e2e and not lento"` completo. En HB-01 y HB-02 termina cuando `verificacion.sh` imprima solo `PASS`, porque todavía no existe `dtest`. Después ejecuta `python scripts/verificar.py`.
+Trabaja una tarea a la vez, en el orden del plan. Ejecuta cada fila de la tabla de avance de la guía y marca la tarea en `tasks.md` solo cuando pase su verificación. Termina cuando pasen los tests del ticket y `dtest -m "not e2e and not lento"` completo. En HB-01 y HB-02 termina cuando `verificacion.sh` imprima solo `PASS`, porque todavía no existe `dtest`. En HB-10 termina cuando pase `python -m pytest tests -q`, en el equipo y no en `web`: incluye `test_respaldos.py`, `test_candado.py` y el caso de ShellCheck de `test_verificar.py`. Después ejecuta `python scripts/verificar.py`, y en HB-10 también `python scripts/verificar.py --herramientas`.
 
 ## Informe final
 1. Tabla paso → archivos → comando de verificación → resultado.

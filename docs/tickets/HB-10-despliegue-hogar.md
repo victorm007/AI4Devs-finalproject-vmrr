@@ -87,12 +87,15 @@ Las decisiones 1 a 3 y la 6 ya están tomadas en ADR-0026. La 4 y la 5 tienen un
 
 ### 0.5 Pendientes para la ejecución
 
-Esta guía pasó 5 revisiones adversariales en papel; la última terminó sin bloqueantes, y no queda ningún hallazgo abierto. Lo que sigue no se pudo probar al escribirla: necesita el esquema de TK-01, GitHub Actions o el servidor real. El plan de `implementar-ticket` parte de esta lista, y cada punto se cierra con su evidencia en el PR.
+Esta guía pasó 5 revisiones adversariales en papel; la última terminó sin bloqueantes. La revisión del PR que la agregó dejó 1 hallazgo mayor y 5 menores, sobre el hook de secretos y esta guía, y también están atendidos. Lo que sigue no se pudo probar al escribirla: necesita el esquema de TK-01, GitHub Actions o el servidor real. El plan de `implementar-ticket` parte de esta lista, y cada punto se cierra con su evidencia en el PR.
 
 | Pendiente | Por qué espera | Cómo se cierra |
 |---|---|---|
 | Los 2 tests del ensayo y `test_la_restauracion_conserva_la_inmutabilidad_de_movimiento` | Necesitan `v_conciliacion_existencia` y `movimiento`, de TK-01 | Los 13 de `tests/test_respaldos.py` en verde (paso 3) |
 | El *job* `respaldos` en un *runner* real, con `tests/test_candado.py` y GNU Make 4.3 | Solo existe en GitHub Actions | El *job* en verde en el PR (paso 4) |
+| La rama de `RESPALDOS_EXIGIR=1` que hace fallar la recolección | Solo se alcanza cuando falta `db`, `gpg` o `bash`, y en el *job* nunca faltan | Con `db` detenido, `RESPALDOS_EXIGIR=1 python -m pytest tests/test_respaldos.py` falla con `RESPALDOS_EXIGIR=1, pero no pueden correr: ...`, sin ningún test omitido. La salida va en el PR |
+| El ensayo completo del paso 6 con el `Makefile` real | El `Makefile` (`reset`, `mock`, `candado`) nace en TK-01 y se completa en el paso 4; los pasos se simularon sin él | Los 5 puntos del paso 6 en tu equipo, con su resultado esperado. La salida va en el PR |
+| La vuelta atrás completa de la sección 8.2 (`DROP DATABASE ... WITH (FORCE)`, `CREATE DATABASE` y la restauración) | Borra la base: no se ejecutó al escribir la guía | El punto 4 del paso 6 en tu equipo: después de restaurar, `consulta.demo` ve las existencias del mock |
 | ShellCheck dentro de `scripts/verificar.py --herramientas`, con su test | Es una tarea de este ticket (paso 4) | `verificar.py --herramientas` lo corre, también en el CI |
 | La señal `/etc/cron.d/hogar` del candado | Necesita `root` en Linux | `sudo touch /etc/cron.d/hogar && make candado` se niega en una máquina de prueba (y después `sudo rm` del archivo) |
 | La instalación con LUKS, la copia de su cabecera y el desbloqueo por SSH con `dropbear-initramfs` | Necesitan el servidor real | Paso 7.1, con un reinicio de prueba |
@@ -1025,6 +1028,7 @@ La demo es la misma aplicación que producción, con la misma imagen y la misma 
 
 6. **Si la demo es tu equipo de desarrollo:** las 2 son la misma instalación de Compose, porque `docker-compose.yml` fija `name: hogar`. Tienen los mismos volúmenes, y `make reset` borra tu base de desarrollo. Para tenerlas aparte, clona el repositorio en otra carpeta y agrega `COMPOSE_PROJECT_NAME=hogar-demo` a su `.env`: Compose le da prioridad sobre `name:`. Las 2 no pueden correr a la vez, porque usan los puertos 80 y 443.
 7. **Sin internet en el lugar de la demo:** el primer `make up` descarga imágenes. Hazlo antes, con conexión. Después, `make reset` y `make mock` ya no necesitan red.
+   **No la presentes conectada a una red ajena.** `docker-compose.yml` publica los puertos 80 y 443 de nginx en todas las interfaces, y los usuarios del mock y sus contraseñas son públicos: están en el readme. En la red del lugar de la demo, cualquiera que la comparta podría entrar como `operador.demo`. Como la demo no necesita red, desconecta la máquina antes de presentar o usa una red tuya, como el punto de acceso de tu celular. El firewall del sistema no basta: Docker Desktop publica los puertos por su cuenta.
 
 8. **Para quien evalúe a distancia:** graba el guion completo con la herramienta de grabación de pantalla del sistema. Muestra el candado de HTTPS y una pantalla a 390 px (las herramientas de desarrollo del navegador la simulan).
 
@@ -1594,6 +1598,7 @@ docker compose exec web python manage.py check --deploy  # System check identifi
 - [ ] Todos los criterios de aceptación del ticket (readme, sección 6) están marcados.
 - [ ] La definición de hecho común y la del ticket se cumplen.
 - [ ] Las decisiones abiertas de la sección 0.4 (4 y 5) quedaron anotadas con su respuesta.
+- [ ] Cada fila de la sección 0.5 está cerrada con su evidencia en el PR, o anotada como pendiente con su motivo (las de LUKS y del servidor real, si el PR se abre antes de la parte B).
 - [ ] El *job* `respaldos` del CI aparece en el PR, corre los 13 tests de los respaldos y los 6 casos del candado, y queda en verde.
 - [ ] La descripción del PR incluye la salida de `docker compose ps`, de `check --deploy` y del ensayo de restauración del servidor, sin IPs públicas ni datos de residentes.
 - [ ] Capturas: el login en un celular del hogar con el candado válido, y la demo local con los datos del mock.

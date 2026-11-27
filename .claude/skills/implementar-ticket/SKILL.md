@@ -25,7 +25,7 @@ dtest() { docker compose exec -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PAS
 | Infraestructura | HB-01 a HB-04 | HB-01 y HB-02: `<tmp>/<ticket>/verificacion.sh`, fuera del repositorio. HB-03 y HB-04: pytest (`infra`) y comandos | El script o `dtest` |
 | Backend | HB-05 a HB-07, TK-01, TK-02, API y servicios | `test_modelos`, `test_esquema`, `test_privilegios`, `test_services`, `test_concurrencia`, `test_selectors`, contratos con `jsonschema` | `dtest <rutas>` |
 | Frontend | HB-08, HB-09, TK-03 y pantallas | `test_views_*`, `test_admin*`, `test_templatetags`, `app/e2e/` | `dtest <rutas>` y Playwright |
-| Operación | HB-10 | Parte A: `tests/test_respaldos.py`, en el equipo y fuera de `web` (los scripts corren en el *host* y hablan con `docker compose`). Partes B y C: los comandos de la sección 5 de la guía, en el servidor y en la máquina de la demo | `python -m pytest tests/test_respaldos.py`; las partes B y C no tienen rojo de pytest |
+| Operación | HB-10 | Parte A: `tests/test_respaldos.py`, `tests/test_candado.py` y el caso de ShellCheck de `tests/test_verificar.py`, en el equipo y fuera de `web` (los scripts corren en el *host* y hablan con `docker compose`). Partes B y C: los comandos de la sección 5 de la guía, en el servidor y en la máquina de la demo | `python -m pytest tests/test_respaldos.py tests/test_candado.py tests/test_verificar.py`; las partes B y C no tienen rojo de pytest |
 
 ## 1. Explorar
 
