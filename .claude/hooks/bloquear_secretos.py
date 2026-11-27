@@ -153,11 +153,13 @@ def _valor_de_ejemplo(valor: str, entre_comillas: bool = False, sigue_texto: boo
         return True
     if valor.startswith("-"):  # otra opción: gpg --passphrase --decrypt
         return True
-    if re.match(r"[A-Za-z_]\w*=", valor):  # un argumento con nombre: add_argument("--password", required=True)
-        return True
     if valor.startswith(("/", "./", "../", "~/")):  # una ruta: --private-key ./llave.pem
         return True
     if not entre_comillas:
+        # Un argumento con nombre (add_argument("--password", required=True)), pero no el relleno
+        # "=" del final de un valor en base64: después del "=" tiene que haber algo más.
+        if re.match(r"[A-Za-z_]\w*=(?!=*$)", valor):
+            return True
         # Nombre de variable en código, o una palabra en minúsculas del texto (`CLAVE`: contraseña de ...).
         # Entre comillas no: ahí es un valor literal, aunque sea solo de minúsculas.
         if re.fullmatch(r"[a-záéíóúüñ_][a-z0-9_.áéíóúüñ]*", valor):
@@ -332,14 +334,16 @@ def negar(motivo: str) -> None:
 
 def main() -> int:
     if "--escanear-repo" in sys.argv:
+        # Los archivos rastreados y los nuevos sin rastrear (no los ignorados): el cierre de
+        # implementar-ticket lo corre antes de cualquier git add. Sale con 1 si encuentra algo.
         cwd = str(RAIZ)
         h: list[tuple[str, str, str]] = []
-        for ruta in _git(cwd, "ls-files").splitlines():
+        for ruta in _git(cwd, "ls-files", "--cached", "--others", "--exclude-standard").splitlines():
             h += revisar_archivo(cwd, ruta)
         for r, n, c in h:
             print(f"{r}:{n} {c}")
         print(f"{len(h)} hallazgo(s)")
-        return 0
+        return 1 if h else 0
 
     try:
         entrada = json.load(sys.stdin)

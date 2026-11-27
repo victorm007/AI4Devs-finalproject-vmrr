@@ -1330,6 +1330,35 @@ El documento también lista los límites aceptados y los pendientes para cuando 
 
 ---
 
+## Prompt 48 — Usuario
+
+(Después del push de `bbffef3` y de su revisión adversarial: 0 bloqueantes, 2 mayores y 6 menores.) De los hallazgos de esta revisión adversarial, ¿cuáles son y qué recomiendas arreglar? (Tras la respuesta, que recomendaba arreglar los 2 mayores y 3 menores, documentar los otros 3 y cerrar aquí las revisiones del hook:) Hazlo así.
+
+---
+
+## Respuesta 48 — Claude
+
+Arreglé los 2 mayores con los tests primero: en rojo, fallaban 5.
+- **M1, una regresión que había introducido en `bbffef3`:** la regla `nombre=` dejaba pasar un secreto en base64 con relleno (`...=`). Ahora solo aplica a valores sin comillas y exige algo después del `=`.
+- **M2:** `--escanear-repo` recorre también los archivos nuevos sin rastrear (no los ignorados) y sale con 1 si encuentra algo. Lo prueba un repositorio temporal en el test. Al correrlo sobre este repositorio encontró de inmediato 3 citas de los falsos positivos en el documento nuevo y 2 casos del propio test, que no veía antes. Los marqué con `secreto-ok`.
+
+**Menores:**
+
+| Menor | Qué hice |
+|---|---|
+| 1 | `LIMITES_ACEPTADOS` tiene ahora un caso por fila de la tabla (9 filas), y la de la lista por subcadena tiene su propio test |
+| 2 | Documentado, sin cambiar la regla: los identificadores entre comillas y los mensajes de error de los formularios de Django quedan como falsos positivos aceptados, con la tabla `FALSOS_POSITIVOS_ACEPTADOS` y un pendiente para TK-02 y TK-03 |
+| 3 | Documentado: paréntesis en una frase entre comillas, comillas escapadas y `-p`, `pass:` y `Authorization: Bearer` son filas nuevas de la tabla de límites, con sus casos |
+| 4 | El hook no se cambia dentro de un ticket. Ahí se marca la línea con `secreto-ok` y se anota en la sección nueva "Casos encontrados en los tickets"; el hook se cambia después, en un commit aparte. La skill, `CLAUDE.md` y el documento dicen lo mismo |
+| 5 | Corregí la tabla de historia: 4 revisiones, qué encontró cada una y en qué commit se arregló. La de `bbffef3` ilustra el punto del documento: el arreglo de un falso positivo abrió un hueco |
+| 6 | Anotado en la fila de la 0.5 que ya cierra el paso 6: comprobar que `curl --retry` imprime una sola línea |
+
+Con esto cierro las revisiones del hook en este PR. Lo siguiente que aporta información es el código de los tickets, y el cierre de `implementar-ticket` lo revisa con `--escanear-repo`.
+
+**Verificación:** `pytest tests` da 101 passed, `verificar.py --herramientas` está limpio y `--escanear-repo` termina en `0 hallazgo(s)` con código 0.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 6)
 
 ## 6. Tickets de Trabajo
