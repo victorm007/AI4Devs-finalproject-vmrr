@@ -1,0 +1,6 @@
+*.sh text eol=lf
+# HB-10: lo que se instala o se lee en el servidor del hogar. cron ignora o corrompe un
+# /etc/cron.d con CRLF, make lee .env y leer_env arrastraría un CR en cada valor.
+*.cron text eol=lf
+Makefile text eol=lf
+.env.example text eol=lf

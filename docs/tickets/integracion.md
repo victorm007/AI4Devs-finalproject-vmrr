@@ -53,6 +53,7 @@ from apps.inventario.exceptions import ExistenciaInsuficiente
 from apps.inventario.models import Movimiento
 from pruebas import ejecutar_sql
 
+pytestmark = pytest.mark.integracion
 URL = reverse("inventario:existencias")
 HTMX = {"HX-Request": "true"}
 

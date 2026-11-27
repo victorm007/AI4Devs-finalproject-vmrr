@@ -200,7 +200,7 @@ Agregué al final de este archivo la sección **Ejemplos de uso con curl para te
 
 | Endpoint | Funcionalidad | Por qué este |
 |---|---|---|
-| `GET /existencias` | 5. Existencias por paciente, medicamento o principio activo | Es la consulta más valiosa del sistema |
+| `GET /existencias` | 5. Existencias por residente, medicamento o principio activo | Es la consulta más valiosa del sistema |
 | `GET /medicamentos?q=` | 2. Búsqueda sin acentos por nombre o principio activo | Usa la búsqueda optimizada de la sección 3.3 |
 | `GET /reportes/mensual` | 7. Movimientos y saldos del mes | Es la salida que pide la dirección |
 
@@ -244,7 +244,7 @@ Se validó con **Redocly CLI** (`npx @redocly/cli lint docs/api/openapi.yaml`): 
 |---|---|
 | `SOLO_LECTURA` | Todos los `GET` |
 | `LECTURA_ESCRITURA` | Todo lo anterior y las operaciones de escritura |
-| `ADMINISTRADOR` | Igual que lectura y escritura, y además la gestión de usuarios y grupos en `/admin/` |
+| `ADMINISTRADOR` | Igual que lectura y escritura, y además la gestión de usuarios y la consulta de los grupos en `/admin/` |
 
 La gestión de usuarios se hace en `/admin/` y no forma parte de la API.
 
@@ -261,6 +261,8 @@ La gestión de usuarios se hace en `/admin/` y no forma parte de la API.
 | 3. Entidades y residentes | `GET /entidades` · `GET /residentes` · `GET /residentes/{id}` · `POST /residentes` · `PATCH /residentes/{id}` · `POST /residentes/{id}/egreso` | Lectura / escritura | V2 |
 | 4. Movimientos | `GET /movimientos` · `GET /movimientos/{id}` · `POST /movimientos/entradas` · `POST /movimientos/transferencias` · `POST /movimientos/bajas` · `POST /movimientos/{id}/correccion` | Lectura / escritura | V2 |
 | 6. Conteo físico | `GET /conteos` · `GET /conteos/{id}` · `POST /conteos` · `PUT /conteos/{id}/detalles/{medicamento_id}` · `DELETE /conteos/{id}/detalles/{medicamento_id}` · `POST /conteos/{id}/cierre` | Lectura / escritura | V2 |
+
+> **Nota para la V2: al menos un principio activo.** En `POST /medicamentos` y `PATCH /medicamentos/{id}` (cuando trae `principios_activos_ids`), el esquema del campo exige lo mismo que el formulario del panel (al menos uno) y comparte su mensaje: un valor que no es *array*, incluido `null`, responde `400 VALIDACION` con `TIPO_INVALIDO`, y la lista vacía (`minItems: 1`) responde `400 VALIDACION` con `errores[] = { campo: principios_activos_ids, codigo: CAMPO_VACIO, mensaje: "Un medicamento debe tener al menos un principio activo." }`, el mismo mensaje de `exigir_principio_activo()` (`apps/catalogo/validadores.py`). Esa función protege además a cualquier código que guarde sin pasar por el esquema. Así la regla no depende del *inline* de `/admin/` (ajustes de la revisión de HB-09).
 
 #### 4.4. Errores
 
@@ -296,7 +298,7 @@ En el MVP, esas mismas reglas de negocio las valida `services.py` y las pantalla
 
 #### 4.5. Endpoints principales (MVP)
 
-**1. `GET /existencias`: consultar existencias por paciente, medicamento o principio activo**
+**1. `GET /existencias`: consultar existencias por residente, medicamento o principio activo**
 
 ```yaml
 /existencias:
@@ -308,7 +310,7 @@ En el MVP, esas mismas reglas de negocio las valida `services.py` y las pantalla
     x-alcance: MVP
     x-nivel-acceso: SOLO_LECTURA
     parameters:
-      - { name: entidad_id,          in: query, description: Paciente o el Hogar, schema: { type: integer, format: int64, minimum: 1 } }
+      - { name: entidad_id,          in: query, description: Residente o el Hogar, schema: { type: integer, format: int64, minimum: 1 } }
       - { name: medicamento_id,      in: query, schema: { type: integer, format: int64, minimum: 1 } }
       - { name: principio_activo_id, in: query, schema: { type: integer, format: int64, minimum: 1 } }
       - { name: q,                   in: query, schema: { type: string, minLength: 3, maxLength: 100 } }
@@ -483,7 +485,7 @@ Las reglas de escritura (saldo insuficiente, duplicados, conteo cerrado, correcc
 
 - **MVP:** 3 vistas de Django REST Framework de solo lectura (`ListAPIView`), con `SessionAuthentication` y el permiso `IsAuthenticated`. Las consultas son las de la sección 3.3 y reusan los mismos índices.
 - **Un `EXCEPTION_HANDLER` propio** traduce las excepciones a Problem Details: `ValidationError` → `400 VALIDACION`, `NotAuthenticated` → `401`, `NotFound` → `404`, `MethodNotAllowed` → `405`.
-- **Tests de contrato:** las pruebas de `pytest` validan cada respuesta de los 3 endpoints contra los esquemas de `openapi.yaml` con un validador de JSON Schema 2020-12 (`jsonschema`). Los 16 casos de la tabla anterior son la base de esos tests.
+- **Tests de contrato:** las pruebas de `pytest` validan cada respuesta de los 3 endpoints contra los esquemas de `openapi.yaml` con un validador de JSON Schema 2020-12 (`jsonschema`). Los 16 casos de la tabla anterior son la base de esos tests. TK-05 agrega `jsonschema` a `requirements-dev.txt` y un *helper* compartido en `pruebas.py` que carga `openapi.yaml`, resuelve sus `$ref` y valida la respuesta contra el esquema de la operación y el código HTTP. El *job* `contrato` del CI ejecuta además el lint de Redocly en cada PR.
 - **V2:** las operaciones marcadas `V2` se implementan sobre la misma capa `services.py`. Las vistas de la API serán delgadas y aplicarán las mismas reglas que las pantallas web.
 - **Herramientas y OpenAPI 3.2:** drf-spectacular genera un esquema 3.0/3.1 para la documentación interactiva (Swagger UI en `/api/v1/docs/`). El archivo 3.2 es el contrato de diseño y la fuente de verdad. Si alguna herramienta todavía no soporta 3.2, el contrato se baja a 3.1 cambiando `dataValue` por `value` y quitando el campo `summary` de los tags.
 
@@ -568,7 +570,7 @@ $CURL -b "$JAR" "$API/existencias?principio_activo_id=2" \
 }
 ```
 
-**Caso 4. Existencias de un paciente (Carmen, 103)**
+**Caso 4. Existencias de un residente (Carmen, 103)**
 
 ```bash
 $CURL -b "$JAR" "$API/existencias?entidad_id=103" \

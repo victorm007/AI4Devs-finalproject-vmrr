@@ -248,7 +248,7 @@ erDiagram
     }
     presentacion {
         smallint id PK "IDENTITY"
-        varchar nombre UK "60, NOT NULL: tableta, capsula, jarabe..."
+        varchar nombre UK "60, NOT NULL, unico sin distinguir mayusculas ni acentos: tableta, capsula, jarabe..."
         boolean activo "NOT NULL, DEFAULT true"
     }
     principio_activo {
@@ -388,7 +388,7 @@ erDiagram
 | D6 Pautas | `pauta` |
 | Conteos físicos | `conteo_fisico`, `detalle_conteo` |
 
-**Restricciones avanzadas (DDL PostgreSQL).** Django genera la mayoría con `UniqueConstraint`, `CheckConstraint`, `ExclusionConstraint` y `GeneratedField`. Las demás se agregan en migraciones con `RunSQL`. Los índices únicos por expresión (`uq_medicamento_nombre_pres_conc` y `uq_principio_activo_nombre`) se declaran como `UniqueConstraint` con expresiones en `Meta.constraints`, no con `RunSQL`: así los formularios de Django (incluido `/admin/`) los validan y muestran el error junto al campo, en lugar de un error `500`.
+**Restricciones avanzadas (DDL PostgreSQL).** Django genera la mayoría con `UniqueConstraint`, `CheckConstraint`, `ExclusionConstraint` y `GeneratedField`. Las demás se agregan en migraciones con `RunSQL`. Los índices únicos por expresión (`uq_medicamento_nombre_pres_conc`, `uq_principio_activo_nombre` y `uq_presentacion_nombre`) se declaran como `UniqueConstraint` con expresiones en `Meta.constraints`, no con `RunSQL`: así los formularios de Django (incluido `/admin/`) los validan y muestran el error junto al campo, en lugar de un error `500`.
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS btree_gist;  -- para la restricción de exclusión de pautas
@@ -408,14 +408,20 @@ ALTER TABLE usuario_groups ADD CONSTRAINT uq_usuario_un_grupo UNIQUE (usuario_id
 CREATE UNIQUE INDEX uq_medicamento_nombre_pres_conc
     ON medicamento (f_unaccent(lower(nombre_comercial)), presentacion_id, f_unaccent(lower(concentracion)));
 CREATE UNIQUE INDEX uq_principio_activo_nombre ON principio_activo (f_unaccent(lower(nombre)));
+CREATE UNIQUE INDEX uq_presentacion_nombre     ON presentacion     (f_unaccent(lower(nombre)));
+ALTER TABLE medicamento ADD CONSTRAINT ck_medicamento_tipo CHECK (tipo IN ('GENERICO', 'ORIGINAL'));
+ALTER TABLE medicamento_principio_activo
+    ADD CONSTRAINT uq_mpa_medicamento_principio UNIQUE (medicamento_id, principio_activo_id);
 
 -- D3: un solo Hogar y subtipo coherente con el supertipo
 CREATE UNIQUE INDEX uq_entidad_un_hogar ON entidad (tipo) WHERE tipo = 'HOGAR';
 ALTER TABLE entidad
     ADD CONSTRAINT uq_entidad_id_tipo UNIQUE (id, tipo),
+    ADD CONSTRAINT ck_entidad_tipo    CHECK (tipo IN ('HOGAR', 'RESIDENTE')),
     ADD CONSTRAINT ck_entidad_nombre  CHECK ((tipo = 'HOGAR') = (nombre IS NOT NULL));
 ALTER TABLE residente
     ADD CONSTRAINT ck_residente_tipo  CHECK (tipo = 'RESIDENTE'),
+    ADD CONSTRAINT ck_residente_estado CHECK (estado IN ('ACTIVO', 'EGRESADO', 'FALLECIDO')),
     ADD CONSTRAINT fk_residente_entidad FOREIGN KEY (entidad_id, tipo)
         REFERENCES entidad (id, tipo) ON DELETE RESTRICT,
     ADD CONSTRAINT ck_residente_baja  CHECK ((estado = 'ACTIVO') = (fecha_baja IS NULL)),
@@ -498,7 +504,7 @@ ALTER TABLE detalle_conteo
 | `email` | varchar(254) | NOT NULL, DEFAULT `''` | Opcional |
 | `is_active` | boolean | NOT NULL, DEFAULT true | `false` = usuario dado de baja (no se borra) |
 | `is_superuser` | boolean | NOT NULL, DEFAULT false | `true` = **Administrador** |
-| `is_staff` | boolean | NOT NULL, DEFAULT false | Acceso al panel `/admin/`: el Administrador y los usuarios de los 2 grupos (habilitadores, sección 5). Solo el Administrador gestiona usuarios y grupos |
+| `is_staff` | boolean | NOT NULL, DEFAULT false | Acceso al panel `/admin/`: el Administrador y los usuarios de los 2 grupos (habilitadores, sección 5). Solo el Administrador gestiona usuarios y consulta los grupos, que son de solo consulta (HB-08) |
 | `last_login` | timestamptz | NULL | Último inicio de sesión |
 | `date_joined` | timestamptz | NOT NULL, DEFAULT now() | Fecha de alta |
 
@@ -518,7 +524,7 @@ ALTER TABLE detalle_conteo
 | Atributo | Tipo | Restricciones | Descripción |
 |---|---|---|---|
 | `id` | smallint | PK, identity | Identificador |
-| `nombre` | varchar(60) | NOT NULL, UNIQUE | Tableta, cápsula, jarabe, gotas… |
+| `nombre` | varchar(60) | NOT NULL, UNIQUE sin distinguir mayúsculas ni acentos (`uq_presentacion_nombre`) | Tableta, cápsula, jarabe, gotas… |
 | `activo` | boolean | NOT NULL, DEFAULT true | Permite retirar opciones sin borrarlas |
 
 **`principio_activo`**: sustancia activa (ej. *paracetamol*, *losartán*).
@@ -555,7 +561,7 @@ ALTER TABLE detalle_conteo
 | `medicamento_id` | bigint | FK → `medicamento.id`, NOT NULL | Medicamento |
 | `principio_activo_id` | bigint | FK → `principio_activo.id`, NOT NULL | Principio activo |
 
-- UNIQUE (`medicamento_id`, `principio_activo_id`). El "al menos uno" se valida en el formulario.
+- UNIQUE (`medicamento_id`, `principio_activo_id`). El "al menos uno" se valida en la entrada y no en la base, para mantener la flexibilidad (un `CHECK` no puede contar los renglones de la tabla puente): en el MVP, el formulario del panel en el alta y en el cambio del medicamento; en la V2, `POST` y `PATCH /medicamentos`. Las 2 vías dan el mismo mensaje, definido en `apps/catalogo/validadores.py`: "Un medicamento debe tener al menos un principio activo.".
 
 #### D3 — Entidades
 
@@ -585,7 +591,7 @@ ALTER TABLE detalle_conteo
 | `estado` | varchar(10) | NOT NULL, DEFAULT `ACTIVO`, CHECK (`ACTIVO`, `EGRESADO`, `FALLECIDO`) | La baja es **lógica** |
 | `fecha_baja` | date | NULL; CHECK: nula si y solo si `ACTIVO`, y ≥ `fecha_ingreso` | Fecha de egreso o defunción |
 
-- **Nombre para mostrar:** se compone al vuelo (`primer_nombre segundo_nombre primer_apellido segundo_apellido`, omitiendo los nulos) y no se guarda. El índice `ix_residente_nombre` (3.3) acelera la búsqueda y el orden por paciente.
+- **Nombre para mostrar:** se compone al vuelo (`primer_nombre segundo_nombre primer_apellido segundo_apellido`, omitiendo los nulos) y no se guarda. El índice `ix_residente_nombre` (3.3) acelera la búsqueda y el orden por residente.
 - **Relaciones:** 1:N con `pauta`. Las existencias, movimientos y conteos del residente cuelgan de su `entidad`.
 
 #### D4 — Existencias
@@ -990,7 +996,7 @@ CREATE TRIGGER tg_detalle_conteo_cerrado BEFORE INSERT OR UPDATE OR DELETE ON de
 - **Búsquedas desde el ORM:** se usa una expresión anotada, `annotate(n=Func(Lower('nombre_comercial'), function='f_unaccent')).filter(n__contains=...)`. Así coincide exactamente con la expresión del índice.
 - **Verificación:**
   - Se cargan datos sintéticos de un año (unos 175,000 movimientos) y se revisa con `EXPLAIN (ANALYZE, BUFFERS)` que cada consulta frecuente use su índice.
-  - Un test de integración lo comprueba con `assertNumQueries` y el plan de ejecución de las consultas clave.
+  - Un test de integración lo comprueba con `django_assert_num_queries` y el plan de ejecución de las consultas clave.
   - En producción, `pg_stat_statements` identifica consultas lentas, y `pg_stat_user_indexes` detecta índices que no se usan para eliminarlos.
 
 ### **3.4. Datos de prueba (mock) para demo y desarrollo**

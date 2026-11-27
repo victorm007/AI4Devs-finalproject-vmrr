@@ -1,0 +1,156 @@
+schema: spec-driven
+
+# Contexto del proyecto: se inyecta en las instrucciones de todos los artefactos.
+# Solo apunta a las fuentes de verdad; no copia su contenido (para no desincronizarse).
+context: |
+  Proyecto: inventario de medicamentos de un hogar gerontológico (Django 5.2, PostgreSQL 17,
+  plantillas con Bootstrap 5 y HTMX). Todos los artefactos se escriben en español.
+
+  Fuentes de verdad (léelas antes de escribir cualquier artefacto; no inventes requisitos):
+  - Historias de usuario: readme.md, sección 5 (HU-01 a HU-03, épicas EP-01 a EP-05,
+    habilitadores en /admin/). Sus criterios de aceptación están en bloques Gherkin
+    ("Escenario", "Dado", "Cuando", "Entonces", "Y").
+  - Tickets: readme.md, sección 6 (TK-01 a TK-07 y HB-01 a HB-10: tabla de tickets,
+    orden de ejecución, puntos de integración, prueba de integración, criterios de
+    revisión, definición de hecho común y la ficha de cada ticket con sus "Criterios de
+    aceptación" y su "Definición de hecho"). Guía paso a paso de cada ticket:
+    docs/tickets/<ID>-*.md.
+  - Modelo de datos: readme.md, sección 3 (nombres exactos de tablas, restricciones e
+    índices en 3.1 y 3.3; dataset mock en 3.4). API: readme.md, sección 4, y el contrato
+    docs/api/openapi.yaml (OpenAPI 3.2, design-first; x-alcance MVP o V2).
+  - Arquitectura y stack: readme.md, sección 2, y CLAUDE.md ("Stack Tecnológico Estricto",
+    "Reglas de Arquitectura" y "Frontend y Vistas").
+  - Decisiones de arquitectura: docs/adr/ (índice en docs/adr/README.md). Ningún artefacto
+    puede contradecir un ADR en estado Aceptado (CLAUDE.md, "Decisiones de Arquitectura").
+  - Convenciones de base de datos: CLAUDE.md ("Estándares y Convenciones de Base de Datos").
+  - Flujo de trabajo y pruebas: CLAUDE.md ("Flujo de Trabajo: TDD y Mock-First",
+    "Tickets y pruebas" y "Estrategia de Pruebas Estricta").
+
+  Capabilities, en estructura plana: una por app de Django (accounts, catalogo, entidades,
+  pautas, inventario, conteos, reportes y api; readme.md 2.2) e infraestructura, para lo
+  que no pertenece a una app: contenedores, imagen, red, proxy, configuración por entorno
+  y roles de base de datos. specs/<capability>/spec.md usa exactamente uno de esos nombres.
+
+  Vocabulario de dominio estricto (CLAUDE.md): Residente, Entidad, Medicamento, Existencia,
+  Movimiento (tipos Entrada, Transferencia y Baja; la corrección no es un tipo), Pauta y
+  Baja. Nunca sus sinónimos prohibidos (paciente, cliente, fármaco, producto, stock,
+  transacción u operación para un Movimiento, receta, prescripción, eliminar).
+
+  Formato de OpenSpec: los encabezados que el validador lee (## Why, ## What Changes,
+  ## Capabilities, ## ADDED Requirements, ### Requirement:, #### Scenario:) y las palabras
+  clave GIVEN, WHEN, THEN, AND, SHALL y MUST se escriben en inglés; todo el demás texto,
+  en español.
+
+rules:
+  proposal:
+    - >-
+      Justo debajo del título va la línea de trazabilidad, con los IDs exactos que figuran
+      para ese ticket en la tabla de tickets de readme.md sección 6:
+      "**Historia:** HU-NN · **Ticket:** TK-NN · **Épica:** EP-NN". Si el ticket sirve a
+      varias historias, se listan todas (por ejemplo, TK-01: "HU-01, HU-02, HU-03"). Los
+      tickets de habilitación no tienen historia: "**Historia:** — (habilitador de EP-NN)
+      · **Ticket:** HB-NN · **Épica:** EP-NN".
+    - >-
+      Un cambio implementa un solo ticket. El nombre del cambio empieza por su ID en
+      minúsculas (por ejemplo, tk-02-servicio-movimientos o hb-01-postgresql).
+    - >-
+      "Why" y "What Changes" resumen la descripción técnica y el alcance de la ficha del
+      ticket (readme.md sección 6) sin agregar nada que no esté ahí. Lo que la ficha deja
+      "fuera de alcance" se dice explícitamente.
+    - >-
+      "Impact" nombra los puntos de integración afectados (tabla "Puntos de integración"
+      de readme.md sección 6) y los ADR de docs/adr/ que aplican.
+  specs:
+    - >-
+      Cada criterio de aceptación se convierte en al menos un "#### Scenario:" con pasos
+      GIVEN / WHEN / THEN (y AND), escritos como viñetas "- **GIVEN** ...". Los escenarios
+      Gherkin de la historia (readme.md sección 5) se traducen paso por paso: "Dado" →
+      GIVEN, "Cuando" → WHEN, "Entonces" → THEN, "Y" → AND, conservando el texto en
+      español y los datos del mock (usuarios, Residentes, Medicamentos y cantidades). Cada
+      casilla de "Criterios de aceptación" de la ficha del ticket (readme.md sección 6)
+      también se convierte en un escenario.
+    - >-
+      Ningún criterio de aceptación queda sin escenario, y ningún escenario inventa
+      comportamiento que no salga de readme.md. El nombre del escenario indica su origen,
+      por ejemplo "#### Scenario: Baja con saldo insuficiente (HU-01)" o "(TK-02, criterio 3)".
+    - >-
+      Cada requisito usa la forma normativa "DEBE (MUST)" o "DEBERÁ (SHALL)": el validador
+      exige SHALL o MUST, y "DEBE" sola falla con --strict.
+    - >-
+      Las reglas que también viven en la base de datos (CHECK, EXCLUDE, triggers) se
+      especifican como comportamiento observable: el mensaje o el código de error que ve
+      el usuario (readme.md 4.4), nunca un error 500.
+  design:
+    - >-
+      Cita los ADR de docs/adr/ que aplican y respeta todos los que están en estado
+      Aceptado. Si el cambio necesita contradecir uno, no se diseña así: primero se crea
+      el ADR que lo supersede y se actualiza readme.md (CLAUDE.md, "Supersedencia").
+    - >-
+      Usa los nombres exactos de tablas, restricciones, índices, funciones y triggers de
+      readme.md 3.1 y 3.3, con los prefijos de CLAUDE.md (uq_, ck_, ex_, fk_, ix_, brin_,
+      fn_/tg_, v_), y los contratos de la tabla de puntos de integración (readme.md
+      sección 6).
+    - >-
+      Respeta las convenciones de base de datos de CLAUDE.md: app_owner para las
+      migraciones y app_user para la aplicación (sin select_for_update sobre Movimiento),
+      on_delete=PROTECT, numeric(10,2) y Decimal para cantidades, timestamptz, Bajas
+      lógicas y f_unaccent(lower(campo)) para buscar texto.
+  tasks:
+    - >-
+      Mock-first y TDD (CLAUDE.md): cada grupo de tareas empieza con los tests de sus
+      escenarios, escritos a partir de los criterios de aceptación y con los datos del
+      mock (fixture datos_demo; antes de TK-01, los datos mínimos que indica la guía del
+      ticket). Una tarea "rojo" comprueba que fallen, la de implementación los pone en
+      verde y, si hace falta, una de refactor los mantiene en verde. Nunca se usan
+      factories ni Faker, salvo para un caso límite aislado.
+    - >-
+      Excepción de TDD: HB-01 y HB-02 no tienen pytest. Su tarea "rojo" ejecuta los comandos
+      con resultado esperado de la sección 3 de la guía antes de crear los archivos, y la de
+      implementación los deja con ese resultado. Su último grupo no exige dtest ni cobertura.
+      HB-10: la parte A (scripts de respaldo y restauración, candado del Makefile y ShellCheck)
+      sigue el ciclo completo con tests/test_respaldos.py, tests/test_candado.py y el caso de
+      ShellCheck de tests/test_verificar.py, que corren en el equipo con python -m pytest, no con dtest. Las
+      partes B y C (servidor del hogar y máquina de la demo) se verifican con los comandos con
+      resultado esperado de la sección 5 de su guía, sin dtest ni cobertura.
+    - >-
+      Los tests corren contra PostgreSQL 17 real, nunca contra SQLite ni con la
+      persistencia simulada. Las pruebas de servicios de inventario corren como app_user
+      (fixture como_app_user, o SET ROLE en los tests con hilos), y las de services.py
+      incluyen concurrencia (transaction=True con hilos). Las consultas con índices tienen
+      un test de EXPLAIN marcado lento. La API se valida contra docs/api/openapi.yaml con
+      jsonschema.
+    - >-
+      Cada tarea dice cómo se verifica con un comando exacto del proyecto (dtest ruta::test,
+      ./scripts/migrate.sh, python scripts/verificar.py, dj makemigrations --check
+      --dry-run), tomado de la sección 5 de la guía del ticket (docs/tickets/<ID>-*.md)
+      cuando existe.
+    - >-
+      Las tareas siguen el orden de los pasos de la guía del ticket. La lógica de negocio
+      solo va en services.py, las lecturas en selectors.py y las vistas no tienen lógica.
+      Las migraciones se aplican con ./scripts/migrate.sh, nunca con manage.py migrate
+      desde web.
+    - >-
+      El último grupo comprueba la definición de hecho común y la del ticket (readme.md
+      sección 6): python scripts/verificar.py sin errores, cobertura igual o mayor a 80 %
+      en apps/ más el umbral propio del ticket, y readme.md al día. Commit y push solo
+      cuando el usuario los pida (/commit y /push); van en "## Workflow follow-up".
+
+operations:
+  apply:
+    guidance:
+      - >-
+        Trabaja una tarea a la vez y en orden: primero el test en rojo, después el código
+        que lo pone en verde. No marques una tarea como hecha hasta que su verificación
+        pase.
+      - >-
+        Al terminar cada grupo corre python scripts/verificar.py. Los hooks del proyecto
+        formatean cada .py y .html de app/ al escribirlo; nunca omitas ruff ni djLint.
+      - >-
+        Si una tarea exige contradecir un ADR aceptado o cambiar un contrato de la tabla
+        de puntos de integración, detente y pregunta antes de seguir.
+  archive:
+    guidance:
+      - >-
+        Antes de archivar, confirma que todas las tareas están marcadas, que la
+        definición de hecho del ticket se cumple y que readme.md refleja cualquier cambio
+        de diseño. No hagas commit ni push por tu cuenta.

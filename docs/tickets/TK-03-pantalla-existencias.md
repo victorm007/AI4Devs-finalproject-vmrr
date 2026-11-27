@@ -19,13 +19,13 @@
 | HU-02: reglas y criterios de aceptación | readme, sección 5 |
 | Consulta 1 (búsqueda sin acentos) y sus índices | readme, sección 3.3 |
 | TK-03 | readme, sección 6 |
-| Guía de TK-01, pasos 0.4 (atajos) y 9 (fixtures) | [`TK-01-esquema-inventario.md`](TK-01-esquema-inventario.md) |
+| Guía de TK-01, pasos 0.4 (atajos) y 3 (fixtures) | [`TK-01-esquema-inventario.md`](TK-01-esquema-inventario.md) |
 | HTMX: `hx-get`, `hx-trigger`, `hx-target`, `hx-swap-oob` | <https://htmx.org/docs/> (20 min) |
 
 ### 0.2 Requisitos previos
 
 - TK-01 integrado en `main` (tablas y `datos_demo`). TK-02 no es obligatorio: el mock ya trae saldos.
-- De la semana 1: `base.html` con Bootstrap 5, el login de Django en `LOGIN_URL` (por defecto `/accounts/login/`), `Entidad.__str__` devuelve el nombre del Hogar o el nombre completo del residente, y `Medicamento` tiene el campo `principios_activos` (muchos a muchos).
+- De los tickets de habilitación: `base.html` con Bootstrap 5 y el login de Django en `LOGIN_URL` (`/accounts/login/`, HB-08); `Entidad.__str__` devuelve el nombre del Hogar o el nombre completo del residente (HB-06); `Medicamento` tiene el campo `principios_activos` (muchos a muchos, HB-05), y <https://localhost> funciona con HTTPS (HB-04).
 
 ```bash
 git switch main && git pull
@@ -70,6 +70,7 @@ app/
 ├── config/urls.py                                 # MODIFICAR: incluye inventario y redirige "/"
 ├── static/js/vendor/htmx.min.js                   # NUEVO: HTMX servido localmente (CSP)
 ├── templates/base.html                            # MODIFICAR: script de HTMX y menú "Existencias"
+├── apps/accounts/tests/test_login.py              # MODIFICAR (de HB-08): la página de inicio cambia
 └── apps/inventario/
     ├── selectors.py                               # NUEVO: buscar_existencias
     ├── forms.py                                   # NUEVO: FiltroExistenciasForm
@@ -85,6 +86,7 @@ app/
         ├── test_views_existencias.py              # NUEVO
         └── test_templatetags.py                   # NUEVO
 app/e2e/
+├── conftest.py                                    # NUEVO: el servidor de pruebas corre como app_user
 └── test_existencias.py                            # NUEVO: Playwright (dentro de app/ para que el contenedor lo vea)
 ```
 
@@ -92,7 +94,7 @@ app/e2e/
 
 ## 2. Tareas paso a paso
 
-Haz un commit al terminar cada paso.
+Haz un commit al terminar cada paso. El orden sigue TDD (`CLAUDE.md`): primero las dependencias y los tests en rojo, después la implementación.
 
 ### Paso 1. HTMX y `django-htmx` (≈ 30 min)
 
@@ -115,18 +117,45 @@ En `config/settings/base.py`:
 ```python
 INSTALLED_APPS += ["django_htmx"]
 MIDDLEWARE += ["django_htmx.middleware.HtmxMiddleware"]   # agrega request.htmx
-LOGIN_REDIRECT_URL = "inventario:existencias"             # página de inicio tras el login
 ```
 
-En `templates/base.html`, antes de `</head>`, y la entrada del menú:
+En `templates/base.html`, antes de `</head>`:
 
 ```django
 <script src="{% static 'js/vendor/htmx.min.js' %}" defer></script>
-...
-<a class="nav-link" href="{% url 'inventario:existencias' %}">Existencias</a>
 ```
 
-### Paso 2. El selector `buscar_existencias` (≈ 1 h)
+### Paso 2. Tests en rojo (≈ 1 h 40 min)
+
+Prepara Playwright como indica la sección 3.4 y usa la imagen nueva con `docker compose up -d --build web`. Escribe los tests de la sección 3 y ejecútalos **antes** de implementar:
+
+```bash
+dtest apps/inventario/tests/test_selectors.py -q
+# ModuleNotFoundError: No module named 'apps.inventario.selectors'
+dtest apps/inventario/tests/test_templatetags.py -q
+# ModuleNotFoundError: No module named 'apps.inventario.templatetags'
+dtest apps/inventario/tests/test_views_existencias.py -q
+# NoReverseMatch: 'inventario' is not a registered namespace
+dtest apps/accounts/tests/test_login.py -q
+# 1 failed: test_login_correcto_lleva_a_existencias
+docker compose exec -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PASSWORD" \
+    -e DJANGO_ALLOW_ASYNC_UNSAFE=true web pytest -m e2e e2e/ -q
+# 4 errors: el login todavía no lleva a /existencias/
+```
+
+El commit de este paso queda en rojo a propósito: el PR se abre cuando todo está en verde.
+
+Así avanza el rojo con cada paso:
+
+| Al terminar | Comando | Resultado esperado |
+|---|---|---|
+| Paso 3 (selector) | `dtest apps/inventario/tests/test_selectors.py -q` | Todos pasan |
+| Paso 5 (vista y URLs) | `dtest apps/inventario/tests/test_views_existencias.py -q` | Pasan `test_sin_sesion_redirige_al_login`, `test_sin_sesion_en_htmx_redirige_la_pagina_entera` y `test_inicio_redirige_a_existencias`. Los demás fallan con `TemplateDoesNotExist` |
+| Paso 5 (vista y URLs) | `dtest apps/accounts/tests/test_login.py -q` | Todos pasan |
+| Paso 6 (filtro `dosis`) | `dtest apps/inventario/tests/test_templatetags.py -q` | Todos pasan |
+| Paso 7 (plantillas) | `dtest apps/inventario/tests/test_views_existencias.py -q` | Todos pasan |
+
+### Paso 3. El selector `buscar_existencias` (≈ 1 h)
 
 `app/apps/inventario/selectors.py`:
 
@@ -214,7 +243,7 @@ def buscar_existencias(*, entidad=None, medicamento=None, principio_activo=None,
 > dj shell -c "from apps.inventario.selectors import buscar_existencias as b; print([(str(e.entidad), e.medicamento.nombre_comercial, e.saldo) for e in b(q='losartan')])"
 > ```
 
-### Paso 3. El formulario de filtros (≈ 45 min)
+### Paso 4. El formulario de filtros (≈ 45 min)
 
 `app/apps/inventario/forms.py`:
 
@@ -268,7 +297,7 @@ class FiltroExistenciasForm(forms.Form):
 
 > Los nombres de los campos coinciden con los argumentos de `buscar_existencias`. Por eso la vista puede hacer `buscar_existencias(**form.cleaned_data)`.
 
-### Paso 4. La vista y las URLs (≈ 45 min)
+### Paso 5. La vista y las URLs (≈ 45 min)
 
 `app/apps/inventario/views.py`:
 
@@ -342,13 +371,25 @@ En `app/config/urls.py`:
 from django.views.generic import RedirectView
 
 urlpatterns = [
-    path("", RedirectView.as_view(pattern_name="inventario:existencias"), name="inicio"),
+    path("", RedirectView.as_view(pattern_name="inventario:existencias"), name="inicio"),  # reemplaza la de HB-08
     path("", include("apps.inventario.urls")),
     # ... las rutas existentes (admin, accounts, api)
 ]
 ```
 
-### Paso 5. El filtro `dosis` (≈ 15 min)
+Con la ruta ya creada, cambia la página de inicio en `config/settings/base.py`:
+
+```python
+LOGIN_REDIRECT_URL = "inventario:existencias"             # página de inicio tras el login
+```
+
+y agrega la entrada del menú en `templates/base.html`:
+
+```django
+<a class="nav-link" href="{% url 'inventario:existencias' %}">Existencias</a>
+```
+
+### Paso 6. El filtro `dosis` (≈ 15 min)
 
 `app/apps/inventario/templatetags/inventario_extras.py` (y un `__init__.py` vacío en la carpeta):
 
@@ -370,48 +411,55 @@ def dosis(valor) -> str:
 
 > `floatformat` no sirve aquí: `0.50|floatformat:"-2"` muestra `0.50`, no `0.5`.
 
-### Paso 6. Plantillas (≈ 1.5 h)
+### Paso 7. Plantillas (≈ 1.5 h)
 
 `templates/inventario/existencias.html`:
 
 ```django
 {% extends "base.html" %}
 {% block title %}Existencias{% endblock %}
-
 {% block content %}
-<h1 class="h3 mb-3">Existencias</h1>
-
-<form id="filtros" method="get" action="{% url 'inventario:existencias' %}" class="row g-2 align-items-end mb-2"
-      hx-get="{% url 'inventario:existencias' %}" hx-target="#resultados" hx-push-url="true"
-      hx-trigger="input changed delay:300ms from:#id_q, change" hx-indicator="#cargando">
-  <div class="col-12 col-md-4">
-    <label for="{{ form.q.id_for_label }}" class="form-label">{{ form.q.label }}</label>
-    {{ form.q }}
-  </div>
-  <div class="col-12 col-sm-6 col-md-3">
-    <label for="{{ form.entidad.id_for_label }}" class="form-label">{{ form.entidad.label }}</label>
-    {{ form.entidad }}
-  </div>
-  <div class="col-12 col-sm-6 col-md-3">
-    <label for="{{ form.principio_activo.id_for_label }}" class="form-label">{{ form.principio_activo.label }}</label>
-    {{ form.principio_activo }}
-  </div>
-  <div class="col-12 col-md-2">
-    <div class="form-check py-2">
-      {{ form.incluir_sin_saldo }}
-      <label for="{{ form.incluir_sin_saldo.id_for_label }}" class="form-check-label">{{ form.incluir_sin_saldo.label }}</label>
+  <h1 class="h3 mb-3">Existencias</h1>
+  <form id="filtros"
+        method="get"
+        action="{% url 'inventario:existencias' %}"
+        class="row g-2 align-items-end mb-2"
+        hx-get="{% url 'inventario:existencias' %}"
+        hx-target="#resultados"
+        hx-push-url="true"
+        hx-trigger="input changed delay:300ms from:#id_q, change"
+        hx-indicator="#cargando">
+    <div class="col-12 col-md-4">
+      <label for="{{ form.q.id_for_label }}" class="form-label">{{ form.q.label }}</label>
+      {{ form.q }}
     </div>
-  </div>
-  {{ form.medicamento }}
-  <noscript><div class="col-12"><button class="btn btn-primary">Buscar</button></div></noscript>
-</form>
-
-{% include "inventario/_aviso.html" %}
-<div id="cargando" class="htmx-indicator text-body-secondary small mb-2" role="status">Buscando…</div>
-
-<div id="resultados" aria-live="polite">
-  {% include "inventario/_resultados.html" %}
-</div>
+    <div class="col-12 col-sm-6 col-md-3">
+      <label for="{{ form.entidad.id_for_label }}" class="form-label">{{ form.entidad.label }}</label>
+      {{ form.entidad }}
+    </div>
+    <div class="col-12 col-sm-6 col-md-3">
+      <label for="{{ form.principio_activo.id_for_label }}" class="form-label">{{ form.principio_activo.label }}</label>
+      {{ form.principio_activo }}
+    </div>
+    <div class="col-12 col-md-2">
+      <div class="form-check py-2">
+        {{ form.incluir_sin_saldo }}
+        <label for="{{ form.incluir_sin_saldo.id_for_label }}"
+               class="form-check-label">{{ form.incluir_sin_saldo.label }}</label>
+      </div>
+    </div>
+    {{ form.medicamento }}
+    <noscript>
+      <div class="col-12">
+        <button type="submit" class="btn btn-primary">Buscar</button>
+      </div>
+    </noscript>
+  </form>
+  {% include "inventario/_aviso.html" %}
+  <div id="cargando"
+       class="htmx-indicator text-body-secondary small mb-2"
+       role="status">Buscando…</div>
+  <div id="resultados" aria-live="polite">{% include "inventario/_resultados.html" %}</div>
 {% endblock %}
 ```
 
@@ -431,10 +479,8 @@ def dosis(valor) -> str:
 {% load inventario_extras %}
 {# En una respuesta HTMX válida, borra el aviso que pudiera haber quedado #}
 {% if request.htmx %}<div id="aviso" role="status" hx-swap-oob="true"></div>{% endif %}
-
 {% if existencias %}
   <p class="small text-body-secondary mb-2">{{ paginator.count }} resultado{{ paginator.count|pluralize }}</p>
-
   {# Escritorio (≥ 768 px): tabla #}
   <table class="table table-hover align-middle d-none d-md-table">
     <thead>
@@ -461,13 +507,14 @@ def dosis(valor) -> str:
       {% endfor %}
     </tbody>
   </table>
-
   {# Celular (< 768 px): tarjetas, sin desplazamiento horizontal #}
   <ul class="list-group d-md-none mb-3">
     {% for e in existencias %}
-      <li class="list-group-item d-flex justify-content-between align-items-start gap-2" data-test="existencia">
+      <li class="list-group-item d-flex justify-content-between align-items-start gap-2"
+          data-test="existencia">
         <div class="text-break">
-          <a class="fw-semibold" href="?{% querystring medicamento=e.medicamento_id page=None %}">{{ e.medicamento.nombre_comercial }}</a>
+          <a class="fw-semibold"
+             href="?{% querystring medicamento=e.medicamento_id page=None %}">{{ e.medicamento.nombre_comercial }}</a>
           <span>{{ e.medicamento.presentacion }} {{ e.medicamento.concentracion }}</span>
           <div class="small text-body-secondary">{{ e.entidad }} · {{ e.actualizado_en|date:"d/m/Y H:i" }}</div>
         </div>
@@ -477,21 +524,26 @@ def dosis(valor) -> str:
       </li>
     {% endfor %}
   </ul>
-
   {% if is_paginated %}
     <nav aria-label="Páginas de resultados">
       <ul class="pagination">
         {% if page_obj.has_previous %}
           <li class="page-item">
-            <a class="page-link" href="?{% querystring page=page_obj.previous_page_number %}"
-               hx-get="?{% querystring page=page_obj.previous_page_number %}" hx-target="#resultados" hx-push-url="true">Anterior</a>
+            <a class="page-link"
+               href="?{% querystring page=page_obj.previous_page_number %}"
+               hx-get="?{% querystring page=page_obj.previous_page_number %}"
+               hx-target="#resultados"
+               hx-push-url="true">Anterior</a>
           </li>
         {% endif %}
         <li class="page-item disabled"><span class="page-link">{{ page_obj.number }} de {{ paginator.num_pages }}</span></li>
         {% if page_obj.has_next %}
           <li class="page-item">
-            <a class="page-link" href="?{% querystring page=page_obj.next_page_number %}"
-               hx-get="?{% querystring page=page_obj.next_page_number %}" hx-target="#resultados" hx-push-url="true">Siguiente</a>
+            <a class="page-link"
+               href="?{% querystring page=page_obj.next_page_number %}"
+               hx-get="?{% querystring page=page_obj.next_page_number %}"
+               hx-target="#resultados"
+               hx-push-url="true">Siguiente</a>
           </li>
         {% endif %}
       </ul>
@@ -500,20 +552,29 @@ def dosis(valor) -> str:
 {% else %}
   <div class="text-center py-5" data-test="sin-resultados">
     <p class="mb-3">No hay existencias que coincidan con la búsqueda.</p>
-    <a class="btn btn-outline-secondary" href="{% url 'inventario:existencias' %}">Limpiar filtros</a>
+    <a class="btn btn-outline-secondary"
+       href="{% url 'inventario:existencias' %}">Limpiar filtros</a>
   </div>
 {% endif %}
 ```
 
 > **Reglas de las plantillas:** nada de `<script>` ni `onclick` en línea (los bloquea la CSP); todo campo con su `<label>`; los textos visibles en español; `{% querystring %}` es de Django 5.1+ y conserva los filtros al paginar.
 
+> **Formato de las plantillas:** están escritas como las deja djLint (HB-02, `[tool.djlint]` en `pyproject.toml`): 2 espacios de sangría y un atributo por línea cuando la etiqueta no cabe en 120 caracteres. Después de pegar o editar una plantilla, ejecuta `docker compose exec web djlint . --reformat` y luego `djlint . --lint`; el *job* `lint` del CI falla si una plantilla no tiene ese formato.
+
 Revisa la pantalla a mano: `https://localhost/existencias/`, con el modo de dispositivo de Chrome (F12 → icono de celular → 390 × 844).
 
-### Paso 7. Tests (≈ 2 h)
+### Paso 8. Tests en verde (≈ 20 min)
 
-Ver la sección 3.
+```bash
+dtest apps/inventario apps/accounts -q
+docker compose exec -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PASSWORD" \
+    -e DJANGO_ALLOW_ASYNC_UNSAFE=true web pytest -m e2e e2e/ -q
+```
 
-### Paso 8. Verificación final y *pull request* (≈ 1 h)
+Todos deben pasar.
+
+### Paso 9. Verificación final y *pull request* (≈ 1 h)
 
 Ejecuta los comandos de la sección 5, toma las capturas y completa la lista de la sección 6.
 
@@ -582,7 +643,7 @@ def test_sin_resultados(demo):
     assert filas(buscar_existencias(q="ibuprofeno")) == []
 ```
 
-> Si los nombres que imprime `str(e.entidad)` no coinciden (por ejemplo, el formato del nombre del residente), ajusta el test al `__str__` real de la semana 1, no al revés.
+> Si los nombres que imprime `str(e.entidad)` no coinciden (por ejemplo, el formato del nombre del residente), ajusta el test al `__str__` real de HB-06, no al revés.
 
 ### 3.2 `apps/inventario/tests/test_views_existencias.py`: la vista y HTMX
 
@@ -596,6 +657,7 @@ from django.urls import reverse
 
 from apps.accounts.models import Usuario
 
+pytestmark = pytest.mark.http
 URL = reverse("inventario:existencias")
 HTMX = {"HX-Request": "true"}
 
@@ -729,7 +791,55 @@ def test_navegacion_con_teclado(pagina):
         expect(pagina.locator(campo)).to_be_focused()
 ```
 
-Registra el marcador en la configuración de pytest: `markers = [..., "e2e: pruebas de extremo a extremo con Playwright"]`.
+El marcador `e2e` ya está registrado desde HB-03 (`pyproject.toml`, con `--strict-markers`).
+
+**`app/e2e/conftest.py`:** el servidor de pruebas corre como `app_user`, así las pantallas se prueban con los privilegios reales de la aplicación:
+
+```python
+"""Configuración de las pruebas de extremo a extremo (readme, sección 2.6).
+
+El servidor de pruebas (live_server) atiende cada petición en un hilo propio, con su
+propia conexión: esas conexiones hacen SET ROLE app_user. El hilo principal sigue como
+app_owner, porque carga el mock (crea una vista temporal y reajusta secuencias) y, al
+terminar cada test, vacía las tablas y restaura los datos semilla (serialized_rollback).
+"""
+
+import threading
+
+import pytest
+from django.db.backends.signals import connection_created
+
+
+def _como_app_user(sender, connection, **kwargs):
+    if threading.current_thread() is not threading.main_thread():
+        with connection.cursor() as cursor:
+            cursor.execute("SET ROLE app_user")
+
+
+@pytest.fixture(autouse=True, scope="session")
+def servidor_como_app_user():
+    connection_created.connect(_como_app_user, dispatch_uid="e2e_como_app_user")
+    yield
+    connection_created.disconnect(dispatch_uid="e2e_como_app_user")
+```
+
+> **CSP:** `live_server` no pasa por nginx, pero Django envía la misma política CSP (HB-04, `ContentSecurityPolicyMiddleware`). Por eso el *fixture* `pagina` sí detecta en la consola un `<script>` o un estilo en línea.
+
+### 3.5 `apps/accounts/tests/test_login.py`: la página de inicio cambia (modifica)
+
+HB-08 probó el inicio de entonces. Con este ticket el login lleva a existencias, y la raíz pasa por esa pantalla antes de pedir sesión. Reemplaza `test_login_correcto_lleva_al_panel` y `test_la_raiz_lleva_al_login` por:
+
+```python
+def test_login_correcto_lleva_a_existencias(client, operador):
+    respuesta = entrar(client, "prueba.operador", CLAVE)
+    assert respuesta.status_code == 302
+    assert respuesta.url == reverse("inventario:existencias")
+
+
+def test_la_raiz_lleva_al_login(client):
+    respuesta = client.get("/", follow=True)
+    assert respuesta.redirect_chain[-1][0].startswith(reverse("login"))
+```
 
 ---
 
@@ -740,6 +850,7 @@ Registra el marcador en la configuración de pytest: `markers = [..., "e2e: prue
 | La búsqueda usa los índices trigram | Comando 4 de la sección 5: el plan muestra `ix_medicamento_nombre_trgm` |
 | Sin N+1: mismo número de consultas con 1 y con 13 resultados | `test_sin_n_mas_1` |
 | Sin JavaScript propio ni en línea; HTMX servido desde `static/` | Revisión del PR y consola del navegador sin violaciones de CSP |
+| Plantillas con el formato y el lint de djLint | Sección 5, comando 1 |
 | Accesible: `<label>` en cada campo, `aria-live` en los resultados, navegación con teclado | `test_navegacion_con_teclado` y Lighthouse ≥ 90 |
 | *Responsive*: tarjetas bajo 768 px, sin desplazamiento horizontal, controles táctiles ≥ 44 px | `test_celular_sin_desplazamiento_horizontal` y revisión en 390 px |
 | La URL refleja los filtros y funciona sola (recargar, compartir, botón Atrás) | Revisión manual: copia la URL en otra pestaña |
@@ -754,6 +865,7 @@ Registra el marcador en la configuración de pytest: `markers = [..., "e2e: prue
 ```bash
 # 1. Calidad y tests unitarios
 docker compose exec web ruff check . && docker compose exec web ruff format --check .
+docker compose exec web djlint . --check && docker compose exec web djlint . --lint
 dtest apps/inventario -q
 
 # 2. Pruebas de extremo a extremo (Chromium sin interfaz, dentro del contenedor)
@@ -761,7 +873,7 @@ docker compose exec -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PASSWORD" \
     -e DJANGO_ALLOW_ASYNC_UNSAFE=true web pytest -m e2e e2e/ -q
 # DJANGO_ALLOW_ASYNC_UNSAFE es necesario porque Playwright y el servidor de pruebas comparten proceso
 
-# 3. Con el mock cargado (TK-01, paso 8): sesión con curl (04-api.md, sección 2)
+# 3. Con el mock cargado (TK-01, paso 10): sesión con curl (04-api.md, sección 2)
 BASE=https://localhost; JAR=/tmp/hogar.cookies; CURL="curl -s -k"
 login() { rm -f "$JAR"; $CURL -c "$JAR" "$BASE/accounts/login/" -o /dev/null
   local csrf; csrf=$(awk '$6 == "csrftoken" { print $7 }' "$JAR")
@@ -806,11 +918,12 @@ $CURL -b "$JAR" -H "HX-Request: true" -o /dev/null -w "%{time_total}\n" "$BASE/e
 
 | Síntoma | Causa probable | Solución |
 |---|---|---|
+| `djlint . --check` dice `files would be updated` | La plantilla no tiene el formato de djLint | `docker compose exec web djlint . --reformat`, revisa el diff y vuelve a commitear |
 | `'WSGIRequest' object has no attribute 'htmx'` | Falta el middleware de `django-htmx` | Paso 1 |
 | Al escribir no pasa nada | HTMX no cargó (404 en `htmx.min.js`) o la CSP lo bloqueó | Consola del navegador; ejecuta `collectstatic` y revisa la ruta del `<script>` |
 | La página completa aparece dentro de la tabla | La vista no distingue la petición HTMX | `get_template_names` y la cabecera `HX-Request` |
-| El aviso "al menos 3 caracteres" no desaparece | Falta el `<div id="aviso" hx-swap-oob="true">` en `_resultados.html` | Paso 6 |
-| La búsqueda "losartan" no encuentra "Losartán" | La expresión del ORM no es `f_unaccent(lower(...))` o no se normalizó `q` | Paso 2: `_sin_acentos` y `normalizar` |
+| El aviso "al menos 3 caracteres" no desaparece | Falta el `<div id="aviso" hx-swap-oob="true">` en `_resultados.html` | Paso 7 |
+| La búsqueda "losartan" no encuentra "Losartán" | La expresión del ORM no es `f_unaccent(lower(...))` o no se normalizó `q` | Paso 3: `_sin_acentos` y `normalizar` |
 | `TemplateSyntaxError: Invalid block tag 'querystring'` | Django menor a 5.1 | El proyecto usa Django 5.2 LTS |
 | `SynchronousOnlyOperation` en los tests de Playwright | Falta `DJANGO_ALLOW_ASYNC_UNSAFE=true` | Comando 2 de la sección 5 |
 | El login de Playwright falla con el usuario demo | `PASSWORD_HASHERS` de los tests no incluye PBKDF2 | Las contraseñas del mock son PBKDF2 (sección 3.4): mantén `PBKDF2PasswordHasher` en la lista |
