@@ -1,6 +1,6 @@
 # HB-04 · Guía paso a paso: Nginx con HTTPS local
 
-> **Ticket:** [readme, sección 6, HB-04](../../readme.md#tickets-de-habilitación-hb-01-a-hb-09) · **Tipo:** infraestructura · **Estimación:** 2 puntos · **Rama:** `feature/HB-04-nginx`
+> **Ticket:** [readme, sección 6, HB-04](../../readme.md#tickets-de-habilitación-hb-01-a-hb-10) · **Tipo:** infraestructura · **Estimación:** 2 puntos · **Rama:** `feature/HB-04-nginx`
 >
 > Esta guía explica **cómo** hacerlo. El **qué** y el **porqué** están en el ticket y en las secciones 2.4.1 y 2.5 del readme. Si algo de esta guía contradice al readme, manda el readme: avisa en el PR.
 

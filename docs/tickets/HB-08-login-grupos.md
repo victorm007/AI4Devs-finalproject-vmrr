@@ -1,6 +1,6 @@
 # HB-08 · Guía paso a paso: login, grupos y usuarios
 
-> **Ticket:** [readme, sección 6, HB-08](../../readme.md#tickets-de-habilitación-hb-01-a-hb-09) · **Tipo:** backend y frontend · **Estimación:** 3 puntos · **Rama:** `feature/HB-08-login-grupos`
+> **Ticket:** [readme, sección 6, HB-08](../../readme.md#tickets-de-habilitación-hb-01-a-hb-10) · **Tipo:** backend y frontend · **Estimación:** 3 puntos · **Rama:** `feature/HB-08-login-grupos`
 >
 > Esta guía explica **cómo** hacerlo. El **qué** y el **porqué** están en el ticket y en las secciones 2.5, 3.2 (D1) y 5 ("Habilitadores en el panel `/admin/`") del readme. Si algo de esta guía contradice al readme, manda el readme: avisa en el PR.
 

@@ -1,6 +1,6 @@
 # HB-09 · Guía paso a paso: catálogo y residentes en el panel `/admin/`
 
-> **Ticket:** [readme, sección 6, HB-09](../../readme.md#tickets-de-habilitación-hb-01-a-hb-09) · **Tipo:** panel de administración · **Estimación:** 2 puntos · **Rama:** `feature/HB-09-admin-catalogo-residentes`
+> **Ticket:** [readme, sección 6, HB-09](../../readme.md#tickets-de-habilitación-hb-01-a-hb-10) · **Tipo:** panel de administración · **Estimación:** 2 puntos · **Rama:** `feature/HB-09-admin-catalogo-residentes`
 >
 > Esta guía explica **cómo** hacerlo. El **qué** y el **porqué** están en el ticket y en la sección 5 del readme ("Habilitadores en el panel `/admin/` de Django"). Si algo de esta guía contradice al readme, manda el readme: avisa en el PR.
 
@@ -896,7 +896,7 @@ dtest -q --cov=apps --cov-fail-under=80
 >
 > **Notas, sin cambio de código:**
 > - **6. El botón + de presentación.** Desde el alta de un medicamento, el botón **+** del campo presentación abre el alta de una presentación, que incluye la casilla `activo`. Si se desmarca, la presentación nueva no aparece en el campo, porque el alta solo ofrece las activas. Basta con dejarla activa.
-> - **8. Antes de aplicar `catalogo/0004` en el servidor del hogar** (despliegue, semana 6): si el panel de `6c345f0` ya se usó ahí, puede haber presentaciones duplicadas sin acentos, y `uq_presentacion_nombre` no se podría crear. Compruébalo antes de migrar; debe devolver 0 filas:
+> - **8. Antes de aplicar `catalogo/0004` en el servidor del hogar** (HB-10, semana 6): si el panel de `6c345f0` ya se usó ahí, puede haber presentaciones duplicadas sin acentos, y `uq_presentacion_nombre` no se podría crear. Compruébalo antes de migrar; debe devolver 0 filas:
 >
 >   ```sql
 >   SELECT f_unaccent(lower(nombre)) AS nombre, count(*) FROM presentacion GROUP BY 1 HAVING count(*) > 1;

@@ -1,6 +1,6 @@
 # ADR-0006 · Dos usuarios de base de datos con privilegios mínimos
 
-- **Estado:** Aceptado
+- **Estado:** Aceptado. Supersedido en parte por [ADR-0026](0026-despliegue-servidor-del-hogar-y-demo-local.md): `app_owner` también hace los respaldos y su restauración
 - **Fecha:** 2026-11-16
 - **Capabilities afectadas:** `accounts`, `inventario`, `conteos`
 - **Fuentes:** `readme.md` §2.4, §2.5, §2.6, §3.1, §3.4 y §6 (TK-01 punto 5, decisiones de diseño de la habilitación, HB-01, HB-03 y punto de integración 4); `CLAUDE.md` ("Dos usuarios de BD")

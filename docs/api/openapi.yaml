@@ -47,7 +47,7 @@ info:
     identifier: LicenseRef-Privado
 servers:
   - url: https://{host}/api/v1
-    description: Servidor local (red del hogar) o VPS
+    description: Servidor del hogar (red local) o máquina local de demo (ADR-0026)
     variables:
       host:
         default: localhost

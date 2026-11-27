@@ -12,6 +12,9 @@ BLOQUEA = [
     ("CURP: GOMA800101HDFRRN09", "curp"),  # secreto-ok
     ("DB_PASSWORD=Xk82hd9Qw7zP", "secreto_asignado"),  # secreto-ok
     ("postgres://app:Xk82hd9Qw7zP@db:5432/hogar", "url_con_credenciales"),  # secreto-ok
+    ("-----BEGIN OPENSSH PRIVATE KEY-----", "clave_privada"),  # secreto-ok
+    # La llave privada GPG que exporta HB-10 (paso 12) termina en "PRIVATE KEY BLOCK-----"
+    ("-----BEGIN PGP PRIVATE KEY BLOCK-----", "clave_privada"),  # secreto-ok
 ]
 
 PERMITE = [

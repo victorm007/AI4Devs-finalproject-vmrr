@@ -778,6 +778,448 @@ Atendí los 3 menores de la sexta revisión en el cambio de OpenSpec `hb-09-ajus
 
 ---
 
+## Prompt 30 — Usuario
+
+Trabajemos la guía de despliegue, ¿qué tenemos documentado y relevante para el despliegue? (Tras la respuesta, que listó lo documentado, los avisos repartidos por tickets, lo que faltaba y una contradicción entre el readme 2.5, ADR-0022 y `prod.py`:)
+
+1. Hagamos un HB-10, habilitador, y estimemos. Igual que los demás tickets, necesitamos un paso a paso detallado para que un Dev Jr. pudiera hacerlo. Encájalo en el plan que detalla el orden de ejecución de los tickets.
+2. Solo será un servidor en el hogar para el despliegue, y también necesitamos preparar el demo/mock para una máquina local. Queda fuera el VPS por falta de fondeo. Ajustemos el `readme.md` y la doc viva que se requiera (¿posible ADR?).
+3. Escribe solo la guía. Los scripts, cuando lleguemos a ello después del TK-01 y tengamos algo más de detalle concretado.
+
+---
+
+## Respuesta 30 — Claude
+
+Creé HB-10, ajusté el diseño para dejar fuera el VPS y escribí la guía, sin código.
+
+**HB-10 · Despliegue en el servidor del hogar, respaldos y demo local (5 puntos, semana 6).** Depende de TK-01, por el `Makefile` y la lectura de `.env` con espacios, y para instalar en el hogar espera al MVP integrado. La guía ([`docs/tickets/HB-10-despliegue-hogar.md`](docs/tickets/HB-10-despliegue-hogar.md)) tiene 3 partes:
+
+| Parte | Qué |
+|---|---|
+| A. Repositorio | `backup_db.sh` (`pg_dump` cifrado con la llave pública GPG del Administrador, retención de 14 días y disco externo), `restore_db.sh` (solo sobre una base vacía, o `--ensayo` en una base aparte que compara los conteos y la conciliación), `hogar.cron`, `make backup`, `restore` y `restore-ensayo`, el candado de `make mock` y 8 tests en `tests/test_respaldos.py`. Es código de referencia: se escribe y se prueba al ejecutar el ticket |
+| B. Servidor del hogar | Ubuntu 24.04 con IP fija, SSH con llave, `ufw`, Docker con rotación de logs, el `.env` de producción variable por variable, `mkcert` con la IP y la CA en Windows, Firefox, Android e iPhone, la primera instalación sin mock, los usuarios reales, los respaldos y el primer ensayo |
+| C. Demo local | La misma imagen y `config.settings.prod`, con el Hogar de la demo y el mock; `make reset` y `make mock` antes de cada demo, y un video para quien evalúe a distancia |
+
+La sección 8 es el manual de operación: actualizar, volver atrás, el ensayo mensual, restaurar tras una falla, renovar el certificado y un calendario. La sección 0.4 deja 6 decisiones abiertas con su propuesta, como la custodia de la llave GPG o la rotación del disco externo.
+
+**Documentación viva:**
+- **ADR-0026** supersede a ADR-0025: solo el servidor del hogar y una demo local, `mkcert` en todos los entornos, y nginx hace la redirección a HTTPS y HSTS.
+- **ADR-0022 y readme 2.5:** decían `SECURE_SSL_REDIRECT=True` en producción. Ahora dicen lo que hace `prod.py`, sin cambiar la decisión.
+- **Readme:**
+  - secciones 1.4, 2.1, 2.2, 2.3, 2.4 (diagrama, entornos y proceso de despliegue) y 2.5;
+  - sección 5: EP-01 suma HB-10 (26 puntos) y el plan pone HB-10 en la semana 6;
+  - sección 6: la ficha de HB-10, el orden de ejecución con la regla 4, y el MVP pasa de 49 a 54 puntos.
+- **Anexos de `02`, `05` y `06`**, `openapi.yaml` (la descripción del servidor), `openspec/config.yaml`, `CLAUDE.md` (el orden de ejecución y la excepción de TDD de las partes B y C) y las guías con el ancla de la sección.
+
+**Quedan para HB-10:** quitar el VPS de `prod.py`, de `.env.example` y de sus copias en las guías de HB-02 y HB-04, porque es código y configuración.
+
+---
+
+## Prompt 31 — Usuario
+
+Haz las verificaciones pendientes ahora, docker está corriendo.
+
+---
+
+## Respuesta 31 — Claude
+
+Verifiqué con Docker lo que la guía de HB-10 daba con margen, y probé su código de referencia copiándolo a archivos temporales, que después borré. El ticket sigue sin scripts.
+
+| Verificación | Resultado |
+|---|---|
+| `check --deploy` con `config.settings.prod` | `System check identified no issues (3 silenced).` La guía lo dice exacto |
+| Tabla de grupos por usuario | `usuario_groups`, con `usuario_id` |
+| `pg_dump` como `app_owner` y `pg_restore` en una base nueva | Mismo dueño de `public` y de las extensiones, los permisos de `app_user` y los privilegios por defecto, y los conteos de las 21 tablas cuadran |
+| Tests de la guía sin los scripts (rojo) | 9 failed, todos porque el script no existe |
+| Tests con los scripts de referencia (verde) | 8 passed. El del ensayo pasa si se quita la comprobación de `v_conciliacion_existencia`, que crea TK-01 |
+| ShellCheck 0.10.0 y ruff | Sin avisos, después de los ajustes de abajo |
+
+**Lo que las pruebas cambiaron en la guía:**
+- **Un hueco en la vuelta atrás:** `pg_dump` no respalda los permisos de la base (`REVOKE ALL ... FROM PUBLIC` y `GRANT CONNECT ... TO app_user` de `01_roles.sh`). Una base recreada dejaría conectarse a cualquier rol. `restore_db.sh` ahora los vuelve a poner, con un 9.º test (`test_restaura_en_una_base_vacia_con_sus_permisos`) y su criterio en la ficha de HB-10.
+- **Windows:** `bash` a secas ejecuta el de WSL, que no recibe las variables de entorno, y el `gpg` de Git Bash no entiende las rutas `C:/...`. Los tests usan la ruta completa de bash y `posix()`, y leen la salida en UTF-8.
+- **`export "${linea?}"`** en `leer_env.sh`, por el aviso SC2163 de ShellCheck, y el test con el formato de ruff.
+
+---
+
+## Prompt 32 — Usuario
+
+Sí, pasa el revisor adversarial.
+
+---
+
+## Respuesta 32 — Claude
+
+La revisión adversarial de HB-10 y ADR-0026 no aprobó el cambio: 1 bloqueante, 8 mayores y 12 menores. Comprobé con Docker el mayor M1, y es un error real.
+
+| # | Hallazgo |
+|---|---|
+| B1 | El respaldo usa `app_owner` y el ensayo usa el superusuario, en contra de ADR-0006 y ADR-0004, sin un ADR que lo permita |
+| M1 | `restore_db.sh -` está roto: `docker compose exec -T` se come la entrada estándar, y `pg_restore` recibe un archivo vacío |
+| M2 | ADR-0022 se reescribió en su decisión sin supersedencia |
+| M3 | `.gitattributes` solo fuerza LF en `*.sh`; `.gitignore` no ignora `*.asc` ni `*.gpg`; el hook no reconoce una llave privada PGP |
+| M4 | La CA de `mkcert` se generaba en el servidor |
+| M5 | Sin copia fuera del hogar, y sin aviso de un respaldo fallido |
+| M6 | `make reset` no tenía candado en el servidor |
+| M7 | El ensayo daba falsos "NO cuadra" por las tablas de sesiones y de `axes` |
+| M8 | La skill `implementar-ticket` y `openspec/config.yaml` no reconocían el perfil de HB-10 |
+
+Uno de los menores no era correcto: el 9.º test sí había corrido en verde.
+
+---
+
+## Prompt 33 — Usuario
+
+Aplícalo todo así.
+
+---
+
+## Respuesta 33 — Claude
+
+Apliqué todos los hallazgos y volví a verificar el código de referencia con archivos temporales, que después borré.
+
+**ADR:**
+- ADR-0026 declara los usos de `app_owner` (respaldo y restauración) y del superusuario: la base de ensayo, recrear la base en una vuelta atrás y los permisos de base, por el *socket* del contenedor.
+- Supersede en parte a ADR-0022, ADR-0004 y ADR-0006, que recuperan su texto original con el estado "supersedido en parte".
+- Además, ADR-0026 decide:
+  - la CA del hogar en la PC del Administrador;
+  - la copia mensual a un disco fuera del hogar;
+  - el aviso de respaldo al entrar por SSH;
+  - el candado de `make reset`;
+  - que no repite la versión de nginx.
+
+**Herramientas, ya aplicadas:**
+- `.gitattributes` con LF para `*.cron`, `Makefile` y `.env.example`.
+- `.gitignore` con `*.asc`, `*.gpg`, `*.dump*`, `rootCA*.pem` y `.respaldos-ensayo/`.
+- El hook reconoce `PRIVATE KEY BLOCK`, con 2 casos de test nuevos: primero en rojo, después 48 passed.
+- El perfil **Operación** en la skill `implementar-ticket`, y la excepción de TDD de HB-10 en `openspec/config.yaml`.
+
+**Guía de HB-10, reescrita:**
+- `restore_db.sh` lleva `</dev/null`, compara solo las tablas de negocio y resuelve la ruta antes del `cd`.
+- Un 10.º test cubre la restauración por la entrada estándar.
+- `backup_db.sh` deja la marca `.ultimo-ok`.
+- El cron suma `clearsessions`, y hay un candado en el `Makefile` para `reset` y `mock`.
+- La CA se crea en la PC del Administrador, con `CAROOT` propio.
+- Se agregan el aviso por SSH, `logrotate`, el disco de fuera del hogar y la frase de GPG separada de la memoria USB.
+- Los comandos usan `$POSTGRES_USER` y `$POSTGRES_DB`.
+- El paso 11 dice dónde cambiar la contraseña.
+- Una sección 3.3 nueva resume lo verificado.
+
+**Verificación:**
+
+| Prueba | Resultado |
+|---|---|
+| Rojo, sin scripts | 10 failed |
+| Verde, con los scripts de referencia | 8 passed, más los 2 del ensayo, que esperan la vista de TK-01; sin esa comprobación, 10 passed |
+| Sin los `</dev/null` | El test nuevo falla con `input file is too short`, el error del M1 |
+| ShellCheck y ruff | Limpios |
+| Candado del `Makefile` (GNU Make 3.81) | Correcto con `HOGAR_NOMBRE` en `.env`. En Windows, el nombre de la demo por la línea de comandos se rechaza por la codificación; quedó anotado |
+
+El readme recogió los mismos cambios (secciones 2.3, 2.4, 2.5, 5 y 6), y los anexos de `02`, `05` y `06` están sincronizados.
+
+---
+
+## Prompt 34 — Usuario
+
+(Tras la segunda revisión adversarial de HB-10, con 1 bloqueante, 4 mayores y 17 menores, y 2 decisiones pendientes: un *job* del CI para los tests de los respaldos, y LUKS en el disco del servidor:) Clarificación para 1: elabora un poco más. ¿A cuáles tests te refieres, los del HB-10? ¿Puedes listar brevemente esos tests? Si no es un CI, ¿cómo quedarían o correrían?
+
+---
+
+## Respuesta 34 — Claude
+
+Son los tests de `tests/test_respaldos.py`, que por ahora solo existen como referencia en la guía de HB-10 (sección 3.1):
+- el respaldo queda cifrado;
+- el ensayo cuadra, con archivo y por la entrada estándar;
+- la retención;
+- sin llave, con una llave que no está o si `pg_dump` falla, no queda ningún respaldo legible;
+- sin disco montado, avisa;
+- no restaura sobre una base con tablas;
+- restaura en una base vacía con sus permisos.
+
+La revisión sumaba 2 más: el respaldo sin los datos de `axes` ni de sesiones, y la inmutabilidad de `movimiento` tras restaurar.
+
+Los scripts corren en el equipo y usan `docker compose exec db`.
+
+**Sin un *job* nuevo:**
+- se corren a mano con `make up` y `python -m pytest tests/test_respaldos.py`;
+- en el CI, el *job* `herramientas` los reporta como `skipped`;
+- la única protección es pegar la salida local en el PR.
+
+**Con un *job* nuevo:**
+- levantaría los contenedores con un `.env` de ejemplo, migraría y correría los tests;
+- costaría unos 3 a 5 minutos más por PR y unas 20 líneas de `ci.yml`;
+- se agregaría al implementar HB-10.
+
+Recomendé incluirlo como *job* no obligatorio.
+
+---
+
+## Prompt 35 — Usuario
+
+Aplica todo mientras decido 1 y 2.
+
+---
+
+## Respuesta 35 — Claude
+
+Apliqué la segunda revisión. Quedan pendientes las 2 decisiones: el *job* del CI y LUKS.
+
+| Hallazgo | Cambio |
+|---|---|
+| B-1. Los respaldos sacaban los datos de `axes` y de sesiones | `pg_dump --exclude-table-data` para `axes_*` y `django_session` (su esquema sí va), declarado en ADR-0026, con un test |
+| M-1. La llave de la CA quedaba sin cifrar | La carpeta de la CA va a la memoria USB cifrada con `gpg --symmetric` y su propia frase. `rootCA-key.pem` se borra de la PC del Administrador y se recupera del resguardo para renovar |
+| M-2. Sin prueba de las invariantes tras restaurar | Test: `app_user` sin `UPDATE`, `DELETE` ni `TRUNCATE` sobre `movimiento`, `tg_movimiento_inmutable` y los privilegios por defecto |
+| M-3. Tests no herméticos | Se omiten si `HOGAR_NOMBRE` no es el de la demo, y en Windows si no son el `bash` y el `gpg` de Git Bash |
+| M-4. Actualización | `make backup && ... && make actualizar && docker compose restart nginx`, y el respaldo previo anotado en `~/respaldo-anterior` |
+
+**Menores:**
+- `WITH (FORCE)` al borrar las bases de prueba, y una copia atómica al disco externo.
+- `systemctl restart cron` tras cambiar la zona horaria, y sin el `reload` innecesario.
+- `ssh -n` en las tuberías.
+- Las 2 variables de `.env` en vez de exportarlo entero, y `grep -c cambia-esto`.
+- Usuarios `*.demo` comprobados, y la advertencia sobre `docker compose down -v`.
+- El candado también se niega sin nombre con `config.settings.prod`.
+- `COMPOSE_PROJECT_NAME` para la demo en el equipo de desarrollo.
+- ShellCheck dentro del verificador, como tarea del ticket.
+- Las decisiones de contenedores, repetidas en ADR-0026.
+- La ficha del readme y el paso 7 de la skill, corregidos.
+
+**Verificado con copias temporales:**
+- Sin scripts, 12 failed.
+- Con los scripts de referencia, 9 passed. Fallan solo los 3 que necesitan el esquema de TK-01.
+- Sin `--exclude-table-data`, o sin `</dev/null`, falla su test.
+- ShellCheck y ruff, limpios.
+- El candado se comporta bien en los 4 casos.
+- `COMPOSE_PROJECT_NAME` en el `.env` da `name: hogar-demo`.
+
+---
+
+## Prompt 36 — Usuario
+
+1. Acepto. 2. También: usemos LUKS, necesitamos proteger los datos.
+
+---
+
+## Respuesta 36 — Claude
+
+Anoté las 2 decisiones.
+
+**1. El *job* `respaldos` del CI**, no obligatorio, como `contrato` y `herramientas`:
+- Lo agrega HB-10 (guía, paso 4, con el YAML de referencia).
+- Se activa cuando existe `tests/test_respaldos.py`: copia `.env.example`, levanta `db` y `web`, migra como `app_owner` y corre los 12 tests.
+- Con `RESPALDOS_EXIGIR=1`, si faltara el contenedor `db`, `gpg` o `bash`, la recolección falla en vez de omitirlos. Lo comprobé con un proyecto de Compose inexistente.
+- Lo recogen el readme (2.4, punto 1, y 7.3, regla 7), `CLAUDE.md` y la ficha de HB-10.
+
+**2. LUKS en el disco del servidor**, decidido en ADR-0026:
+- **Instalación (paso 7.1):** Ubuntu se instala con el LVM cifrado y una frase. La frase se guarda en el gestor de contraseñas y en un sobre cerrado, aparte del servidor y de la memoria USB. La copia de la cabecera (`cryptsetup luksHeaderBackup`) va a la memoria.
+- **Desbloqueo por SSH:** opcional, con `dropbear-initramfs`, y queda a comprobar al ejecutar el ticket.
+- **Arranque (sección 8.9 nueva):** tras un corte de luz, alguien escribe la frase. Se recomienda un no-break.
+- **Alternativas descartadas en ADR-0026:** el disco sin cifrar y el desbloqueo con TPM, porque quien se lleve el equipo completo lo arrancaría.
+- **Dónde se refleja:** el readme suma la fila "Cifrado en reposo" (2.5), la ficha tiene un criterio nuevo y las secciones 4, 5 y 7 de la guía tienen su comprobación.
+
+**Verificación:** con `RESPALDOS_EXIGIR=1` y los scripts de referencia, 9 passed más los 3 que esperan el esquema de TK-01. El YAML del *job* es válido. Los anexos de `02`, `05`, `06` y `07` quedaron sincronizados.
+
+---
+
+## Prompt 37 — Usuario
+
+Haz la revisión adversarial.
+
+---
+
+## Respuesta 37 — Claude
+
+La tercera revisión adversarial de HB-10 no encontró bloqueantes. Encontró 3 mayores y 11 menores, 2 de ellos causados por las correcciones de la ronda anterior. El M1 lo comprobé en el `ci.yml` real.
+
+| # | Hallazgo |
+|---|---|
+| M1 | El *job* `respaldos` fallaría: el `env:` del *workflow* define `DB_OWNER_PASSWORD: owner-ci`, Compose lo prefiere al `.env`, y `migrate.sh` lee el `.env` copiado (`cambia-esto-owner`) |
+| M2 | El candado de `make` y la guarda de los tests confiaban solo en el nombre del Hogar. Si se olvida cambiarlo en el servidor (`.env.example` trae el de la demo), `make reset` borraría la base real |
+| M3 | La vuelta atrás "sin migraciones" no veía las migraciones de las dependencias |
+
+**Menores:**
+- **LUKS:** faltaba el `chown` de la copia de la cabecera, y `dropbear` sin la red del arranque.
+- **nginx:** faltaba reiniciarlo en la vuelta atrás, en el readme y en la ficha.
+- **Resguardo:** una sola memoria USB, sin revocación GPG.
+- **Copia mensual:** se hacía sin verificar.
+- **Redacción:** una frase inexacta sobre lo descifrado.
+- **ADR:** el estado "supersedido en parte" no estaba definido, y `CLAUDE.md` estaba desactualizado.
+- **Varios:** `*-key.pem`, la *deploy key* y el orden de arranque de `nginx`.
+
+---
+
+## Prompt 38 — Usuario
+
+Sí, por favor.
+
+---
+
+## Respuesta 38 — Claude
+
+Apliqué todo y volví a verificar con copias temporales.
+
+| Hallazgo | Cambio |
+|---|---|
+| M1 | El paso del *job* copia en el `.env` los valores del entorno del CI (`sed` con `${!v}`). Lo simulé con el mismo `env:`: el `.env` queda con `owner-ci`, `app-ci`, ... La guía anota que el *job* se comprueba en el primer PR |
+| M2 | El candado y la guarda de los tests se niegan ante cualquier señal del servidor: otro `HOGAR_NOMBRE`, `RESPALDO_DESTINATARIO` definida (el paso 8 la pone en `pendiente` desde el principio) o `/etc/cron.d/hogar`. Además, el paso 8 comprueba `grep -c "Hogar Gerontológico Demo" .env` = 0, y el paso 10 compara el nombre con el que da la dirección |
+| M3 | Antes de actualizar se guarda `showmigrations --plan`, y la vuelta atrás decide comparándolo |
+
+**Menores:**
+- **LUKS:** `chown` de la cabecera y rehacer la copia al cambiar la frase. `dropbear` con la red del arranque y la llave limitada a `cryptroot-unlock`.
+- **nginx:** `docker compose restart nginx` en la vuelta atrás, en el readme 2.4 y en la ficha.
+- **Resguardo:** 2 memorias USB, una fuera del hogar, y el certificado de revocación GPG.
+- **Copia mensual:** comprueba la marca de las 26 horas y `sha256sum`.
+- **Redacción:** la frase sobre `hogar_ensayo`, corregida.
+- **ADR:** el estado "Supersedido en parte por ADR-NNNN" se define en `docs/adr/README.md` y en `CLAUDE.md`, que además nombra los usos nuevos de `app_owner` y del superusuario.
+- **Varios:** `*-key.pem` en `.gitignore`, la *deploy key* con su URL SSH y `~/.ssh/config`, y la nota sobre el orden de arranque de `nginx`.
+
+**Verificación:**
+- Sin scripts, 12 failed. Con scripts, 9 passed más los 3 que esperan el esquema de TK-01.
+- El candado, correcto en 5 casos: con `RESPALDO_DESTINATARIO=pendiente` y el nombre de la demo, se niega.
+- El `.env` del *job*, coherente con el entorno del CI.
+
+---
+
+## Prompt 39 — Usuario
+
+Corre adversarial.
+
+---
+
+## Respuesta 39 — Claude
+
+La cuarta revisión adversarial de HB-10 no encontró bloqueantes. Encontró 3 mayores y 8 menores. Comprobé el M1 y el M2, y los 2 son errores reales; el M1 lo provocó la corrección anterior del candado.
+
+| # | Hallazgo |
+|---|---|
+| M1 | El ensayo del paso 6 exportaba `RESPALDO_DESTINATARIO` y después hacía `make reset`. `make` lee el entorno (comprobado), así que el candado se negaba |
+| M2 | `grep -c "Hogar Gerontológico Demo" .env` nunca da 0, porque el comentario de `.env.example` también nombra la demo |
+| M3 | La vuelta atrás con migraciones borraba la base antes de comprobar que el respaldo se lee, y sin guardar el estado actual |
+
+**Menores:**
+- **Copia mensual:** `sha256sum` sin `sudo`.
+- **Desbloqueo por SSH:** se mandaba teclear `cryptroot-unlock`, que la llave ya ejecuta.
+- **Segunda memoria USB:** la cabecera de LUKS y la CA no se copiaban a ella.
+- **Archivos fuera del repositorio:** el cron no se reinstalaba al actualizar.
+- **`axes`:** ADR-0026 exageraba la purga de sus datos.
+- **Disco externo:** con `RESPALDO_DISCO` vacía, el respaldo terminaba en verde sin copia.
+- **Ensayo:** podía decir "cuadra" con 0 tablas.
+- **Varios:** el clon repetido, `APP_UID` ausente de `.env.example` y `--gen-revoke`, que es interactivo.
+
+---
+
+## Prompt 40 — Usuario
+
+Aplica y vuelve a verificar.
+
+---
+
+## Respuesta 40 — Claude
+
+Apliqué los 11 hallazgos y volví a verificar con copias temporales.
+
+| Hallazgo | Cambio |
+|---|---|
+| M1 | El paso 6 hace `make reset && make mock` antes del `export`. Se agregan el caso "variable en el entorno de la sesión" a la verificación del candado y su fila en la sección 7 |
+| M2 | Ahora `grep -c '^HOGAR_NOMBRE=Hogar Gerontológico Demo$' .env`, también en la ficha, más `grep '^HOGAR_NOMBRE=' .env` para compararlo con el nombre real |
+| M3 | Antes del `DROP`: `stop web && make backup` del estado actual y `pg_restore -l` del respaldo de destino; si no se lee, se detiene. También dice cómo recuperar lo registrado después |
+
+**Menores:**
+- **Copia mensual:** `sudo sha256sum`.
+- **Desbloqueo por SSH:** pide la frase al entrar.
+- **Segunda memoria USB:** la cabecera y la CA se copian también a ella, y la guía aclara qué va cifrado.
+- **Actualización:** `install` del cron en la 8.1.
+- **`axes`:** cron semanal con `axes_reset_logs --age 30`, `axes_reset_failure_logs --age 30` y `axes_reset`, y ADR-0026 corregido.
+- **Disco externo:** una `RESPALDO_DISCO` vacía usa `/mnt/respaldos`, y solo `RESPALDO_SIN_DISCO=1` salta la copia.
+- **Ensayo:** los conteos van a variables y aborta si salen vacíos.
+- **Varios:** el clon se hace una sola vez, `APP_UID` se agrega a mano y las respuestas de `--gen-revoke` se explican.
+
+**Verificación:**
+- Sin scripts, 12 failed. Con scripts, 9 passed más los 3 que esperan TK-01. Sin la comprobación de la vista, los 2 del ensayo pasan.
+- Con un conteo que falla, el ensayo sale con error y no dice "cuadra".
+- El candado se niega con la variable exportada y deja pasar tras `unset`.
+- La limpieza de `axes` corre en el contenedor.
+- ShellCheck y ruff, limpios.
+
+---
+
+## Prompt 41 — Usuario
+
+Pasa la revisión adversarial.
+
+---
+
+## Respuesta 41 — Claude
+
+La quinta revisión adversarial de HB-10 no encontró bloqueantes ni contradicciones con los ADR. Encontró 3 mayores y 4 menores. Comprobé el M1 y el m1, y los 2 son errores reales.
+
+| # | Hallazgo |
+|---|---|
+| M1 | `cp ... && mv ...` bajo `set -e`: si falla la copia al disco externo, el script sigue y escribe la marca de éxito (comprobado) |
+| M2 | La copia en el disco de fuera del hogar queda de `root` con modo 600, y la restauración tras una falla la lee como `hogar` |
+| M3 | El candado de `make` no tenía prueba automática, y en el servidor se verificaba ejecutando `make mock` |
+
+**Menores:**
+- **Hook de secretos:** bloquearía `git@github.com` (comprobado).
+- **Prueba de humo:** dejaba Movimientos de prueba para siempre en la base real.
+- **Vuelta atrás:** `pg_restore -l` solo leía el índice, faltaba el comando de `hogar_consulta` y no se pedía la `nota` con la fecha y el usuario originales.
+- **Guarda de los tests:** más débil que el candado.
+- **`restore_db.sh`:** fallaba de forma confusa con una ruta que no existe.
+
+---
+
+## Prompt 42 — Usuario
+
+Sí.
+
+---
+
+## Respuesta 42 — Claude
+
+Apliqué los 7 hallazgos y volví a verificar con copias temporales.
+
+| Hallazgo | Cambio |
+|---|---|
+| M1 | `if ! cp ...; then ...; exit 3; fi` y `mv` aparte, con un test nuevo (un `mountpoint` falso que responde "montado" y un `cp` falso que falla). Con el `&&` de antes, el test falla |
+| M2 | El disco de fuera se le da a `hogar` (`chown`), y la copia mensual va sin `sudo`. La primera vez se hace un ensayo desde ese disco |
+| M3 | *Target* `make candado`, que solo evalúa el candado, más `tests/test_candado.py` con 6 casos, que el *job* `respaldos` corre con GNU Make 4.3. El servidor se verifica con `make candado`, nunca con `make mock` |
+
+**Menores:**
+- **Hook de secretos:** `git@github.com` agregado a `secretos-permitidos.txt`. Es un dato público, y el hook sigue bloqueando un correo real.
+- **Prueba de humo:** en el servidor, sin Movimientos de prueba.
+- **Vuelta atrás:** el ensayo con `restore_db.sh --ensayo -` antes del `DROP`, los comandos de `hogar_consulta` y la `nota` con la fecha y el usuario originales.
+- **Guarda de los tests:** lee las señales del entorno y del `.env`, como el candado.
+- **`restore_db.sh`:** comprueba que el respaldo exista.
+
+**Verificación:**
+- Sin scripts, 13 failed. Con scripts, 10 passed más los 3 que esperan TK-01.
+- `test_candado.py`: 6 passed.
+- ShellCheck y ruff, limpios.
+
+---
+
+## Prompt 43 — Usuario
+
+Como no hay bloqueantes, ¿qué pasa si anotamos los pendientes y los corremos después de TK-01? (Tras la respuesta:) Sí, y después haz commit.
+
+---
+
+## Respuesta 43 — Claude
+
+Estuve de acuerdo en dejar de revisar el diseño en papel. No queda ningún hallazgo abierto de las 5 rondas, las últimas encontraban sobre todo detalles del código de referencia, y la ejecución de HB-10 lo va a revisar igual: tests en rojo y en verde sobre los scripts reales, el *job* `respaldos` en un *runner* y una revisión adversarial sobre el PR.
+
+Agregué a la guía la sección **0.5, "Pendientes para la ejecución"**, con lo que no se pudo probar y cómo se cierra cada punto:
+- los 3 tests que esperan el esquema de TK-01;
+- el *job* `respaldos` en un *runner* real, con GNU Make 4.3;
+- ShellCheck en `verificar.py --herramientas`;
+- la señal `/etc/cron.d/hogar` del candado;
+- LUKS y el desbloqueo por SSH en el servidor real;
+- las decisiones 4 y 5;
+- quitar el VPS del código y la configuración.
+
+Después hice el commit de todo el trabajo de HB-10 y ADR-0026.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 6)
 
 ## 6. Tickets de Trabajo
@@ -788,7 +1230,7 @@ Los 3 tickets forman el camino crítico del MVP: el esquema que guarda los saldo
 
 Cada ticket tiene además una **guía paso a paso** en [`docs/tickets/`](docs/tickets/), pensada para que un desarrollador junior lo implemente sin bloqueos: tareas en orden, archivos a crear, código de referencia, tests con ejemplos, criterios de calidad, comandos de verificación con su resultado esperado y una tabla de problemas frecuentes.
 
-Antes de los 3, 9 **tickets de habilitación** (HB-01 a HB-09, semanas 1 y 2) dejan listos los contenedores, la conexión con los 2 usuarios de base de datos, los modelos de catálogo, residentes y pautas, el login y los habilitadores del panel `/admin/` (sección 5). Tienen el mismo formato y su propia guía, y su detalle está al final de esta sección.
+Antes de los 3, 9 **tickets de habilitación** (HB-01 a HB-09, semanas 1 y 2) dejan listos los contenedores, la conexión con los 2 usuarios de base de datos, los modelos de catálogo, residentes y pautas, el login y los habilitadores del panel `/admin/` (sección 5). Al final, un décimo (HB-10, semana 6) lleva el sistema al servidor del hogar con sus respaldos y prepara la demo en una máquina local. Tienen el mismo formato y su propia guía, y su detalle está al final de esta sección.
 
 | Ticket | Tipo | Historia | Puntos | Depende de | Bloquea a |
 |---|---|---|---|---|---|
@@ -796,7 +1238,7 @@ Antes de los 3, 9 **tickets de habilitación** (HB-01 a HB-09, semanas 1 y 2) de
 | TK-02 | Backend | HU-01 | 5 | TK-01 | TK-04, TK-06 |
 | TK-03 | Frontend | HU-02 | 3 | TK-01 (y TK-02 para tener saldos reales) | TK-05 |
 
-**Estimación:** escala Fibonacci (1, 2, 3, 5, 8), relativa a la complejidad, al riesgo y al esfuerzo. TK-01 y los tickets de habilitación son trabajo de base que las estimaciones de las historias no incluían, así que el MVP suma **49 puntos**: 21 de las historias, 5 de TK-01 y 23 de habilitación.
+**Estimación:** escala Fibonacci (1, 2, 3, 5, 8), relativa a la complejidad, al riesgo y al esfuerzo. TK-01 y los tickets de habilitación son trabajo de base que las estimaciones de las historias no incluían, así que el MVP suma **54 puntos**: 21 de las historias, 5 de TK-01 y 28 de habilitación.
 
 **Backlog del MVP** (tickets restantes, se detallan al planear su sprint):
 
@@ -813,12 +1255,12 @@ Antes de los 3, 9 **tickets de habilitación** (HB-01 a HB-09, semanas 1 y 2) de
 | HU-02 | 5 | TK-03 (3) + TK-05 (2) |
 | HU-03 | 8 | TK-06 (3) + TK-07 (5) |
 | Base | 5 | TK-01 (5) |
-| Habilitación | 23 | HB-01 a HB-09 (tabla siguiente) |
-| **Total** | **49** | 13 en los 3 tickets documentados abajo + 13 en el backlog + 23 de habilitación |
+| Habilitación | 28 | HB-01 a HB-10 (tabla siguiente) |
+| **Total** | **54** | 13 en los 3 tickets documentados abajo + 13 en el backlog + 28 de habilitación |
 
 Quedan fuera de esta cuenta los endpoints `GET /medicamentos` y `GET /reportes/mensual`, que se estimarán con la historia de reportes.
 
-**Tickets de habilitación** (semanas 1 y 2; detalle al final de esta sección):
+**Tickets de habilitación** (semanas 1 y 2, y HB-10 en la semana 6; detalle al final de esta sección):
 
 | Ticket | Tipo | Alcance | Puntos | Depende de | Bloquea a | Guía |
 |---|---|---|---|---|---|---|
@@ -831,6 +1273,7 @@ Quedan fuera de esta cuenta los endpoints `GET /medicamentos` y `GET /reportes/m
 | HB-07 | Base de datos | Esquema de pautas (D6), sin pantallas | 2 | HB-06 | TK-01 | [HB-07](docs/tickets/HB-07-pautas.md) |
 | HB-08 | Backend + frontend | Login, `base.html`, los 2 grupos, usuarios en `/admin/` y `django-axes` | 3 | HB-04, HB-06 | HB-09, TK-01, TK-03 | [HB-08](docs/tickets/HB-08-login-grupos.md) |
 | HB-09 | Panel `/admin/` | Catálogo y residentes en el panel, sin borrado y con búsqueda sin acentos | 2 | HB-08 | — | [HB-09](docs/tickets/HB-09-admin-catalogo-residentes.md) |
+| HB-10 | Infraestructura + operación | Despliegue en el servidor del hogar, respaldos cifrados con restauración probada y demo en una máquina local | 5 | TK-01 (y el MVP integrado, para instalar en el hogar) | — | [HB-10](docs/tickets/HB-10-despliegue-hogar.md) |
 
 **Definición de hecho común** (aplica a todos los tickets, TK y HB, además de la propia de cada uno):
 - El código pasa `ruff check` y `ruff format --check`, las plantillas pasan `djlint --check` y `djlint --lint`, y no hay `print` ni código comentado. No hay formateador de CSS ni de JS: el proyecto solo usa los de Bootstrap y HTMX, ya minificados en `static/*/vendor/`, que no se reformatean.
@@ -859,12 +1302,15 @@ flowchart LR
     T2 --> INT{{"Prueba de integración<br/>los 3 en main"}}
     T3 --> INT
     INT --> BL["Backlog<br/>TK-04 a TK-07"]
+    BL --> H10["HB-10 · semana 6<br/>despliegue en el hogar,<br/>respaldos y demo local"]
+    T1 -. "scripts y ensayo" .-> H10
 ```
 
 0. **Habilitación primero, en el orden del diagrama.** Cada ticket HB se integra a `main` antes de empezar los que dependen de él. Después de HB-03, HB-04 (nginx) y la cadena HB-05 → HB-07 pueden avanzar en paralelo. HB-09 no bloquea a TK-01: puede integrarse mientras TK-01 avanza.
 1. **TK-01 después de HB-07 y HB-08, y sin paralelo entre los TK.** Crea las tablas, los permisos de los grupos y los *fixtures* de prueba que usan los otros 2. Se integra a `main` antes de empezar TK-02 o TK-03.
 2. **TK-02 y TK-03 pueden avanzar en paralelo.** TK-03 se desarrolla con los saldos del mock y no necesita el servicio. Con un solo desarrollador, va primero TK-02, porque está en el camino crítico de TK-04 y TK-06.
 3. **Orden de integración: TK-01 → TK-02 → TK-03.** El último en integrar hace `git rebase main`, ejecuta la **prueba de integración** (más abajo) en su rama y la deja en el repositorio. Desde ahí corre en CI en cada PR.
+4. **HB-10 al final, en la semana 6.** Sus scripts y el ensayo en el equipo de desarrollo (parte A de la guía) pueden hacerse desde que TK-01 está en `main`, porque usan su `Makefile` y su lectura de `.env`. La instalación en el servidor del hogar (parte B) espera al MVP integrado, con la prueba de integración y los e2e en verde. La demo local (parte C) usa el mock de TK-01. Conviene adelantar la parte A: la semana 6 es la última, y la parte B necesita una noche para comprobar el cron.
 
 **Archivos que tocan varios tickets** (reglas para evitar conflictos):
 
@@ -874,7 +1320,7 @@ flowchart LR
 | `apps/inventario/migrations/` | `0001` a `0004` | — | — | TK-02 y TK-03 no crean migraciones. Si alguno la necesita, se renumera después del *rebase* |
 | `config/settings/base.py` | — | — | `django_htmx`, `LOGIN_REDIRECT_URL` | Lo crea HB-02 y lo completan HB-03 a HB-08 (`DATABASES` es de HB-03). Cambios en bloques distintos |
 | `requirements.txt` / `requirements-dev.txt` | — | — | `django-htmx` / `pytest-playwright` | Los crea HB-02 (`djlint`, `pytest`, `pytest-django`, `pytest-cov` y `ruff`); TK-05 agrega `jsonschema`. Una dependencia por línea, en orden alfabético |
-| `docker-compose.yml`, `.env.example` | Descomenta `HOGAR_NOMBRE` en `.env.example` | — | — | Los crean HB-01 a HB-04 (y HB-06 agrega `HOGAR_NOMBRE`, comentada). Los tickets TK no los modifican, salvo TK-01 en esa línea |
+| `docker-compose.yml`, `.env.example` | Descomenta `HOGAR_NOMBRE` en `.env.example` | — | — | Los crean HB-01 a HB-04 (y HB-06 agrega `HOGAR_NOMBRE`, comentada). Los tickets TK no los modifican, salvo TK-01 en esa línea. HB-10 solo cambia comentarios de `.env.example` |
 
 #### Puntos de integración
 
@@ -1331,9 +1777,9 @@ No agrega dependencias nuevas.
 
 ---
 
-#### Tickets de habilitación (HB-01 a HB-09)
+#### Tickets de habilitación (HB-01 a HB-10)
 
-Dejan lista la base sobre la que se construyen TK-01 a TK-07: contenedores, conexión segura a la base de datos, modelos de catálogo, residentes y pautas, y los habilitadores del panel `/admin/` (sección 5). Cada ticket tiene una guía paso a paso en [`docs/tickets/`](docs/tickets/) con tareas, archivos, código de referencia, tests con ejemplos, criterios de calidad, comandos de verificación y problemas frecuentes. Aplica además la definición de hecho común.
+Dejan lista la base sobre la que se construyen TK-01 a TK-07: contenedores, conexión segura a la base de datos, modelos de catálogo, residentes y pautas, y los habilitadores del panel `/admin/` (sección 5). HB-10 cierra el MVP: lo instala en el servidor del hogar. Cada ticket tiene una guía paso a paso en [`docs/tickets/`](docs/tickets/) con tareas, archivos, código de referencia, tests con ejemplos, criterios de calidad, comandos de verificación y problemas frecuentes. Aplica además la definición de hecho común.
 
 **Decisiones de diseño de la habilitación:**
 - **Los 2 usuarios de base de datos existen desde el primer día** (HB-01 y HB-03), y no desde TK-01. Así la aplicación nunca corre como dueño de las tablas, y el CI, que ya los espera, funciona desde el primer ticket con código.
@@ -1341,6 +1787,7 @@ Dejan lista la base sobre la que se construyen TK-01 a TK-07: contenedores, cone
 - **Nginx entra en la semana 1** (HB-04), para probar el login y el panel por HTTPS desde el principio, con la CSP real.
 - **Las pautas solo tienen esquema** (HB-07): son *Could*, pero el dataset mock inserta pautas y TK-01 lo carga.
 - **El CI activa cada *job* cuando existe lo que necesita** (sección 7.3, regla 5): `lint` e `imagen` con `app/manage.py` (HB-02), `tests` con `app/conftest.py` (HB-03) y `e2e` con `app/e2e/` (TK-03).
+- **El despliegue es un habilitador al final** (HB-10, semana 6): el plan lo daba por hecho sin ticket. Se escribe y se ensaya en el equipo de desarrollo después de TK-01, y se instala en el hogar con el MVP completo. Solo hay servidor del hogar y demo local, sin VPS ([ADR-0026](docs/adr/0026-despliegue-servidor-del-hogar-y-demo-local.md)).
 
 ---
 
@@ -1589,5 +2036,61 @@ Dejan lista la base sobre la que se construyen TK-01 a TK-07: contenedores, cone
 **Definición de hecho**
 - [ ] Capturas del alta de un medicamento y del mensaje de duplicado en el PR.
 - [ ] Sin violaciones de CSP en el panel.
+
+---
+
+**HB-10 · [Infra] Despliegue en el servidor del hogar, respaldos y demo local**
+
+| Campo | Valor |
+|---|---|
+| Tipo | Infraestructura y operación |
+| Prioridad | Must, habilitador (semana 6) |
+| Estimación | **5 puntos** |
+| Rama | `feature/HB-10-despliegue-hogar` |
+| Depende de | TK-01 (`Makefile` y lectura de `.env` con espacios); para instalar en el hogar, el MVP integrado |
+| Guía | [`docs/tickets/HB-10-despliegue-hogar.md`](docs/tickets/HB-10-despliegue-hogar.md) |
+
+**Descripción técnica.** Lleva el sistema al servidor del hogar y prepara la demo en una máquina local ([ADR-0026](docs/adr/0026-despliegue-servidor-del-hogar-y-demo-local.md)), en 3 partes:
+
+- **A, en el repositorio:**
+  - `scripts/backup_db.sh` hace un `pg_dump -Fc` como `app_owner`, sin los datos de `axes` ni de sesiones (ADR-0022), cifrado con la llave pública GPG del Administrador, con retención de 14 días y copia a un disco externo montado. Sin llave o sin disco falla con un mensaje, y nunca deja un respaldo sin cifrar.
+  - `scripts/restore_db.sh` restaura solo en una base vacía, desde un archivo o desde la entrada estándar, y repone los permisos de base que `pg_dump` no respalda. Con `--ensayo`, restaura en una base aparte, compara las tablas de negocio con la base en uso y la borra.
+  - `scripts/hogar.cron` programa el respaldo y `clearsessions` cada día, y la limpieza de `axes` cada semana (registros de más de 30 días e intentos fallidos).
+  - El `Makefile` suma los *targets* `backup`, `restore`, `restore-ensayo` y `candado` (que evalúa el candado sin hacer nada más), y `make reset` y `make mock` se niegan si ven una señal del servidor del hogar: un `HOGAR_NOMBRE` distinto del de la demo, `RESPALDO_DESTINATARIO` definida o `/etc/cron.d/hogar`.
+  - Los tests de los scripts van en `tests/test_respaldos.py` y los del candado en `tests/test_candado.py`, y se quitan las menciones del VPS de `prod.py`, `.env.example` y `docker-compose.yml`.
+  - El *job* `respaldos` del CI, no obligatorio, corre esos tests con los contenedores levantados.
+- **B, en el servidor del hogar:**
+  - Ubuntu Server 24.04 LTS con el disco cifrado con LUKS (y una copia de su cabecera), IP fija reservada en el router, SSH con llave, `ufw` y Docker Engine con rotación de logs.
+  - El `.env` de producción: `config.settings.prod`, `INSTALAR_DEV=false`, `DB_OWNER_CREATEDB=false`, y `ALLOWED_HOSTS` y `CSRF_TRUSTED_ORIGINS` con la IP.
+  - El certificado de `mkcert` con la IP, emitido en la PC del Administrador con la CA del hogar, que no va al servidor. La CA se instala en cada PC y celular, y su carpeta se resguarda cifrada en una memoria USB.
+  - La primera instalación sin mock, los usuarios reales con su grupo, el cron, el aviso de respaldo al entrar por SSH y la primera restauración de ensayo.
+  - La copia mensual de los respaldos a un segundo disco que se guarda fuera del hogar.
+- **C, la demo:** una máquina local con la misma imagen y la misma configuración, el Hogar de la demo y el mock.
+
+**Criterios de aceptación**
+- [ ] `tests/test_respaldos.py` pasa. Comprueba que:
+  - el respaldo queda cifrado y sin la llave no se lee;
+  - el respaldo no lleva los datos de `axes` ni de sesiones, solo su esquema;
+  - tras restaurar, `app_user` sigue sin `UPDATE`, `DELETE` ni `TRUNCATE` sobre `movimiento`, y existe `tg_movimiento_inmutable`;
+  - la restauración de ensayo cuadra tabla por tabla y borra su base, también con el respaldo por la entrada estándar;
+  - la retención borra los respaldos de más de 14 días;
+  - sin llave pública o sin disco montado, el script falla sin dejar un respaldo legible;
+  - si la copia al disco externo falla (lleno o en solo lectura), el respaldo no se da por bueno.
+- [ ] `restore_db.sh` se niega a restaurar sobre una base que tiene tablas, y en una base vacía restaura todo con los permisos de base de `db/init/01_roles.sh`, que `pg_dump` no respalda.
+- [ ] En el servidor, desde una PC y un celular de la red del hogar, `https://<IP del servidor>` muestra el candado válido, y el login funciona sin error de CSRF ni violaciones de CSP.
+- [ ] `check --deploy` con el `.env` del servidor no da advertencias, y solo `nginx` publica puertos (80 y 443).
+- [ ] El disco del servidor está cifrado con LUKS (`lsblk -f` muestra `crypto_LUKS`), y la copia de su cabecera está en las 2 memorias USB.
+- [ ] El *job* `respaldos` del CI corre los tests de los respaldos y del candado en el PR y queda en verde, y en el servidor `make candado` se niega.
+- [ ] El Hogar tiene el nombre real, nunca el de la demo (`grep -c '^HOGAR_NOMBRE=Hogar Gerontológico Demo$' .env` da 0 antes del primer `make migrate`). No hay datos del mock, y cada usuario real tiene exactamente un grupo.
+- [ ] El cron dejó un respaldo en el disco externo, y el ensayo desde la PC del Administrador (guía, paso 12.6) lo restaura y cuadra.
+- [ ] Una actualización con `make backup`, `git pull`, `make actualizar` y `docker compose restart nginx` deja la aplicación funcionando. La vuelta atrás, que decide con `showmigrations` antes y después, se probó en el equipo de desarrollo.
+- [ ] En la máquina de demo, `make reset` y `make mock` dejan listo el guion de la sección 3.4, y los 2 se niegan con otro nombre de Hogar o con `RESPALDO_DESTINATARIO` definida.
+- [ ] Hay un respaldo en el disco que se guarda fuera del hogar, y el mensaje de entrada por SSH avisa si el último respaldo tiene más de 26 horas.
+
+**Definición de hecho**
+- [ ] Ni el repositorio ni el servidor tienen la llave privada GPG ni `rootCA-key.pem`, y el repositorio no tiene secretos. El `.env` del servidor tiene permiso `600`.
+- [ ] Las 2 memorias USB de resguardo (una en el hogar y otra fuera) tienen la llave privada GPG, su revocación, la carpeta de la CA cifrada y la cabecera de LUKS, y `rootCA-key.pem` no quedó en la PC del Administrador.
+- [ ] En el PR van la salida del ensayo de restauración y la de `docker compose ps` del servidor, sin datos de residentes.
+- [ ] La sección 8 de la guía (operación) está revisada con quien administrará el servidor.
 
 **Documentación proceso para esta seccion:** [06-tickets-trabajo.md](06-tickets-trabajo.md)

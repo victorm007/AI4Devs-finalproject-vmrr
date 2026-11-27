@@ -1,6 +1,6 @@
 # HB-03 · Guía paso a paso: integración de Django con PostgreSQL
 
-> **Ticket:** [readme, sección 6, HB-03](../../readme.md#tickets-de-habilitación-hb-01-a-hb-09) · **Tipo:** infraestructura y base de datos · **Estimación:** 3 puntos · **Rama:** `feature/HB-03-conexion-bd`
+> **Ticket:** [readme, sección 6, HB-03](../../readme.md#tickets-de-habilitación-hb-01-a-hb-10) · **Tipo:** infraestructura y base de datos · **Estimación:** 3 puntos · **Rama:** `feature/HB-03-conexion-bd`
 >
 > Esta guía explica **cómo** hacerlo. El **qué** y el **porqué** están en el ticket y en las secciones 2.5, 3.2 (D1) y 6 (TK-01, punto 5) del readme. Si algo de esta guía contradice al readme, manda el readme: avisa en el PR.
 

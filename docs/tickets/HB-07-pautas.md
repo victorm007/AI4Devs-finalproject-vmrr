@@ -1,6 +1,6 @@
 # HB-07 · Guía paso a paso: esquema de pautas (D6)
 
-> **Ticket:** [readme, sección 6, HB-07](../../readme.md#tickets-de-habilitación-hb-01-a-hb-09) · **Tipo:** base de datos · **Estimación:** 2 puntos · **Rama:** `feature/HB-07-pautas`
+> **Ticket:** [readme, sección 6, HB-07](../../readme.md#tickets-de-habilitación-hb-01-a-hb-10) · **Tipo:** base de datos · **Estimación:** 2 puntos · **Rama:** `feature/HB-07-pautas`
 >
 > Esta guía explica **cómo** hacerlo. El **qué** y el **porqué** están en el ticket y en las secciones 3.1, 3.2 (D6) y 3.3 del readme. Si algo de esta guía contradice al readme, manda el readme: avisa en el PR.
 

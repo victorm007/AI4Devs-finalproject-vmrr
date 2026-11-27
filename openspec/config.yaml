@@ -10,7 +10,7 @@ context: |
   - Historias de usuario: readme.md, sección 5 (HU-01 a HU-03, épicas EP-01 a EP-05,
     habilitadores en /admin/). Sus criterios de aceptación están en bloques Gherkin
     ("Escenario", "Dado", "Cuando", "Entonces", "Y").
-  - Tickets: readme.md, sección 6 (TK-01 a TK-07 y HB-01 a HB-09: tabla de tickets,
+  - Tickets: readme.md, sección 6 (TK-01 a TK-07 y HB-01 a HB-10: tabla de tickets,
     orden de ejecución, puntos de integración, prueba de integración, criterios de
     revisión, definición de hecho común y la ficha de cada ticket con sus "Criterios de
     aceptación" y su "Definición de hecho"). Guía paso a paso de cada ticket:
@@ -107,6 +107,10 @@ rules:
       Excepción de TDD: HB-01 y HB-02 no tienen pytest. Su tarea "rojo" ejecuta los comandos
       con resultado esperado de la sección 3 de la guía antes de crear los archivos, y la de
       implementación los deja con ese resultado. Su último grupo no exige dtest ni cobertura.
+      HB-10: la parte A (scripts de respaldo y restauración) sigue el ciclo completo con
+      tests/test_respaldos.py, que corre en el equipo con python -m pytest, no con dtest. Las
+      partes B y C (servidor del hogar y máquina de la demo) se verifican con los comandos con
+      resultado esperado de la sección 5 de su guía, sin dtest ni cobertura.
     - >-
       Los tests corren contra PostgreSQL 17 real, nunca contra SQLite ni con la
       persistencia simulada. Las pruebas de servicios de inventario corren como app_user

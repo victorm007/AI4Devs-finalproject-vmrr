@@ -13,9 +13,9 @@ Esta carpeta formaliza las decisiones de arquitectura significativas que ya est�
 | [ADR-0001](0001-monolito-modular-mvt-django.md) | Monolito modular MVT con Django 5.2 LTS | Aceptado | 2026-11-16 | Todas |
 | [ADR-0002](0002-renderizado-en-servidor-con-htmx.md) | Renderizado en el servidor con plantillas, Bootstrap 5 y HTMX | Aceptado | 2026-11-16 | `accounts`, `inventario`, `conteos`, `reportes` |
 | [ADR-0003](0003-despliegue-docker-compose-tres-contenedores.md) | Despliegue con Docker Compose: `nginx`, `web` y `db` | Supersedido por ADR-0025 | 2026-11-16 | Todas |
-| [ADR-0004](0004-configuracion-por-entorno-variables-db.md) | Configuración por entorno y conexión con variables `DB_*` | Aceptado | 2026-11-16 | Todas |
+| [ADR-0004](0004-configuracion-por-entorno-variables-db.md) | Configuración por entorno y conexión con variables `DB_*` | Aceptado; supersedido en parte por ADR-0026 | 2026-11-16 | Todas |
 | [ADR-0005](0005-postgresql-ultima-barrera-de-integridad.md) | PostgreSQL 17 como última barrera de integridad | Aceptado | 2026-11-16 | `accounts`, `catalogo`, `entidades`, `pautas`, `inventario`, `conteos` |
-| [ADR-0006](0006-dos-usuarios-de-base-de-datos.md) | Dos usuarios de base de datos con privilegios mínimos | Aceptado | 2026-11-16 | `accounts`, `inventario`, `conteos` |
+| [ADR-0006](0006-dos-usuarios-de-base-de-datos.md) | Dos usuarios de base de datos con privilegios mínimos | Aceptado; supersedido en parte por ADR-0026 | 2026-11-16 | `accounts`, `inventario`, `conteos` |
 | [ADR-0007](0007-nomenclatura-de-objetos-de-base-de-datos.md) | Nombres explícitos y con prefijo para los objetos de la base de datos | Aceptado | 2026-11-16 | `accounts`, `catalogo`, `entidades`, `pautas`, `inventario`, `conteos` |
 | [ADR-0008](0008-supertipo-entidad-subtipo-residente.md) | Entidad como supertipo del Hogar y de cada Residente | Aceptado | 2026-11-16 | `entidades`, `inventario`, `conteos`, `pautas` |
 | [ADR-0009](0009-bajas-logicas-y-on-delete-restrict.md) | Bajas lógicas y `ON DELETE RESTRICT` en todas las claves foráneas | Aceptado | 2026-11-16 | `accounts`, `catalogo`, `entidades`, `inventario` |
@@ -31,10 +31,11 @@ Esta carpeta formaliza las decisiones de arquitectura significativas que ya est�
 | [ADR-0019](0019-api-rest-solo-lectura-openapi-design-first.md) | API REST de solo lectura en el MVP, con contrato OpenAPI 3.2 *design-first* | Aceptado | 2026-11-16 | `api`, `inventario`, `catalogo`, `reportes` |
 | [ADR-0020](0020-habilitadores-en-panel-admin.md) | Catálogo, Residentes y usuarios desde el panel `/admin/` en el MVP | Aceptado | 2026-11-16 | `catalogo`, `entidades`, `accounts` |
 | [ADR-0021](0021-autorizacion-por-grupos-en-el-servidor.md) | Autorización por 2 grupos de Django, validada en el servidor | Aceptado | 2026-11-16 | Todas |
-| [ADR-0022](0022-autenticacion-sesion-argon2-axes.md) | Autenticación: usuario propio, Argon2, sesiones con expiración y django-axes | Aceptado | 2026-11-16 | `accounts`, `api` |
+| [ADR-0022](0022-autenticacion-sesion-argon2-axes.md) | Autenticación: usuario propio, Argon2, sesiones con expiración y django-axes | Aceptado; supersedido en parte por ADR-0026 | 2026-11-16 | `accounts`, `api` |
 | [ADR-0023](0023-pruebas-contra-postgresql-real.md) | Pruebas contra PostgreSQL real, con el dataset mock y los permisos de la aplicación | Aceptado | 2026-11-16 | Todas |
 | [ADR-0024](0024-calidad-estatica-con-verificador-unico.md) | Calidad estática con ruff, djLint y un verificador único | Aceptado | 2026-11-16 | Todas |
-| [ADR-0025](0025-despliegue-docker-compose-nginx-version-fija.md) | Despliegue con Docker Compose: `nginx`, `web` y `db`, con `nginx` en versión fija | Aceptado | 2026-11-20 | Todas |
+| [ADR-0025](0025-despliegue-docker-compose-nginx-version-fija.md) | Despliegue con Docker Compose: `nginx`, `web` y `db`, con `nginx` en versión fija | Supersedido por ADR-0026 | 2026-11-20 | Todas |
+| [ADR-0026](0026-despliegue-servidor-del-hogar-y-demo-local.md) | Despliegue solo en el servidor del hogar, con demo en una máquina local | Aceptado | 2026-11-26 | Todas |
 
 **Todas** = `accounts`, `catalogo`, `entidades`, `pautas`, `inventario`, `conteos`, `reportes` y `api`: las 8 *capabilities* previstas, una por app de Django (§2.2).
 
@@ -50,4 +51,5 @@ Esta carpeta formaliza las decisiones de arquitectura significativas que ya est�
 Las reglas están en `CLAUDE.md` ("Decisiones de Arquitectura (ADRs)"):
 - Ninguna propuesta de OpenSpec, ticket ni cambio de código puede contradecir un ADR en estado `Aceptado`.
 - Para cambiar una decisión aceptada, primero se crea un ADR nuevo, el anterior pasa a estado `Supersedido por ADR-NNNN` (en su ficha y en este índice), y se actualiza `readme.md`. Solo después se modifican el código o las specs.
+- Si el ADR nuevo cambia solo un punto de uno aceptado, el anterior pasa a `Aceptado. Supersedido en parte por ADR-NNNN: <el punto>` (en el índice, `Aceptado; supersedido en parte por ADR-NNNN`). Su texto no se reescribe, y el ADR nuevo lo nombra en **Supersede a**. El resto del anterior sigue vigente.
 - El subagente `adversarial-reviewer` valida cada PR contra los ADR que apliquen.

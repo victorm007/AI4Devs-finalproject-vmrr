@@ -1,6 +1,6 @@
 # ADR-0022 · Autenticación: usuario propio, Argon2, sesiones con expiración y django-axes
 
-- **Estado:** Aceptado
+- **Estado:** Aceptado. Supersedido en parte por [ADR-0026](0026-despliegue-servidor-del-hogar-y-demo-local.md): quién hace la redirección a HTTPS y HSTS
 - **Fecha:** 2026-11-16
 - **Actualización:** 2026-11-23, HB-08: versión fija de `django-axes` (9.1.0), bloqueo por usuario y sus consecuencias, sin cambiar la decisión
 - **Capabilities afectadas:** `accounts`, `api`

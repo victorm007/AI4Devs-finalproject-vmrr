@@ -1,6 +1,6 @@
 # HB-02 · Guía paso a paso: proyecto Django, imagen y servicio `web`
 
-> **Ticket:** [readme, sección 6, HB-02](../../readme.md#tickets-de-habilitación-hb-01-a-hb-09) · **Tipo:** infraestructura · **Estimación:** 3 puntos · **Rama:** `feature/HB-02-imagen-web`
+> **Ticket:** [readme, sección 6, HB-02](../../readme.md#tickets-de-habilitación-hb-01-a-hb-10) · **Tipo:** infraestructura · **Estimación:** 3 puntos · **Rama:** `feature/HB-02-imagen-web`
 >
 > Esta guía explica **cómo** hacerlo. El **qué** y el **porqué** están en el ticket y en las secciones 2.3 y 2.4 del readme. Si algo de esta guía contradice al readme, manda el readme: avisa en el PR.
 

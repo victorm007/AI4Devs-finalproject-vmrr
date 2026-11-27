@@ -149,12 +149,12 @@ Las épicas agrupan el trabajo por objetivo de negocio. Cada una reúne funciona
 
 | Épica | Funcionalidades (1.2) | Historias y habilitadores | Tickets | Puntos | Prioridad | Semanas |
 |---|---|---|---|---|---|---|
-| **EP-01** · Configuración base: catálogo, entidades y usuarios | 1, 2 y 7 | Habilitadores en `/admin/` | HB-01 a HB-06, HB-08 y HB-09 | 21 | Must (habilitadora) | 1–2 |
+| **EP-01** · Configuración base: catálogo, entidades y usuarios | 1, 2 y 7 | Habilitadores en `/admin/` | HB-01 a HB-06 y HB-08 a HB-10 | 26 | Must (habilitadora) | 1–2 (HB-10: 6) |
 | **EP-02** · Registro de movimientos de inventario | 3 y 8 | HU-01 | TK-01, TK-02 y TK-04 | 13 | Must | 3–4 |
 | **EP-03** · Consulta y filtrado de existencias | 5 (y 3) | HU-02 | TK-03 y TK-05 | 5 | Must | 4–5 |
 | **EP-04** · Conteos físicos y reportes para la dirección | 6 | HU-03 y reporte mensual (historia por definir) | TK-06 y TK-07 | 8, más el reporte sin estimar | Must (HU-03), *Should* (reporte) | 5–6 |
 | **EP-05** · Pautas de los residentes | 4 | Pantallas de pautas (historia por definir) | HB-07 (solo el esquema) | 2, más las pantallas sin estimar | *Could* (el esquema es Must: lo usa el mock) | 2 |
-| **Total** | | | | **49** | | |
+| **Total** | | | | **54** | | |
 
 **EP-01 · Configuración base: catálogo, entidades y usuarios**
 - **Objetivo:** dejar listos y mantenibles los elementos estructurales del sistema: medicamentos, residentes, el Hogar y el control de acceso. No entrega valor por sí sola, pero todas las demás épicas dependen de ella.
@@ -163,8 +163,9 @@ Las épicas agrupan el trabajo por objetivo de negocio. Cada una reúne funciona
   - **Entidades:** alta y cambio de residentes y de su estado (activo, egresado o fallecido). El Hogar es una entidad fija que crean las migraciones.
   - **Usuarios y niveles de acceso globales:** el Administrador da de alta a los usuarios y les asigna el grupo *Solo lectura* o *Lectura y escritura* desde el panel `/admin/`.
   - **Base técnica** que lo hace posible: contenedores, conexión con los 2 usuarios de base de datos y HTTPS (HB-01 a HB-04).
-- **Tickets:** HB-01 a HB-04 (base técnica, 10 puntos), HB-05 y HB-06 (modelos de catálogo y entidades, 6) y HB-08 y HB-09 (login, grupos y panel, 5).
-- **Se da por terminada cuando** el Administrador crea un usuario de cada grupo por HTTPS, y uno de *Lectura y escritura* da de alta medicamentos y residentes en `/admin/` sin poder borrar nada.
+  - **Puesta en producción:** el despliegue en el servidor del hogar, los respaldos cifrados con su prueba de restauración y la demo en una máquina local (HB-10, semana 6).
+- **Tickets:** HB-01 a HB-04 (base técnica, 10 puntos), HB-05 y HB-06 (modelos de catálogo y entidades, 6), HB-08 y HB-09 (login, grupos y panel, 5) y HB-10 (despliegue, 5).
+- **Se da por terminada cuando** el Administrador crea un usuario de cada grupo por HTTPS, y uno de *Lectura y escritura* da de alta medicamentos y residentes en `/admin/` sin poder borrar nada. Su última parte, HB-10, termina cuando el sistema corre en el servidor del hogar y el ensayo de restauración del respaldo cuadra.
 
 **EP-02 · Registro de movimientos de inventario**
 - **Objetivo:** registrar las operaciones diarias que cambian las existencias de cada entidad, con trazabilidad de quién, cuándo y por qué.
@@ -243,9 +244,9 @@ Se implementan en los tickets de habilitación HB-08 (login, grupos y usuarios) 
 | 3–4 | **HU-01** (servicios, pantallas y tests de concurrencia) | 8 |
 | 4–5 | **HU-02** (pantalla con filtros HTMX y `GET /existencias`) | 5 |
 | 5–6 | **HU-03** (captura, diferencias y cierre) | 8 |
-| 6 | Pruebas de extremo a extremo, respaldos, despliegue en el servidor del hogar y, si alcanza, el reporte mensual | — |
+| 6 | **HB-10**: despliegue en el servidor del hogar, respaldos y demo local; pruebas de extremo a extremo y, si alcanza, el reporte mensual | 5 |
 
-**Riesgo del plan:** con la habilitación detallada en tickets, el MVP suma 49 puntos (sección 6), unos 8 por semana, y las semanas 1 y 2 quedan por encima de ese ritmo. El margen está en la semana 6: si algo se retrasa, el reporte mensual (*Should*) pasa a la siguiente iteración, y las 3 historias no se recortan.
+**Riesgo del plan:** con la habilitación detallada en tickets, el MVP suma 54 puntos (sección 6), unos 9 por semana, y las semanas 1 y 2 quedan por encima de ese ritmo. El margen está en la semana 6, que también lleva HB-10 (5 puntos): si algo se retrasa, el reporte mensual (*Should*) pasa a la siguiente iteración. Las 3 historias y el despliegue no se recortan. HB-10 queda en la ruta crítica de esa última semana: su parte A (scripts y ensayo) se adelanta en cuanto TK-01 esté en `main`, y la parte B necesita una noche de cron para su último criterio.
 
 **ROI desde el primer día:** el hogar carga sus existencias actuales como entradas (HU-01) y desde ese momento puede consultarlas (HU-02). El primer conteo (HU-03) ya compara el anaquel contra un registro confiable, en lugar de contra una libreta.
 

@@ -223,7 +223,7 @@ El código no necesita reconstrucción, porque `web` monta `./app`. El CI tampoc
 
    Súmalo a `.PHONY` y al conteo de `make help`.
 2. Haz que `reset` termine también con `collectstatic`: después de `down -v`, nginx no tiene estáticos y el login se ve sin estilos.
-3. Revisa que la primera instalación del readme (sección 2.4) y el despliegue en el servidor del hogar (semana 6) incluyan los 3 pasos, o `make actualizar`.
+3. Revisa que la primera instalación del readme (sección 2.4) y el despliegue en el servidor del hogar (HB-10, semana 6) incluyan los 3 pasos, o `make actualizar`.
 
 Compruébalo con `make actualizar`: termina sin errores, y `curl -sk -o /dev/null -w "%{http_code}" https://localhost/static/css/vendor/bootstrap.min.css` devuelve `200`.
 

@@ -37,7 +37,8 @@ from comandos_git import comandos_git  # noqa: E402  (mismo directorio: solo com
 
 # Alta confianza: el formato basta para saber que es una credencial.
 ALTA = [
-    ("clave_privada", re.compile(r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----")),
+    # También la llave privada PGP de GPG ("PRIVATE KEY BLOCK"), la de los respaldos (HB-10)
+    ("clave_privada", re.compile(r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----")),
     ("aws_access_key", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
     ("github_token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,}\b|\bgithub_pat_[A-Za-z0-9_]{22,}")),
     ("anthropic_key", re.compile(r"\bsk-ant-[A-Za-z0-9_-]{20,}")),

@@ -1,6 +1,6 @@
 # ADR-0004 · Configuración por entorno y conexión con variables `DB_*`
 
-- **Estado:** Aceptado
+- **Estado:** Aceptado. Supersedido en parte por [ADR-0026](0026-despliegue-servidor-del-hogar-y-demo-local.md): en la operación, el superusuario también crea la base de ensayo, recrea la de la aplicación en una vuelta atrás y repone sus permisos
 - **Fecha:** 2026-11-16
 - **Capabilities afectadas:** `accounts`, `catalogo`, `entidades`, `pautas`, `inventario`, `conteos`, `reportes`, `api`
 - **Fuentes:** `readme.md` §2.3, §2.4, §2.5 y §6 (decisiones de diseño de la habilitación, HB-02, HB-03 y criterios de revisión de infraestructura)

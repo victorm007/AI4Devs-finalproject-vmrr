@@ -25,6 +25,7 @@ dtest() { docker compose exec -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PAS
 | Infraestructura | HB-01 a HB-04 | HB-01 y HB-02: `<tmp>/<ticket>/verificacion.sh`, fuera del repositorio. HB-03 y HB-04: pytest (`infra`) y comandos | El script o `dtest` |
 | Backend | HB-05 a HB-07, TK-01, TK-02, API y servicios | `test_modelos`, `test_esquema`, `test_privilegios`, `test_services`, `test_concurrencia`, `test_selectors`, contratos con `jsonschema` | `dtest <rutas>` |
 | Frontend | HB-08, HB-09, TK-03 y pantallas | `test_views_*`, `test_admin*`, `test_templatetags`, `app/e2e/` | `dtest <rutas>` y Playwright |
+| Operación | HB-10 | Parte A: `tests/test_respaldos.py`, en el equipo y fuera de `web` (los scripts corren en el *host* y hablan con `docker compose`). Partes B y C: los comandos de la sección 5 de la guía, en el servidor y en la máquina de la demo | `python -m pytest tests/test_respaldos.py`; las partes B y C no tienen rojo de pytest |
 
 ## 1. Explorar
 
@@ -39,6 +40,7 @@ Fija las **piezas de contrato**, los nombres que los tests y la implementación 
 | Infraestructura | Servicios, redes, volúmenes y puertos; variables de entorno; roles de BD; nombres de settings; cabeceras; comandos con su salida esperada |
 | Backend | Tablas, columnas y tipos; nombres exactos de `ck_`, `uq_`, `ex_`, `fk_`, `ix_`, `fn_`, `tg_` y `v_`; módulo y firma de cada función pública; excepciones con su `code` y mensaje literal; datos del mock; rol con el que corre cada test |
 | Frontend | Nombre de URL y ruta; vista, plantillas y permiso; claves del contexto; campos del formulario; textos visibles literales; `id`, `data-test` y cabeceras HTMX; usuarios del mock |
+| Operación | Scripts, sus opciones y códigos de salida; variables `RESPALDO_*` y `RESTAURAR_BASE`; mensajes de error literales; bases auxiliares (`hogar_ensayo`); *targets* del `Makefile`; rutas del servidor (`/opt/hogar`, `/var/backups/hogar`, `/mnt/respaldos`) |
 
 ## 2. Plan, y DETENTE
 
@@ -100,7 +102,7 @@ git status --short -- 'app/**/tests/**' 'app/**/conftest.py' 'app/e2e/**' app/pr
 git diff -- app/pyproject.toml              # sin cambios en pytest ni en coverage
 ```
 
-Después ejecuta tú la suite: `dtest -m "not e2e and not lento" --cov=apps --cov-fail-under=80`, más `-m lento` y Playwright si el ticket los usa. En HB-01 y HB-02 la suite es `bash <tmp>/<ticket>/verificacion.sh`, porque todavía no existen `dtest` ni la cobertura. Valida los tests de regresión como indique la guía. **Si la huella no cuadra, el ticket no está terminado aunque todo esté en verde.**
+Después ejecuta tú la suite: `dtest -m "not e2e and not lento" --cov=apps --cov-fail-under=80`, más `-m lento` y Playwright si el ticket los usa. En HB-01 y HB-02 la suite es `bash <tmp>/<ticket>/verificacion.sh`, porque todavía no existen `dtest` ni la cobertura. En HB-10 (perfil Operación) la suite es `python -m pytest tests -q` más los comandos de la sección 5 de su guía, y el `git status --short` de la huella mira también `tests/` y `scripts/`. Valida los tests de regresión como indique la guía. **Si la huella no cuadra, el ticket no está terminado aunque todo esté en verde.**
 
 ## 8. Cierre
 

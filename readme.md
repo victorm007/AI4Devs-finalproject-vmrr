@@ -135,7 +135,7 @@ docker compose exec -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PASSWORD" web
 
 **Volver a empezar** (borra la base local): `make reset` (equivale a `docker compose down -v`, `up` y `migrate.sh`), y repite desde el paso 5.
 
-Las guías de `docs/tickets/` tienen los comandos de verificación de cada parte, y la sección 2.4 describe el despliegue en el servidor del hogar y en el VPS.
+Las guías de `docs/tickets/` tienen los comandos de verificación de cada parte, y la sección 2.4 describe el despliegue en el servidor del hogar y la demo en una máquina local, que la guía de HB-10 detalla paso a paso.
 
 **Documentación proceso para esta seccion:** [01-descripcion-general-producto.md](01-descripcion-general-producto.md)
 
@@ -148,7 +148,7 @@ Las guías de `docs/tickets/` tienen los comandos de verificación de cada parte
 ```mermaid
 flowchart LR
     U["Usuario<br/>Administrador / Lectura y escritura / Solo lectura<br/>(navegador en PC o celular)"]
-    subgraph SRV["Servidor: local en la red del hogar (hoy) / VPS (futuro)"]
+    subgraph SRV["Servidor local en la red del hogar"]
         direction LR
         NG["Nginx<br/>HTTPS, archivos estáticos,<br/>cabeceras de seguridad"]
         subgraph APP["Aplicación Django (Gunicorn)"]
@@ -177,7 +177,7 @@ flowchart LR
 - **Escala del problema:** 1 sede, ~20 residentes y 1 a 3 usuarios. La carga es mínima, y microservicios, una SPA o colas de mensajes solo añadirían complejidad.
 - **Un solo mantenedor (perfil infra/backend):** Django trae ORM, migraciones, autenticación, sesiones, permisos por grupos, CSRF, formularios con validación y panel de administración. Hay menos piezas que integrar y mantener.
 - **Rendimiento en celular:** el HTML llega listo desde el servidor, sin descargar ni compilar un *bundle* de JavaScript. HTMX permite filtrar y paginar sin recargar la página completa.
-- **Portabilidad:** todo se empaqueta con **Docker Compose**, de modo que el mismo despliegue corre en el servidor local y en un VPS de HostGator sin cambiar código.
+- **Portabilidad:** todo se empaqueta con **Docker Compose**, de modo que el mismo despliegue corre en el servidor del hogar y en una máquina local de demo, y podría moverse a un hosting sin cambiar código ([ADR-0026](docs/adr/0026-despliegue-servidor-del-hogar-y-demo-local.md)).
 - **Integridad de datos:** PostgreSQL ofrece transacciones y bloqueo de filas, necesarios para que una transferencia descuente y abone en un solo paso y para que nunca haya existencias negativas.
 
 **Beneficios:**
@@ -456,13 +456,13 @@ flowchart LR
 
 | Componente | Tecnología | Responsabilidad |
 |---|---|---|
-| **Proxy inverso** | Nginx | Termina HTTPS (certificado `mkcert` en la red local, Let's Encrypt en el VPS), sirve `static/`, aplica cabeceras de seguridad y reenvía el resto a Gunicorn. |
+| **Proxy inverso** | Nginx | Termina HTTPS (certificado de `mkcert`), sirve `static/`, aplica cabeceras de seguridad y reenvía el resto a Gunicorn. |
 | **Servidor de aplicación** | Gunicorn | Ejecuta la aplicación Django (WSGI) con varios *workers*. |
 | **Backend / web** | Python 3.12 + Django 5.2 LTS | Vistas, formularios, autenticación, autorización por grupos y lógica de negocio. |
 | **Frontend** | Plantillas Django + Bootstrap 5 + HTMX | Interfaz responsive renderizada en el servidor. HTMX actualiza fragmentos de página (filtros, búsquedas) sin una SPA. |
 | **API REST** | Django REST Framework + drf-spectacular | 3 endpoints JSON **de solo lectura** (existencias por entidad, búsqueda de medicamentos, reporte mensual) documentados en OpenAPI. Ver [sección 4](#4-especificación-de-la-api). |
 | **Base de datos** | PostgreSQL 17 | Persistencia relacional, transacciones y búsqueda por nombre / principio activo. |
-| **Respaldos** | `pg_dump` + cron | Respaldo diario comprimido, con retención de 14 días y copia a disco externo. |
+| **Respaldos** | `pg_dump` + GPG + cron | Respaldo diario comprimido y cifrado, con retención de 14 días y copia a disco externo (`scripts/backup_db.sh`, HB-10). |
 
 **Módulos (apps de Django) y sus dependencias:**
 
@@ -525,9 +525,11 @@ AI4Devs-finalproject-vmrr/
 ├── scripts/
 │   ├── verificar.py           # ruff y djLint: lo corren el job lint del CI y el hook de commits
 │   ├── migrate.sh             # migrate con las credenciales de app_owner
-│   ├── backup_db.sh           # respaldo con pg_dump
-│   └── restore_db.sh          # restauración de un respaldo
-├── tests/                     # tests de las herramientas (hooks y scripts), con pytest; no de la aplicación
+│   ├── leer_env.sh            # lee .env sin pisar el entorno; la usan los scripts de respaldo (HB-10)
+│   ├── backup_db.sh           # respaldo cifrado con pg_dump y GPG (HB-10)
+│   ├── restore_db.sh          # restauración de un respaldo, o ensayo en una base aparte (HB-10)
+│   └── hogar.cron             # tareas programadas del servidor del hogar (HB-10)
+├── tests/                     # tests de las herramientas (hooks y scripts, también test_respaldos.py de HB-10), con pytest; no de la aplicación
 ├── ruff.toml                  # ruff para scripts/, .claude/hooks/ y tests/ (app/ usa su pyproject.toml)
 └── app/                       # proyecto Django
     ├── Dockerfile
@@ -580,31 +582,33 @@ flowchart TB
         CI["GitHub Actions<br/>ruff + djLint + pytest + build de imagen"]
         GH --> CI
     end
-    subgraph LAN["Red del hogar (producción actual)"]
-        PC["PC / celular<br/>wifi del hogar"]
-        subgraph HOST["Servidor local: Ubuntu + Docker"]
+    subgraph LAN["Red del hogar (producción)"]
+        PC["PC / celular<br/>wifi del hogar, con la CA de mkcert"]
+        subgraph HOST["Servidor del hogar: Ubuntu + Docker, IP fija, disco LUKS"]
             N1["nginx<br/>certificado mkcert"] --> W1["web<br/>Django + Gunicorn"] --> D1[("db<br/>PostgreSQL<br/>volumen pgdata")]
         end
-        EXT["Disco externo<br/>respaldos"]
-        PC -- "HTTPS (IP fija o nombre local)" --> N1
-        D1 -. "pg_dump diario" .-> EXT
+        EXT["Disco externo<br/>respaldos cifrados"]
+        PC -- "HTTPS (IP fija)" --> N1
+        D1 -. "pg_dump diario cifrado (cron)" .-> EXT
     end
-    subgraph VPS["VPS: entorno demo hoy / producción futura (HostGator)"]
-        N2["nginx<br/>Let's Encrypt"] --> W2["web<br/>Django + Gunicorn"] --> D2[("db<br/>PostgreSQL<br/>datos ficticios")]
+    subgraph DEMO["Máquina local de demo"]
+        N2["nginx<br/>mkcert, localhost"] --> W2["web<br/>Django + Gunicorn"] --> D2[("db<br/>PostgreSQL<br/>dataset mock")]
     end
-    EV["Evaluadores / usuarios remotos"] -- "HTTPS dominio público" --> N2
-    GH -. "git pull + docker compose up" .-> W1
-    GH -. "git pull + docker compose up (SSH)" .-> W2
+    OFF["Disco fuera del hogar<br/>copia mensual"]
+    EXT -. "copia mensual (Administrador)" .-> OFF
+    GH -. "git pull + make actualizar (SSH)" .-> W1
+    GH -. "git clone + make reset + make mock" .-> W2
 ```
 
 **Entornos:**
 
 | Entorno | Ubicación | Acceso | Certificado | Datos |
 |---|---|---|---|---|
-| **Desarrollo** | Equipo del desarrollador | `localhost` | — | Semillas de ejemplo |
-| **Producción local** | Servidor Ubuntu con Docker en el hogar | Solo red del hogar | `mkcert` (CA local instalada en los dispositivos) | Reales |
-| **Demo** | VPS HostGator (alternativa: video grabado en el equipo de desarrollo si aún no hay VPS) | Internet | Let's Encrypt | Ficticios |
-| **Producción futura** | VPS, cuando haya presupuesto | Internet | Let's Encrypt | Reales (migrados con `pg_dump` / `pg_restore`) |
+| **Desarrollo** | Equipo del desarrollador | `localhost` | `mkcert` (`localhost`) | Semillas y mock |
+| **Producción** | Servidor Ubuntu con Docker en el hogar, con IP fija y el disco cifrado con LUKS | Solo la red del hogar | `mkcert`, con la IP del servidor (la CA se instala en cada PC y celular) | Reales |
+| **Demo** | Una máquina local: una laptop o el equipo de desarrollo (para quien evalúe a distancia, un video grabado) | `localhost` | `mkcert` (`localhost`) | Mock (sección 3.4), ficticio |
+
+> **Sin VPS por ahora** ([ADR-0026](docs/adr/0026-despliegue-servidor-del-hogar-y-demo-local.md)): no hay fondos para un hosting. Docker Compose y la configuración por variables permiten mover la aplicación a uno sin cambiar la arquitectura; si se hace, un ADR nuevo decide el proveedor, el dominio y Let's Encrypt.
 
 #### **2.4.1. Diagrama de contenedores (C4 – Nivel 2)**
 
@@ -642,7 +646,7 @@ C4Container
 
 | Contenedor | Imagen / tecnología | Responsabilidad | Puertos | Volúmenes | Redes |
 |---|---|---|---|---|---|
-| **`nginx`** — proxy inverso | `nginx:1.30.7-alpine` | Único punto de entrada. Termina **HTTPS** (`mkcert` en la red local, Let's Encrypt en el VPS) y redirige 80 → 443. Sirve `/static/` sin pasar por Django. Aplica cabeceras de seguridad (HSTS, CSP, `X-Frame-Options`) y límites de tamaño de petición. Reenvía el resto a `web`. | **80 y 443 publicados** al host | `static` (solo lectura), `nginx/certs` | `frontend` |
+| **`nginx`** — proxy inverso | `nginx:1.30.7-alpine` | Único punto de entrada. Termina **HTTPS** (certificado de `mkcert`) y redirige 80 → 443. Sirve `/static/` sin pasar por Django. Aplica cabeceras de seguridad (HSTS, CSP, `X-Frame-Options`) y límites de tamaño de petición. Reenvía el resto a `web`. | **80 y 443 publicados** al host | `static` (solo lectura), `nginx/certs` | `frontend` |
 | **`web`** — app + API backend | Imagen propia: Python 3.12 + Django 5.2 + Gunicorn | **App web:** renderiza las páginas HTML (Bootstrap + HTMX) de existencias, movimientos, conteos y reportes. En el MVP, el catálogo y los residentes se operan desde `/admin/`, y las pautas son *Could* (sección 5). **API REST** (DRF): 3 endpoints JSON de solo lectura bajo `/api/`, con esquema OpenAPI. **Backend:** autenticación, sesiones, permisos por grupo, reglas de inventario (`services.py`) y panel `/admin/` para gestionar usuarios. | 8000 (solo interno, no publicado) | `static` (escribe con `collectstatic`) | `frontend` y `backend` |
 | **`db`** — base de datos | `postgres:17-alpine` | Persistencia relacional de los almacenes D1 a D6. Garantiza transacciones atómicas y bloqueo de filas (`SELECT ... FOR UPDATE`) para que las existencias nunca queden negativas. | 5432 (solo interno, no publicado) | `pgdata` (datos persistentes) | `backend` |
 
@@ -659,24 +663,29 @@ C4Container
 **Orden de arranque:** `db` declara un *healthcheck* (`pg_isready`). `web` arranca con `depends_on: condition: service_healthy` y `nginx` arranca después de `web`. Así `web` nunca intenta conectarse a una base de datos que todavía no responde.
 
 **Proceso de despliegue:**
-1. **Integración continua:** en cada *push* o *pull request* a `main`, GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) ejecuta `scripts/verificar.py` (`ruff` para el lint y el formato de Python, djLint para los de las plantillas), `pytest` con cobertura contra un servicio PostgreSQL 17, las pruebas de extremo a extremo con Playwright si el PR toca el frontend, y el *build* de la imagen. Además revisa el contrato `docs/api/openapi.yaml` con Redocly y las herramientas del repositorio (`scripts/`, `.claude/hooks/` y `tests/`) con ruff y sus propios tests. Cada noche corren además los tests lentos. Solo se integra a `main` con los *checks* obligatorios en verde (sección 7.3).
-2. **Despliegue (local o VPS):** se hace manualmente por SSH, lo cual es suficiente para un solo mantenedor:
+1. **Integración continua:** en cada *push* o *pull request* a `main`, GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) ejecuta `scripts/verificar.py` (`ruff` para el lint y el formato de Python, djLint para los de las plantillas), `pytest` con cobertura contra un servicio PostgreSQL 17, las pruebas de extremo a extremo con Playwright si el PR toca el frontend, y el *build* de la imagen. Además revisa el contrato `docs/api/openapi.yaml` con Redocly y las herramientas del repositorio (`scripts/`, `.claude/hooks/` y `tests/`) con ruff y sus propios tests. Desde HB-10, el *job* `respaldos` prueba los scripts de respaldo y restauración con los contenedores levantados. Cada noche corren además los tests lentos. Solo se integra a `main` con los *checks* obligatorios en verde (sección 7.3).
+2. **Despliegue en el servidor del hogar:** se hace manualmente por SSH, lo cual es suficiente para un solo mantenedor. Antes de actualizar se hace un respaldo manual y se anota el commit en producción, para poder volver atrás:
    ```bash
+   make backup                   # respaldo manual antes de actualizar (HB-10)
    git pull origin main
    docker compose up -d --build
    ./scripts/migrate.sh          # migrate como app_owner; web corre como app_user
    docker compose exec web python manage.py collectstatic --noinput
+   docker compose restart nginx  # relee nginx/default.conf, que se monta del repositorio
+   # up, migrate.sh y collectstatic son "make actualizar" (TK-01)
    ```
-3. **Primera instalación:** se copia `.env.example` a `.env` y se configuran los secretos, incluidas las contraseñas de los 3 usuarios de PostgreSQL:
-   - `POSTGRES_PASSWORD`: superusuario, solo para la inicialización.
-   - `DB_OWNER_PASSWORD`: `app_owner`, para las migraciones.
+   El paso a paso de la primera instalación, la actualización, la vuelta atrás y la prueba de humo está en la guía de HB-10 ([`docs/tickets/HB-10-despliegue-hogar.md`](docs/tickets/HB-10-despliegue-hogar.md)).
+3. **Primera instalación:** el servidor se instala con el disco cifrado con LUKS ([ADR-0026](docs/adr/0026-despliegue-servidor-del-hogar-y-demo-local.md)), y su frase se escribe en cada arranque. Se copia `.env.example` a `.env` y se configuran los secretos, incluidas las contraseñas de los 3 usuarios de PostgreSQL:
+   - `POSTGRES_PASSWORD`: superusuario, solo para la inicialización. En la operación, el ensayo de restauración usa el superusuario por el *socket* del contenedor, sin contraseña ([ADR-0026](docs/adr/0026-despliegue-servidor-del-hogar-y-demo-local.md)).
+   - `DB_OWNER_PASSWORD`: `app_owner`, para las migraciones y los respaldos.
    - `DB_APP_PASSWORD`: `app_user`, para la aplicación.
 
    También `HOGAR_NOMBRE`, con el nombre real del hogar (o el de la demo, si es la demo). La primera migración crea el Hogar con ese nombre, una sola vez, y `config.settings.prod` no arranca sin la variable ni con más de 150 caracteres. En desarrollo, sin ella, el Hogar se llama "Hogar Gerontológico Demo". Hasta TK-01, un valor con espacios rompe `scripts/migrate.sh`, que lee `.env` con `. ./.env`: el despliegue en el servidor del hogar va después de TK-01 (sección 6, ficha de TK-01).
 
-   Al crear el volumen `pgdata`, el contenedor `db` ejecuta `db/init/01_roles.sh`, que crea `app_owner` y `app_user` (sección 6, HB-01). Después se generan los certificados (`mkcert` en local, `certbot` en el VPS), se crea el superusuario con `createsuperuser`. Los grupos de permisos, el Hogar y los catálogos semilla no se cargan aparte: los crean las migraciones de datos (sección 3.1).
-4. **Respaldos:** un cron diario ejecuta `scripts/backup_db.sh`, que genera un `pg_dump` comprimido y cifrado, con retención de 14 días y copia a un disco externo. Una vez al mes se prueba la restauración con `scripts/restore_db.sh`.
-5. **Migración a hosting:** se aprovisiona el VPS con Ubuntu y Docker, se clona el repositorio, se restaura el último respaldo y se apunta el dominio. No hay cambios de código, solo variables de entorno.
+   Al crear el volumen `pgdata`, el contenedor `db` ejecuta `db/init/01_roles.sh`, que crea `app_owner` y `app_user` (sección 6, HB-01). Después, en la PC del Administrador y con la CA propia del hogar, se genera el certificado de `mkcert` para la IP fija del servidor. Al servidor solo van el certificado y su llave, nunca la llave de la CA, y la CA se instala en cada PC y celular del hogar. Por último se crea el superusuario con `createsuperuser` (guía de HB-10). El mock nunca se carga en el servidor del hogar. Los grupos de permisos, el Hogar y los catálogos semilla no se cargan aparte: los crean las migraciones de datos (sección 3.1).
+4. **Respaldos:** un cron diario ejecuta `scripts/backup_db.sh` (HB-10), que genera un `pg_dump` comprimido y cifrado con la llave pública GPG del Administrador (la privada no queda en el servidor), sin los datos de `axes` ni de sesiones, que no salen del servidor (ADR-0022), con retención de 14 días y copia a un disco externo. Una vez al mes, el Administrador copia el último respaldo a un segundo disco que se guarda fuera del hogar, y `scripts/restore_db.sh --ensayo` restaura un respaldo recién hecho en una base aparte y compara las tablas de negocio, sin detener la aplicación. Si el último respaldo completo tiene más de 26 horas, el mensaje de entrada por SSH lo avisa. El cron también ejecuta cada día `clearsessions`, y cada semana la limpieza de `axes`: los registros de acceso y de fallos de más de 30 días y los intentos fallidos ([ADR-0022](docs/adr/0022-autenticacion-sesion-argon2-axes.md)).
+5. **Demo en una máquina local:** la misma imagen y `config.settings.prod`, con el `HOGAR_NOMBRE` de la demo y el mock (sección 3.4). `make reset` y `make mock` la dejan como nueva antes de cada presentación. `make reset` y `make mock` se niegan si ven una señal del servidor del hogar (un `HOGAR_NOMBRE` distinto del de la demo, `RESPALDO_DESTINATARIO` definida o el cron de los respaldos), para que `make` nunca borre la base ni cargue el mock allí (HB-10).
+6. **Hosting a futuro:** fuera de alcance mientras no haya fondos ([ADR-0026](docs/adr/0026-despliegue-servidor-del-hogar-y-demo-local.md)). Bastaría aprovisionar un servidor con Docker, clonar el repositorio, restaurar el último respaldo y cambiar las variables de entorno, más el certificado público que decida ese ADR nuevo.
 
 ### **2.5. Seguridad**
 
@@ -684,7 +693,7 @@ C4Container
 
 | Práctica | Implementación |
 |---|---|
-| **Cifrado en tránsito** | HTTPS en todos los entornos. En producción: `SECURE_SSL_REDIRECT=True`, HSTS, `SESSION_COOKIE_SECURE` y `CSRF_COOKIE_SECURE`. |
+| **Cifrado en tránsito** | HTTPS en todos los entornos, con certificado de `mkcert`. nginx redirige 80 → 443 y envía HSTS, y Django no los repite (`config.settings.prod`); las *cookies* de sesión y CSRF son `Secure` (`SESSION_COOKIE_SECURE` y `CSRF_COOKIE_SECURE`). |
 | **Contraseñas** | Hash **Argon2** (`django[argon2]`) y validadores de longitud y complejidad de Django. |
 | **Sesiones** | Expiran tras 30 min de inactividad (`SESSION_COOKIE_AGE=1800`, `SESSION_SAVE_EVERY_REQUEST=True`) y al cerrar el navegador. Cookies `HttpOnly` y `SameSite=Lax`. |
 | **Fuerza bruta** | `django-axes` (9.1.0, versión fija): bloquea la cuenta 15 minutos tras 5 intentos fallidos, por usuario y no por IP (detrás de nginx, la IP sería la del proxy). |
@@ -693,10 +702,11 @@ C4Container
 | **Vulnerabilidades web** | CSRF por defecto en formularios y peticiones HTMX. Protección contra XSS por el *autoescape* de plantillas. Protección contra inyección SQL al usar el ORM con consultas parametrizadas. `X-Frame-Options: DENY` y `Content-Security-Policy` en Nginx. Django envía la misma política CSP (nginx oculta la suya y deja una sola), para que las pruebas que no pasan por nginx la apliquen. |
 | **Secretos y configuración** | `SECRET_KEY` y credenciales de base de datos en `.env` (no versionado). `DEBUG=False` y `ALLOWED_HOSTS` restringido en producción. |
 | **Aislamiento de red** | PostgreSQL sin puertos expuestos, accesible solo desde el contenedor `web`. |
-| **Privilegios mínimos en la base de datos** | 2 usuarios: `app_owner` es dueño de las tablas y solo ejecuta migraciones; `app_user` es el que usa la aplicación, sin `UPDATE`, `DELETE` ni `TRUNCATE` sobre `movimiento` y sin poder alterar tablas ni desactivar *triggers*. Así, aunque alguien robe las credenciales de la aplicación, no puede reescribir el historial. Un test en CI verifica estos permisos. |
+| **Privilegios mínimos en la base de datos** | 2 usuarios: `app_owner` es dueño de las tablas y solo ejecuta migraciones y respaldos ([ADR-0026](docs/adr/0026-despliegue-servidor-del-hogar-y-demo-local.md)); `app_user` es el que usa la aplicación, sin `UPDATE`, `DELETE` ni `TRUNCATE` sobre `movimiento` y sin poder alterar tablas ni desactivar *triggers*. Así, aunque alguien robe las credenciales de la aplicación, no puede reescribir el historial. Un test en CI verifica estos permisos. |
 | **Integridad y trazabilidad** | Cada movimiento guarda usuario y fecha/hora. Los movimientos **no se editan ni se borran**: los errores se corrigen con un movimiento inverso. Las operaciones de inventario corren en `transaction.atomic()` con `select_for_update()` para evitar saldos negativos. |
 | **Privacidad (LFPDPPP)** | Minimización de datos (solo nombre y fecha de nacimiento del residente), aviso de privacidad visible y residentes egresados o fallecidos marcados como inactivos en lugar de borrados, para conservar el historial. |
-| **Respaldos** | Diarios y cifrados (GPG), con retención limitada y prueba de restauración mensual. |
+| **Cifrado en reposo** | El disco del servidor del hogar va cifrado con LUKS, con una frase que se escribe en cada arranque; los respaldos van cifrados con GPG (HB-10, ADR-0026). |
+| **Respaldos** | Diarios y cifrados (GPG), con retención limitada, una copia mensual fuera del hogar y prueba de restauración mensual. Ni la llave privada GPG ni la de la CA de `mkcert` se guardan en el servidor (HB-10). |
 | **Dependencias** | Versiones fijadas en `requirements.txt` y revisión periódica con `pip-audit`. |
 
 ### **2.6. Tests**
@@ -1978,12 +1988,12 @@ Las épicas agrupan el trabajo por objetivo de negocio. Cada una reúne funciona
 
 | Épica | Funcionalidades (1.2) | Historias y habilitadores | Tickets | Puntos | Prioridad | Semanas |
 |---|---|---|---|---|---|---|
-| **EP-01** · Configuración base: catálogo, entidades y usuarios | 1, 2 y 7 | Habilitadores en `/admin/` | HB-01 a HB-06, HB-08 y HB-09 | 21 | Must (habilitadora) | 1–2 |
+| **EP-01** · Configuración base: catálogo, entidades y usuarios | 1, 2 y 7 | Habilitadores en `/admin/` | HB-01 a HB-06 y HB-08 a HB-10 | 26 | Must (habilitadora) | 1–2 (HB-10: 6) |
 | **EP-02** · Registro de movimientos de inventario | 3 y 8 | HU-01 | TK-01, TK-02 y TK-04 | 13 | Must | 3–4 |
 | **EP-03** · Consulta y filtrado de existencias | 5 (y 3) | HU-02 | TK-03 y TK-05 | 5 | Must | 4–5 |
 | **EP-04** · Conteos físicos y reportes para la dirección | 6 | HU-03 y reporte mensual (historia por definir) | TK-06 y TK-07 | 8, más el reporte sin estimar | Must (HU-03), *Should* (reporte) | 5–6 |
 | **EP-05** · Pautas de los residentes | 4 | Pantallas de pautas (historia por definir) | HB-07 (solo el esquema) | 2, más las pantallas sin estimar | *Could* (el esquema es Must: lo usa el mock) | 2 |
-| **Total** | | | | **49** | | |
+| **Total** | | | | **54** | | |
 
 **EP-01 · Configuración base: catálogo, entidades y usuarios**
 - **Objetivo:** dejar listos y mantenibles los elementos estructurales del sistema: medicamentos, residentes, el Hogar y el control de acceso. No entrega valor por sí sola, pero todas las demás épicas dependen de ella.
@@ -1992,8 +2002,9 @@ Las épicas agrupan el trabajo por objetivo de negocio. Cada una reúne funciona
   - **Entidades:** alta y cambio de residentes y de su estado (activo, egresado o fallecido). El Hogar es una entidad fija que crean las migraciones.
   - **Usuarios y niveles de acceso globales:** el Administrador da de alta a los usuarios y les asigna el grupo *Solo lectura* o *Lectura y escritura* desde el panel `/admin/`.
   - **Base técnica** que lo hace posible: contenedores, conexión con los 2 usuarios de base de datos y HTTPS (HB-01 a HB-04).
-- **Tickets:** HB-01 a HB-04 (base técnica, 10 puntos), HB-05 y HB-06 (modelos de catálogo y entidades, 6) y HB-08 y HB-09 (login, grupos y panel, 5).
-- **Se da por terminada cuando** el Administrador crea un usuario de cada grupo por HTTPS, y uno de *Lectura y escritura* da de alta medicamentos y residentes en `/admin/` sin poder borrar nada.
+  - **Puesta en producción:** el despliegue en el servidor del hogar, los respaldos cifrados con su prueba de restauración y la demo en una máquina local (HB-10, semana 6).
+- **Tickets:** HB-01 a HB-04 (base técnica, 10 puntos), HB-05 y HB-06 (modelos de catálogo y entidades, 6), HB-08 y HB-09 (login, grupos y panel, 5) y HB-10 (despliegue, 5).
+- **Se da por terminada cuando** el Administrador crea un usuario de cada grupo por HTTPS, y uno de *Lectura y escritura* da de alta medicamentos y residentes en `/admin/` sin poder borrar nada. Su última parte, HB-10, termina cuando el sistema corre en el servidor del hogar y el ensayo de restauración del respaldo cuadra.
 
 **EP-02 · Registro de movimientos de inventario**
 - **Objetivo:** registrar las operaciones diarias que cambian las existencias de cada entidad, con trazabilidad de quién, cuándo y por qué.
@@ -2072,9 +2083,9 @@ Se implementan en los tickets de habilitación HB-08 (login, grupos y usuarios) 
 | 3–4 | **HU-01** (servicios, pantallas y tests de concurrencia) | 8 |
 | 4–5 | **HU-02** (pantalla con filtros HTMX y `GET /existencias`) | 5 |
 | 5–6 | **HU-03** (captura, diferencias y cierre) | 8 |
-| 6 | Pruebas de extremo a extremo, respaldos, despliegue en el servidor del hogar y, si alcanza, el reporte mensual | — |
+| 6 | **HB-10**: despliegue en el servidor del hogar, respaldos y demo local; pruebas de extremo a extremo y, si alcanza, el reporte mensual | 5 |
 
-**Riesgo del plan:** con la habilitación detallada en tickets, el MVP suma 49 puntos (sección 6), unos 8 por semana, y las semanas 1 y 2 quedan por encima de ese ritmo. El margen está en la semana 6: si algo se retrasa, el reporte mensual (*Should*) pasa a la siguiente iteración, y las 3 historias no se recortan.
+**Riesgo del plan:** con la habilitación detallada en tickets, el MVP suma 54 puntos (sección 6), unos 9 por semana, y las semanas 1 y 2 quedan por encima de ese ritmo. El margen está en la semana 6, que también lleva HB-10 (5 puntos): si algo se retrasa, el reporte mensual (*Should*) pasa a la siguiente iteración. Las 3 historias y el despliegue no se recortan. HB-10 queda en la ruta crítica de esa última semana: su parte A (scripts y ensayo) se adelanta en cuanto TK-01 esté en `main`, y la parte B necesita una noche de cron para su último criterio.
 
 **ROI desde el primer día:** el hogar carga sus existencias actuales como entradas (HU-01) y desde ese momento puede consultarlas (HU-02). El primer conteo (HU-03) ya compara el anaquel contra un registro confiable, en lugar de contra una libreta.
 
@@ -2341,7 +2352,7 @@ Los 3 tickets forman el camino crítico del MVP: el esquema que guarda los saldo
 
 Cada ticket tiene además una **guía paso a paso** en [`docs/tickets/`](docs/tickets/), pensada para que un desarrollador junior lo implemente sin bloqueos: tareas en orden, archivos a crear, código de referencia, tests con ejemplos, criterios de calidad, comandos de verificación con su resultado esperado y una tabla de problemas frecuentes.
 
-Antes de los 3, 9 **tickets de habilitación** (HB-01 a HB-09, semanas 1 y 2) dejan listos los contenedores, la conexión con los 2 usuarios de base de datos, los modelos de catálogo, residentes y pautas, el login y los habilitadores del panel `/admin/` (sección 5). Tienen el mismo formato y su propia guía, y su detalle está al final de esta sección.
+Antes de los 3, 9 **tickets de habilitación** (HB-01 a HB-09, semanas 1 y 2) dejan listos los contenedores, la conexión con los 2 usuarios de base de datos, los modelos de catálogo, residentes y pautas, el login y los habilitadores del panel `/admin/` (sección 5). Al final, un décimo (HB-10, semana 6) lleva el sistema al servidor del hogar con sus respaldos y prepara la demo en una máquina local. Tienen el mismo formato y su propia guía, y su detalle está al final de esta sección.
 
 | Ticket | Tipo | Historia | Puntos | Depende de | Bloquea a |
 |---|---|---|---|---|---|
@@ -2349,7 +2360,7 @@ Antes de los 3, 9 **tickets de habilitación** (HB-01 a HB-09, semanas 1 y 2) de
 | TK-02 | Backend | HU-01 | 5 | TK-01 | TK-04, TK-06 |
 | TK-03 | Frontend | HU-02 | 3 | TK-01 (y TK-02 para tener saldos reales) | TK-05 |
 
-**Estimación:** escala Fibonacci (1, 2, 3, 5, 8), relativa a la complejidad, al riesgo y al esfuerzo. TK-01 y los tickets de habilitación son trabajo de base que las estimaciones de las historias no incluían, así que el MVP suma **49 puntos**: 21 de las historias, 5 de TK-01 y 23 de habilitación.
+**Estimación:** escala Fibonacci (1, 2, 3, 5, 8), relativa a la complejidad, al riesgo y al esfuerzo. TK-01 y los tickets de habilitación son trabajo de base que las estimaciones de las historias no incluían, así que el MVP suma **54 puntos**: 21 de las historias, 5 de TK-01 y 28 de habilitación.
 
 **Backlog del MVP** (tickets restantes, se detallan al planear su sprint):
 
@@ -2366,12 +2377,12 @@ Antes de los 3, 9 **tickets de habilitación** (HB-01 a HB-09, semanas 1 y 2) de
 | HU-02 | 5 | TK-03 (3) + TK-05 (2) |
 | HU-03 | 8 | TK-06 (3) + TK-07 (5) |
 | Base | 5 | TK-01 (5) |
-| Habilitación | 23 | HB-01 a HB-09 (tabla siguiente) |
-| **Total** | **49** | 13 en los 3 tickets documentados abajo + 13 en el backlog + 23 de habilitación |
+| Habilitación | 28 | HB-01 a HB-10 (tabla siguiente) |
+| **Total** | **54** | 13 en los 3 tickets documentados abajo + 13 en el backlog + 28 de habilitación |
 
 Quedan fuera de esta cuenta los endpoints `GET /medicamentos` y `GET /reportes/mensual`, que se estimarán con la historia de reportes.
 
-**Tickets de habilitación** (semanas 1 y 2; detalle al final de esta sección):
+**Tickets de habilitación** (semanas 1 y 2, y HB-10 en la semana 6; detalle al final de esta sección):
 
 | Ticket | Tipo | Alcance | Puntos | Depende de | Bloquea a | Guía |
 |---|---|---|---|---|---|---|
@@ -2384,6 +2395,7 @@ Quedan fuera de esta cuenta los endpoints `GET /medicamentos` y `GET /reportes/m
 | HB-07 | Base de datos | Esquema de pautas (D6), sin pantallas | 2 | HB-06 | TK-01 | [HB-07](docs/tickets/HB-07-pautas.md) |
 | HB-08 | Backend + frontend | Login, `base.html`, los 2 grupos, usuarios en `/admin/` y `django-axes` | 3 | HB-04, HB-06 | HB-09, TK-01, TK-03 | [HB-08](docs/tickets/HB-08-login-grupos.md) |
 | HB-09 | Panel `/admin/` | Catálogo y residentes en el panel, sin borrado y con búsqueda sin acentos | 2 | HB-08 | — | [HB-09](docs/tickets/HB-09-admin-catalogo-residentes.md) |
+| HB-10 | Infraestructura + operación | Despliegue en el servidor del hogar, respaldos cifrados con restauración probada y demo en una máquina local | 5 | TK-01 (y el MVP integrado, para instalar en el hogar) | — | [HB-10](docs/tickets/HB-10-despliegue-hogar.md) |
 
 **Definición de hecho común** (aplica a todos los tickets, TK y HB, además de la propia de cada uno):
 - El código pasa `ruff check` y `ruff format --check`, las plantillas pasan `djlint --check` y `djlint --lint`, y no hay `print` ni código comentado. No hay formateador de CSS ni de JS: el proyecto solo usa los de Bootstrap y HTMX, ya minificados en `static/*/vendor/`, que no se reformatean.
@@ -2412,12 +2424,15 @@ flowchart LR
     T2 --> INT{{"Prueba de integración<br/>los 3 en main"}}
     T3 --> INT
     INT --> BL["Backlog<br/>TK-04 a TK-07"]
+    BL --> H10["HB-10 · semana 6<br/>despliegue en el hogar,<br/>respaldos y demo local"]
+    T1 -. "scripts y ensayo" .-> H10
 ```
 
 0. **Habilitación primero, en el orden del diagrama.** Cada ticket HB se integra a `main` antes de empezar los que dependen de él. Después de HB-03, HB-04 (nginx) y la cadena HB-05 → HB-07 pueden avanzar en paralelo. HB-09 no bloquea a TK-01: puede integrarse mientras TK-01 avanza.
 1. **TK-01 después de HB-07 y HB-08, y sin paralelo entre los TK.** Crea las tablas, los permisos de los grupos y los *fixtures* de prueba que usan los otros 2. Se integra a `main` antes de empezar TK-02 o TK-03.
 2. **TK-02 y TK-03 pueden avanzar en paralelo.** TK-03 se desarrolla con los saldos del mock y no necesita el servicio. Con un solo desarrollador, va primero TK-02, porque está en el camino crítico de TK-04 y TK-06.
 3. **Orden de integración: TK-01 → TK-02 → TK-03.** El último en integrar hace `git rebase main`, ejecuta la **prueba de integración** (más abajo) en su rama y la deja en el repositorio. Desde ahí corre en CI en cada PR.
+4. **HB-10 al final, en la semana 6.** Sus scripts y el ensayo en el equipo de desarrollo (parte A de la guía) pueden hacerse desde que TK-01 está en `main`, porque usan su `Makefile` y su lectura de `.env`. La instalación en el servidor del hogar (parte B) espera al MVP integrado, con la prueba de integración y los e2e en verde. La demo local (parte C) usa el mock de TK-01. Conviene adelantar la parte A: la semana 6 es la última, y la parte B necesita una noche para comprobar el cron.
 
 **Archivos que tocan varios tickets** (reglas para evitar conflictos):
 
@@ -2427,7 +2442,7 @@ flowchart LR
 | `apps/inventario/migrations/` | `0001` a `0004` | — | — | TK-02 y TK-03 no crean migraciones. Si alguno la necesita, se renumera después del *rebase* |
 | `config/settings/base.py` | — | — | `django_htmx`, `LOGIN_REDIRECT_URL` | Lo crea HB-02 y lo completan HB-03 a HB-08 (`DATABASES` es de HB-03). Cambios en bloques distintos |
 | `requirements.txt` / `requirements-dev.txt` | — | — | `django-htmx` / `pytest-playwright` | Los crea HB-02 (`djlint`, `pytest`, `pytest-django`, `pytest-cov` y `ruff`); TK-05 agrega `jsonschema`. Una dependencia por línea, en orden alfabético |
-| `docker-compose.yml`, `.env.example` | Descomenta `HOGAR_NOMBRE` en `.env.example` | — | — | Los crean HB-01 a HB-04 (y HB-06 agrega `HOGAR_NOMBRE`, comentada). Los tickets TK no los modifican, salvo TK-01 en esa línea |
+| `docker-compose.yml`, `.env.example` | Descomenta `HOGAR_NOMBRE` en `.env.example` | — | — | Los crean HB-01 a HB-04 (y HB-06 agrega `HOGAR_NOMBRE`, comentada). Los tickets TK no los modifican, salvo TK-01 en esa línea. HB-10 solo cambia comentarios de `.env.example` |
 
 #### Puntos de integración
 
@@ -2884,9 +2899,9 @@ No agrega dependencias nuevas.
 
 ---
 
-#### Tickets de habilitación (HB-01 a HB-09)
+#### Tickets de habilitación (HB-01 a HB-10)
 
-Dejan lista la base sobre la que se construyen TK-01 a TK-07: contenedores, conexión segura a la base de datos, modelos de catálogo, residentes y pautas, y los habilitadores del panel `/admin/` (sección 5). Cada ticket tiene una guía paso a paso en [`docs/tickets/`](docs/tickets/) con tareas, archivos, código de referencia, tests con ejemplos, criterios de calidad, comandos de verificación y problemas frecuentes. Aplica además la definición de hecho común.
+Dejan lista la base sobre la que se construyen TK-01 a TK-07: contenedores, conexión segura a la base de datos, modelos de catálogo, residentes y pautas, y los habilitadores del panel `/admin/` (sección 5). HB-10 cierra el MVP: lo instala en el servidor del hogar. Cada ticket tiene una guía paso a paso en [`docs/tickets/`](docs/tickets/) con tareas, archivos, código de referencia, tests con ejemplos, criterios de calidad, comandos de verificación y problemas frecuentes. Aplica además la definición de hecho común.
 
 **Decisiones de diseño de la habilitación:**
 - **Los 2 usuarios de base de datos existen desde el primer día** (HB-01 y HB-03), y no desde TK-01. Así la aplicación nunca corre como dueño de las tablas, y el CI, que ya los espera, funciona desde el primer ticket con código.
@@ -2894,6 +2909,7 @@ Dejan lista la base sobre la que se construyen TK-01 a TK-07: contenedores, cone
 - **Nginx entra en la semana 1** (HB-04), para probar el login y el panel por HTTPS desde el principio, con la CSP real.
 - **Las pautas solo tienen esquema** (HB-07): son *Could*, pero el dataset mock inserta pautas y TK-01 lo carga.
 - **El CI activa cada *job* cuando existe lo que necesita** (sección 7.3, regla 5): `lint` e `imagen` con `app/manage.py` (HB-02), `tests` con `app/conftest.py` (HB-03) y `e2e` con `app/e2e/` (TK-03).
+- **El despliegue es un habilitador al final** (HB-10, semana 6): el plan lo daba por hecho sin ticket. Se escribe y se ensaya en el equipo de desarrollo después de TK-01, y se instala en el hogar con el MVP completo. Solo hay servidor del hogar y demo local, sin VPS ([ADR-0026](docs/adr/0026-despliegue-servidor-del-hogar-y-demo-local.md)).
 
 ---
 
@@ -3143,6 +3159,62 @@ Dejan lista la base sobre la que se construyen TK-01 a TK-07: contenedores, cone
 - [ ] Capturas del alta de un medicamento y del mensaje de duplicado en el PR.
 - [ ] Sin violaciones de CSP en el panel.
 
+---
+
+**HB-10 · [Infra] Despliegue en el servidor del hogar, respaldos y demo local**
+
+| Campo | Valor |
+|---|---|
+| Tipo | Infraestructura y operación |
+| Prioridad | Must, habilitador (semana 6) |
+| Estimación | **5 puntos** |
+| Rama | `feature/HB-10-despliegue-hogar` |
+| Depende de | TK-01 (`Makefile` y lectura de `.env` con espacios); para instalar en el hogar, el MVP integrado |
+| Guía | [`docs/tickets/HB-10-despliegue-hogar.md`](docs/tickets/HB-10-despliegue-hogar.md) |
+
+**Descripción técnica.** Lleva el sistema al servidor del hogar y prepara la demo en una máquina local ([ADR-0026](docs/adr/0026-despliegue-servidor-del-hogar-y-demo-local.md)), en 3 partes:
+
+- **A, en el repositorio:**
+  - `scripts/backup_db.sh` hace un `pg_dump -Fc` como `app_owner`, sin los datos de `axes` ni de sesiones (ADR-0022), cifrado con la llave pública GPG del Administrador, con retención de 14 días y copia a un disco externo montado. Sin llave o sin disco falla con un mensaje, y nunca deja un respaldo sin cifrar.
+  - `scripts/restore_db.sh` restaura solo en una base vacía, desde un archivo o desde la entrada estándar, y repone los permisos de base que `pg_dump` no respalda. Con `--ensayo`, restaura en una base aparte, compara las tablas de negocio con la base en uso y la borra.
+  - `scripts/hogar.cron` programa el respaldo y `clearsessions` cada día, y la limpieza de `axes` cada semana (registros de más de 30 días e intentos fallidos).
+  - El `Makefile` suma los *targets* `backup`, `restore`, `restore-ensayo` y `candado` (que evalúa el candado sin hacer nada más), y `make reset` y `make mock` se niegan si ven una señal del servidor del hogar: un `HOGAR_NOMBRE` distinto del de la demo, `RESPALDO_DESTINATARIO` definida o `/etc/cron.d/hogar`.
+  - Los tests de los scripts van en `tests/test_respaldos.py` y los del candado en `tests/test_candado.py`, y se quitan las menciones del VPS de `prod.py`, `.env.example` y `docker-compose.yml`.
+  - El *job* `respaldos` del CI, no obligatorio, corre esos tests con los contenedores levantados.
+- **B, en el servidor del hogar:**
+  - Ubuntu Server 24.04 LTS con el disco cifrado con LUKS (y una copia de su cabecera), IP fija reservada en el router, SSH con llave, `ufw` y Docker Engine con rotación de logs.
+  - El `.env` de producción: `config.settings.prod`, `INSTALAR_DEV=false`, `DB_OWNER_CREATEDB=false`, y `ALLOWED_HOSTS` y `CSRF_TRUSTED_ORIGINS` con la IP.
+  - El certificado de `mkcert` con la IP, emitido en la PC del Administrador con la CA del hogar, que no va al servidor. La CA se instala en cada PC y celular, y su carpeta se resguarda cifrada en una memoria USB.
+  - La primera instalación sin mock, los usuarios reales con su grupo, el cron, el aviso de respaldo al entrar por SSH y la primera restauración de ensayo.
+  - La copia mensual de los respaldos a un segundo disco que se guarda fuera del hogar.
+- **C, la demo:** una máquina local con la misma imagen y la misma configuración, el Hogar de la demo y el mock.
+
+**Criterios de aceptación**
+- [ ] `tests/test_respaldos.py` pasa. Comprueba que:
+  - el respaldo queda cifrado y sin la llave no se lee;
+  - el respaldo no lleva los datos de `axes` ni de sesiones, solo su esquema;
+  - tras restaurar, `app_user` sigue sin `UPDATE`, `DELETE` ni `TRUNCATE` sobre `movimiento`, y existe `tg_movimiento_inmutable`;
+  - la restauración de ensayo cuadra tabla por tabla y borra su base, también con el respaldo por la entrada estándar;
+  - la retención borra los respaldos de más de 14 días;
+  - sin llave pública o sin disco montado, el script falla sin dejar un respaldo legible;
+  - si la copia al disco externo falla (lleno o en solo lectura), el respaldo no se da por bueno.
+- [ ] `restore_db.sh` se niega a restaurar sobre una base que tiene tablas, y en una base vacía restaura todo con los permisos de base de `db/init/01_roles.sh`, que `pg_dump` no respalda.
+- [ ] En el servidor, desde una PC y un celular de la red del hogar, `https://<IP del servidor>` muestra el candado válido, y el login funciona sin error de CSRF ni violaciones de CSP.
+- [ ] `check --deploy` con el `.env` del servidor no da advertencias, y solo `nginx` publica puertos (80 y 443).
+- [ ] El disco del servidor está cifrado con LUKS (`lsblk -f` muestra `crypto_LUKS`), y la copia de su cabecera está en las 2 memorias USB.
+- [ ] El *job* `respaldos` del CI corre los tests de los respaldos y del candado en el PR y queda en verde, y en el servidor `make candado` se niega.
+- [ ] El Hogar tiene el nombre real, nunca el de la demo (`grep -c '^HOGAR_NOMBRE=Hogar Gerontológico Demo$' .env` da 0 antes del primer `make migrate`). No hay datos del mock, y cada usuario real tiene exactamente un grupo.
+- [ ] El cron dejó un respaldo en el disco externo, y el ensayo desde la PC del Administrador (guía, paso 12.6) lo restaura y cuadra.
+- [ ] Una actualización con `make backup`, `git pull`, `make actualizar` y `docker compose restart nginx` deja la aplicación funcionando. La vuelta atrás, que decide con `showmigrations` antes y después, se probó en el equipo de desarrollo.
+- [ ] En la máquina de demo, `make reset` y `make mock` dejan listo el guion de la sección 3.4, y los 2 se niegan con otro nombre de Hogar o con `RESPALDO_DESTINATARIO` definida.
+- [ ] Hay un respaldo en el disco que se guarda fuera del hogar, y el mensaje de entrada por SSH avisa si el último respaldo tiene más de 26 horas.
+
+**Definición de hecho**
+- [ ] Ni el repositorio ni el servidor tienen la llave privada GPG ni `rootCA-key.pem`, y el repositorio no tiene secretos. El `.env` del servidor tiene permiso `600`.
+- [ ] Las 2 memorias USB de resguardo (una en el hogar y otra fuera) tienen la llave privada GPG, su revocación, la carpeta de la CA cifrada y la cabecera de LUKS, y `rootCA-key.pem` no quedó en la PC del Administrador.
+- [ ] En el PR van la salida del ensayo de restauración y la de `docker compose ps` del servidor, sin datos de residentes.
+- [ ] La sección 8 de la guía (operación) está revisada con quien administrará el servidor.
+
 **Documentación proceso para esta seccion:** [06-tickets-trabajo.md](06-tickets-trabajo.md)
 
 ---
@@ -3229,7 +3301,7 @@ Con un solo desarrollador, GitHub no permite aprobar un PR propio. Por eso la ap
 > | 4 | `e2e` se salta con una condición `if:` cuando el PR no toca el frontend (lo detecta el *job* `detectar cambios`) | Un *job* saltado cuenta como aprobado. En `push` a `main` y en el CI nocturno, `e2e` corre siempre |
 > | 5 | Cada *job* se activa cuando existe lo que necesita: `lint` e `imagen` con `app/manage.py` (HB-02), `tests` con `app/conftest.py` (HB-03) y `e2e` con `app/e2e/` (TK-03). Antes, se saltan | Los PR de solo documentación (como esta entrega) y los primeros tickets de habilitación no fallan por algo que todavía no existe |
 > | 6 | Los tests marcados `lento` (planes de ejecución) solo corren en el CI nocturno | Mantiene rápido el CI de cada PR |
-> | 7 | `detectar cambios`, `build de la imagen`, `contrato OpenAPI` y `herramientas del repositorio` corren pero **no** son obligatorios | El primero es auxiliar; el segundo verifica el `Dockerfile` sin bloquear PR de documentación; los 2 últimos revisan el contrato y los hooks y scripts, que no son código de la aplicación |
+> | 7 | `detectar cambios`, `build de la imagen`, `contrato OpenAPI`, `herramientas del repositorio` y, desde HB-10, `respaldos (scripts de HB-10)` corren pero **no** son obligatorios | El primero es auxiliar; el segundo verifica el `Dockerfile` sin bloquear PR de documentación; los 2 siguientes revisan el contrato y los hooks y scripts, que no son código de la aplicación; `respaldos` prueba los scripts de respaldo con los contenedores levantados y tarda varios minutos |
 > | 8 | **La protección de ramas solo funciona en repositorios públicos** con una cuenta gratuita de GitHub | En un repositorio privado se necesita GitHub Pro, Team o Enterprise. Sin eso, las reglas de 7.3 son un acuerdo de trabajo: antes del *merge*, el autor comprueba a mano que `lint`, `tests` y `e2e` estén en verde |
 
 ---

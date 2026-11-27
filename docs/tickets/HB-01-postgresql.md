@@ -1,6 +1,6 @@
 # HB-01 · Guía paso a paso: servicio de PostgreSQL y usuarios de base de datos
 
-> **Ticket:** [readme, sección 6, HB-01](../../readme.md#tickets-de-habilitación-hb-01-a-hb-09) · **Tipo:** infraestructura · **Estimación:** 2 puntos · **Rama:** `feature/HB-01-postgresql`
+> **Ticket:** [readme, sección 6, HB-01](../../readme.md#tickets-de-habilitación-hb-01-a-hb-10) · **Tipo:** infraestructura · **Estimación:** 2 puntos · **Rama:** `feature/HB-01-postgresql`
 >
 > Esta guía explica **cómo** hacerlo. El **qué** y el **porqué** están en el ticket y en las secciones 2.4 y 2.5 del readme. Si algo de esta guía contradice al readme, manda el readme: avisa en el PR.
 
@@ -100,7 +100,7 @@ cp .env.example .env
 python -c "import secrets; print(secrets.token_urlsafe(24).replace('-', 'a').replace('_', 'b'))"
 ```
 
-> En el servidor del hogar y en el VPS, `DB_OWNER_CREATEDB=false`: en producción nadie crea bases nuevas.
+> En el servidor del hogar y en la demo local, `DB_OWNER_CREATEDB=false`: en producción nadie crea bases nuevas.
 
 ### Paso 2. Script de inicio: los 2 usuarios (≈ 30 min)
 

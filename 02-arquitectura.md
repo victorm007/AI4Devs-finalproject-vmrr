@@ -445,7 +445,7 @@ La tabla de capas decía `test_models.py`, pero HB-05 y HB-06 (y sus guías) usa
 ```mermaid
 flowchart LR
     U["Usuario<br/>Administrador / Lectura y escritura / Solo lectura<br/>(navegador en PC o celular)"]
-    subgraph SRV["Servidor: local en la red del hogar (hoy) / VPS (futuro)"]
+    subgraph SRV["Servidor local en la red del hogar"]
         direction LR
         NG["Nginx<br/>HTTPS, archivos estáticos,<br/>cabeceras de seguridad"]
         subgraph APP["Aplicación Django (Gunicorn)"]
@@ -474,7 +474,7 @@ flowchart LR
 - **Escala del problema:** 1 sede, ~20 residentes y 1 a 3 usuarios. La carga es mínima, y microservicios, una SPA o colas de mensajes solo añadirían complejidad.
 - **Un solo mantenedor (perfil infra/backend):** Django trae ORM, migraciones, autenticación, sesiones, permisos por grupos, CSRF, formularios con validación y panel de administración. Hay menos piezas que integrar y mantener.
 - **Rendimiento en celular:** el HTML llega listo desde el servidor, sin descargar ni compilar un *bundle* de JavaScript. HTMX permite filtrar y paginar sin recargar la página completa.
-- **Portabilidad:** todo se empaqueta con **Docker Compose**, de modo que el mismo despliegue corre en el servidor local y en un VPS de HostGator sin cambiar código.
+- **Portabilidad:** todo se empaqueta con **Docker Compose**, de modo que el mismo despliegue corre en el servidor del hogar y en una máquina local de demo, y podría moverse a un hosting sin cambiar código ([ADR-0026](docs/adr/0026-despliegue-servidor-del-hogar-y-demo-local.md)).
 - **Integridad de datos:** PostgreSQL ofrece transacciones y bloqueo de filas, necesarios para que una transferencia descuente y abone en un solo paso y para que nunca haya existencias negativas.
 
 **Beneficios:**
@@ -751,13 +751,13 @@ flowchart LR
 
 | Componente | Tecnología | Responsabilidad |
 |---|---|---|
-| **Proxy inverso** | Nginx | Termina HTTPS (certificado `mkcert` en la red local, Let's Encrypt en el VPS), sirve `static/`, aplica cabeceras de seguridad y reenvía el resto a Gunicorn. |
+| **Proxy inverso** | Nginx | Termina HTTPS (certificado de `mkcert`), sirve `static/`, aplica cabeceras de seguridad y reenvía el resto a Gunicorn. |
 | **Servidor de aplicación** | Gunicorn | Ejecuta la aplicación Django (WSGI) con varios *workers*. |
 | **Backend / web** | Python 3.12 + Django 5.2 LTS | Vistas, formularios, autenticación, autorización por grupos y lógica de negocio. |
 | **Frontend** | Plantillas Django + Bootstrap 5 + HTMX | Interfaz responsive renderizada en el servidor. HTMX actualiza fragmentos de página (filtros, búsquedas) sin una SPA. |
 | **API REST** | Django REST Framework + drf-spectacular | 3 endpoints JSON **de solo lectura** (existencias por entidad, búsqueda de medicamentos, reporte mensual) documentados en OpenAPI. |
 | **Base de datos** | PostgreSQL 17 | Persistencia relacional, transacciones y búsqueda por nombre / principio activo. |
-| **Respaldos** | `pg_dump` + cron | Respaldo diario comprimido, con retención de 14 días y copia a disco externo. |
+| **Respaldos** | `pg_dump` + GPG + cron | Respaldo diario comprimido y cifrado, con retención de 14 días y copia a disco externo (`scripts/backup_db.sh`, HB-10). |
 
 **Módulos (apps de Django) y sus dependencias:**
 
@@ -818,9 +818,11 @@ AI4Devs-finalproject-vmrr/
 ├── scripts/
 │   ├── verificar.py           # ruff y djLint: lo corren el job lint del CI y el hook de commits
 │   ├── migrate.sh             # migrate con las credenciales de app_owner
-│   ├── backup_db.sh           # respaldo con pg_dump
-│   └── restore_db.sh          # restauración de un respaldo
-├── tests/                     # tests de las herramientas (hooks y scripts), con pytest; no de la aplicación
+│   ├── leer_env.sh            # lee .env sin pisar el entorno; la usan los scripts de respaldo (HB-10)
+│   ├── backup_db.sh           # respaldo cifrado con pg_dump y GPG (HB-10)
+│   ├── restore_db.sh          # restauración de un respaldo, o ensayo en una base aparte (HB-10)
+│   └── hogar.cron             # tareas programadas del servidor del hogar (HB-10)
+├── tests/                     # tests de las herramientas (hooks y scripts, también test_respaldos.py de HB-10), con pytest; no de la aplicación
 ├── ruff.toml                  # ruff para scripts/, .claude/hooks/ y tests/ (app/ usa su pyproject.toml)
 └── app/                       # proyecto Django
     ├── Dockerfile
@@ -871,31 +873,33 @@ flowchart TB
         CI["GitHub Actions<br/>ruff + djLint + pytest + build de imagen"]
         GH --> CI
     end
-    subgraph LAN["Red del hogar (producción actual)"]
-        PC["PC / celular<br/>wifi del hogar"]
-        subgraph HOST["Servidor local: Ubuntu + Docker"]
+    subgraph LAN["Red del hogar (producción)"]
+        PC["PC / celular<br/>wifi del hogar, con la CA de mkcert"]
+        subgraph HOST["Servidor del hogar: Ubuntu + Docker, IP fija, disco LUKS"]
             N1["nginx<br/>certificado mkcert"] --> W1["web<br/>Django + Gunicorn"] --> D1[("db<br/>PostgreSQL<br/>volumen pgdata")]
         end
-        EXT["Disco externo<br/>respaldos"]
-        PC -- "HTTPS (IP fija o nombre local)" --> N1
-        D1 -. "pg_dump diario" .-> EXT
+        EXT["Disco externo<br/>respaldos cifrados"]
+        PC -- "HTTPS (IP fija)" --> N1
+        D1 -. "pg_dump diario cifrado (cron)" .-> EXT
     end
-    subgraph VPS["VPS: entorno demo hoy / producción futura (HostGator)"]
-        N2["nginx<br/>Let's Encrypt"] --> W2["web<br/>Django + Gunicorn"] --> D2[("db<br/>PostgreSQL<br/>datos ficticios")]
+    subgraph DEMO["Máquina local de demo"]
+        N2["nginx<br/>mkcert, localhost"] --> W2["web<br/>Django + Gunicorn"] --> D2[("db<br/>PostgreSQL<br/>dataset mock")]
     end
-    EV["Evaluadores / usuarios remotos"] -- "HTTPS dominio público" --> N2
-    GH -. "git pull + docker compose up" .-> W1
-    GH -. "git pull + docker compose up (SSH)" .-> W2
+    OFF["Disco fuera del hogar<br/>copia mensual"]
+    EXT -. "copia mensual (Administrador)" .-> OFF
+    GH -. "git pull + make actualizar (SSH)" .-> W1
+    GH -. "git clone + make reset + make mock" .-> W2
 ```
 
 **Entornos:**
 
 | Entorno | Ubicación | Acceso | Certificado | Datos |
 |---|---|---|---|---|
-| **Desarrollo** | Equipo del desarrollador | `localhost` | — | Semillas de ejemplo |
-| **Producción local** | Servidor Ubuntu con Docker en el hogar | Solo red del hogar | `mkcert` (CA local instalada en los dispositivos) | Reales |
-| **Demo** | VPS HostGator (alternativa: video grabado en el equipo de desarrollo si aún no hay VPS) | Internet | Let's Encrypt | Ficticios |
-| **Producción futura** | VPS, cuando haya presupuesto | Internet | Let's Encrypt | Reales (migrados con `pg_dump` / `pg_restore`) |
+| **Desarrollo** | Equipo del desarrollador | `localhost` | `mkcert` (`localhost`) | Semillas y mock |
+| **Producción** | Servidor Ubuntu con Docker en el hogar, con IP fija y el disco cifrado con LUKS | Solo la red del hogar | `mkcert`, con la IP del servidor (la CA se instala en cada PC y celular) | Reales |
+| **Demo** | Una máquina local: una laptop o el equipo de desarrollo (para quien evalúe a distancia, un video grabado) | `localhost` | `mkcert` (`localhost`) | Mock (sección 3.4), ficticio |
+
+> **Sin VPS por ahora** ([ADR-0026](docs/adr/0026-despliegue-servidor-del-hogar-y-demo-local.md)): no hay fondos para un hosting. Docker Compose y la configuración por variables permiten mover la aplicación a uno sin cambiar la arquitectura; si se hace, un ADR nuevo decide el proveedor, el dominio y Let's Encrypt.
 
 #### 2.4.1. Diagrama de contenedores (C4 – Nivel 2)
 
@@ -933,7 +937,7 @@ C4Container
 
 | Contenedor | Imagen / tecnología | Responsabilidad | Puertos | Volúmenes | Redes |
 |---|---|---|---|---|---|
-| **`nginx`** — proxy inverso | `nginx:1.30.7-alpine` | Único punto de entrada. Termina **HTTPS** (`mkcert` en la red local, Let's Encrypt en el VPS) y redirige 80 → 443. Sirve `/static/` sin pasar por Django. Aplica cabeceras de seguridad (HSTS, CSP, `X-Frame-Options`) y límites de tamaño de petición. Reenvía el resto a `web`. | **80 y 443 publicados** al host | `static` (solo lectura), `nginx/certs` | `frontend` |
+| **`nginx`** — proxy inverso | `nginx:1.30.7-alpine` | Único punto de entrada. Termina **HTTPS** (certificado de `mkcert`) y redirige 80 → 443. Sirve `/static/` sin pasar por Django. Aplica cabeceras de seguridad (HSTS, CSP, `X-Frame-Options`) y límites de tamaño de petición. Reenvía el resto a `web`. | **80 y 443 publicados** al host | `static` (solo lectura), `nginx/certs` | `frontend` |
 | **`web`** — app + API backend | Imagen propia: Python 3.12 + Django 5.2 + Gunicorn | **App web:** renderiza las páginas HTML (Bootstrap + HTMX) de existencias, movimientos, conteos y reportes. En el MVP, el catálogo y los residentes se operan desde `/admin/`, y las pautas son *Could* (sección 5). **API REST** (DRF): 3 endpoints JSON de solo lectura bajo `/api/`, con esquema OpenAPI. **Backend:** autenticación, sesiones, permisos por grupo, reglas de inventario (`services.py`) y panel `/admin/` para gestionar usuarios. | 8000 (solo interno, no publicado) | `static` (escribe con `collectstatic`) | `frontend` y `backend` |
 | **`db`** — base de datos | `postgres:17-alpine` | Persistencia relacional de los almacenes D1 a D6. Garantiza transacciones atómicas y bloqueo de filas (`SELECT ... FOR UPDATE`) para que las existencias nunca queden negativas. | 5432 (solo interno, no publicado) | `pgdata` (datos persistentes) | `backend` |
 
@@ -950,30 +954,35 @@ C4Container
 **Orden de arranque:** `db` declara un *healthcheck* (`pg_isready`). `web` arranca con `depends_on: condition: service_healthy` y `nginx` arranca después de `web`. Así `web` nunca intenta conectarse a una base de datos que todavía no responde.
 
 **Proceso de despliegue:**
-1. **Integración continua:** en cada *push* o *pull request* a `main`, GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) ejecuta `scripts/verificar.py` (`ruff` para el lint y el formato de Python, djLint para los de las plantillas), `pytest` con cobertura contra un servicio PostgreSQL 17, las pruebas de extremo a extremo con Playwright si el PR toca el frontend, y el *build* de la imagen. Además revisa el contrato `docs/api/openapi.yaml` con Redocly y las herramientas del repositorio (`scripts/`, `.claude/hooks/` y `tests/`) con ruff y sus propios tests. Cada noche corren además los tests lentos. Solo se integra a `main` con los *checks* obligatorios en verde (sección 7.3).
-2. **Despliegue (local o VPS):** se hace manualmente por SSH, lo cual es suficiente para un solo mantenedor:
+1. **Integración continua:** en cada *push* o *pull request* a `main`, GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) ejecuta `scripts/verificar.py` (`ruff` para el lint y el formato de Python, djLint para los de las plantillas), `pytest` con cobertura contra un servicio PostgreSQL 17, las pruebas de extremo a extremo con Playwright si el PR toca el frontend, y el *build* de la imagen. Además revisa el contrato `docs/api/openapi.yaml` con Redocly y las herramientas del repositorio (`scripts/`, `.claude/hooks/` y `tests/`) con ruff y sus propios tests. Desde HB-10, el *job* `respaldos` prueba los scripts de respaldo y restauración con los contenedores levantados. Cada noche corren además los tests lentos. Solo se integra a `main` con los *checks* obligatorios en verde (sección 7.3).
+2. **Despliegue en el servidor del hogar:** se hace manualmente por SSH, lo cual es suficiente para un solo mantenedor. Antes de actualizar se hace un respaldo manual y se anota el commit en producción, para poder volver atrás:
    ```bash
+   make backup                   # respaldo manual antes de actualizar (HB-10)
    git pull origin main
    docker compose up -d --build
    ./scripts/migrate.sh          # migrate como app_owner; web corre como app_user
    docker compose exec web python manage.py collectstatic --noinput
+   docker compose restart nginx  # relee nginx/default.conf, que se monta del repositorio
+   # up, migrate.sh y collectstatic son "make actualizar" (TK-01)
    ```
-3. **Primera instalación:** se copia `.env.example` a `.env` y se configuran los secretos, incluidas las contraseñas de los 3 usuarios de PostgreSQL:
-   - `POSTGRES_PASSWORD`: superusuario, solo para la inicialización.
-   - `DB_OWNER_PASSWORD`: `app_owner`, para las migraciones.
+   El paso a paso de la primera instalación, la actualización, la vuelta atrás y la prueba de humo está en la guía de HB-10 ([`docs/tickets/HB-10-despliegue-hogar.md`](docs/tickets/HB-10-despliegue-hogar.md)).
+3. **Primera instalación:** el servidor se instala con el disco cifrado con LUKS ([ADR-0026](docs/adr/0026-despliegue-servidor-del-hogar-y-demo-local.md)), y su frase se escribe en cada arranque. Se copia `.env.example` a `.env` y se configuran los secretos, incluidas las contraseñas de los 3 usuarios de PostgreSQL:
+   - `POSTGRES_PASSWORD`: superusuario, solo para la inicialización. En la operación, el ensayo de restauración usa el superusuario por el *socket* del contenedor, sin contraseña ([ADR-0026](docs/adr/0026-despliegue-servidor-del-hogar-y-demo-local.md)).
+   - `DB_OWNER_PASSWORD`: `app_owner`, para las migraciones y los respaldos.
    - `DB_APP_PASSWORD`: `app_user`, para la aplicación.
 
    También `HOGAR_NOMBRE`, con el nombre real del hogar (o el de la demo, si es la demo). La primera migración crea el Hogar con ese nombre, una sola vez, y `config.settings.prod` no arranca sin la variable ni con más de 150 caracteres. En desarrollo, sin ella, el Hogar se llama "Hogar Gerontológico Demo". Hasta TK-01, un valor con espacios rompe `scripts/migrate.sh`, que lee `.env` con `. ./.env`: el despliegue en el servidor del hogar va después de TK-01 (sección 6, ficha de TK-01).
 
-   Al crear el volumen `pgdata`, el contenedor `db` ejecuta `db/init/01_roles.sh`, que crea `app_owner` y `app_user` (sección 6, HB-01). Después se generan los certificados (`mkcert` en local, `certbot` en el VPS), se crea el superusuario con `createsuperuser`. Los grupos de permisos, el Hogar y los catálogos semilla no se cargan aparte: los crean las migraciones de datos (sección 3.1).
-4. **Respaldos:** un cron diario ejecuta `scripts/backup_db.sh`, que genera un `pg_dump` comprimido y cifrado, con retención de 14 días y copia a un disco externo. Una vez al mes se prueba la restauración con `scripts/restore_db.sh`.
-5. **Migración a hosting:** se aprovisiona el VPS con Ubuntu y Docker, se clona el repositorio, se restaura el último respaldo y se apunta el dominio. No hay cambios de código, solo variables de entorno.
+   Al crear el volumen `pgdata`, el contenedor `db` ejecuta `db/init/01_roles.sh`, que crea `app_owner` y `app_user` (sección 6, HB-01). Después, en la PC del Administrador y con la CA propia del hogar, se genera el certificado de `mkcert` para la IP fija del servidor. Al servidor solo van el certificado y su llave, nunca la llave de la CA, y la CA se instala en cada PC y celular del hogar. Por último se crea el superusuario con `createsuperuser` (guía de HB-10). El mock nunca se carga en el servidor del hogar. Los grupos de permisos, el Hogar y los catálogos semilla no se cargan aparte: los crean las migraciones de datos (sección 3.1).
+4. **Respaldos:** un cron diario ejecuta `scripts/backup_db.sh` (HB-10), que genera un `pg_dump` comprimido y cifrado con la llave pública GPG del Administrador (la privada no queda en el servidor), sin los datos de `axes` ni de sesiones, que no salen del servidor (ADR-0022), con retención de 14 días y copia a un disco externo. Una vez al mes, el Administrador copia el último respaldo a un segundo disco que se guarda fuera del hogar, y `scripts/restore_db.sh --ensayo` restaura un respaldo recién hecho en una base aparte y compara las tablas de negocio, sin detener la aplicación. Si el último respaldo completo tiene más de 26 horas, el mensaje de entrada por SSH lo avisa. El cron también ejecuta cada día `clearsessions`, y cada semana la limpieza de `axes`: los registros de acceso y de fallos de más de 30 días y los intentos fallidos ([ADR-0022](docs/adr/0022-autenticacion-sesion-argon2-axes.md)).
+5. **Demo en una máquina local:** la misma imagen y `config.settings.prod`, con el `HOGAR_NOMBRE` de la demo y el mock (sección 3.4). `make reset` y `make mock` la dejan como nueva antes de cada presentación. `make reset` y `make mock` se niegan si ven una señal del servidor del hogar (un `HOGAR_NOMBRE` distinto del de la demo, `RESPALDO_DESTINATARIO` definida o el cron de los respaldos), para que `make` nunca borre la base ni cargue el mock allí (HB-10).
+6. **Hosting a futuro:** fuera de alcance mientras no haya fondos ([ADR-0026](docs/adr/0026-despliegue-servidor-del-hogar-y-demo-local.md)). Bastaría aprovisionar un servidor con Docker, clonar el repositorio, restaurar el último respaldo y cambiar las variables de entorno, más el certificado público que decida ese ADR nuevo.
 
 ### 2.5. Seguridad
 
 | Práctica | Implementación |
 |---|---|
-| **Cifrado en tránsito** | HTTPS en todos los entornos. En producción: `SECURE_SSL_REDIRECT=True`, HSTS, `SESSION_COOKIE_SECURE` y `CSRF_COOKIE_SECURE`. |
+| **Cifrado en tránsito** | HTTPS en todos los entornos, con certificado de `mkcert`. nginx redirige 80 → 443 y envía HSTS, y Django no los repite (`config.settings.prod`); las *cookies* de sesión y CSRF son `Secure` (`SESSION_COOKIE_SECURE` y `CSRF_COOKIE_SECURE`). |
 | **Contraseñas** | Hash **Argon2** (`django[argon2]`) y validadores de longitud y complejidad de Django. |
 | **Sesiones** | Expiran tras 30 min de inactividad (`SESSION_COOKIE_AGE=1800`, `SESSION_SAVE_EVERY_REQUEST=True`) y al cerrar el navegador. Cookies `HttpOnly` y `SameSite=Lax`. |
 | **Fuerza bruta** | `django-axes` (9.1.0, versión fija): bloquea la cuenta 15 minutos tras 5 intentos fallidos, por usuario y no por IP (detrás de nginx, la IP sería la del proxy). |
@@ -982,10 +991,11 @@ C4Container
 | **Vulnerabilidades web** | CSRF por defecto en formularios y peticiones HTMX. Protección contra XSS por el *autoescape* de plantillas. Protección contra inyección SQL al usar el ORM con consultas parametrizadas. `X-Frame-Options: DENY` y `Content-Security-Policy` en Nginx. Django envía la misma política CSP (nginx oculta la suya y deja una sola), para que las pruebas que no pasan por nginx la apliquen. |
 | **Secretos y configuración** | `SECRET_KEY` y credenciales de base de datos en `.env` (no versionado). `DEBUG=False` y `ALLOWED_HOSTS` restringido en producción. |
 | **Aislamiento de red** | PostgreSQL sin puertos expuestos, accesible solo desde el contenedor `web`. |
-| **Privilegios mínimos en la base de datos** | 2 usuarios: `app_owner` es dueño de las tablas y solo ejecuta migraciones; `app_user` es el que usa la aplicación, sin `UPDATE`, `DELETE` ni `TRUNCATE` sobre `movimiento` y sin poder alterar tablas ni desactivar *triggers*. Así, aunque alguien robe las credenciales de la aplicación, no puede reescribir el historial. Un test en CI verifica estos permisos. |
+| **Privilegios mínimos en la base de datos** | 2 usuarios: `app_owner` es dueño de las tablas y solo ejecuta migraciones y respaldos ([ADR-0026](docs/adr/0026-despliegue-servidor-del-hogar-y-demo-local.md)); `app_user` es el que usa la aplicación, sin `UPDATE`, `DELETE` ni `TRUNCATE` sobre `movimiento` y sin poder alterar tablas ni desactivar *triggers*. Así, aunque alguien robe las credenciales de la aplicación, no puede reescribir el historial. Un test en CI verifica estos permisos. |
 | **Integridad y trazabilidad** | Cada movimiento guarda usuario y fecha/hora. Los movimientos **no se editan ni se borran**: los errores se corrigen con un movimiento inverso. Las operaciones de inventario corren en `transaction.atomic()` con `select_for_update()` para evitar saldos negativos. |
 | **Privacidad (LFPDPPP)** | Minimización de datos (solo nombre y fecha de nacimiento del residente), aviso de privacidad visible y residentes egresados o fallecidos marcados como inactivos en lugar de borrados, para conservar el historial. |
-| **Respaldos** | Diarios y cifrados (GPG), con retención limitada y prueba de restauración mensual. |
+| **Cifrado en reposo** | El disco del servidor del hogar va cifrado con LUKS, con una frase que se escribe en cada arranque; los respaldos van cifrados con GPG (HB-10, ADR-0026). |
+| **Respaldos** | Diarios y cifrados (GPG), con retención limitada, una copia mensual fuera del hogar y prueba de restauración mensual. Ni la llave privada GPG ni la de la CA de `mkcert` se guardan en el servidor (HB-10). |
 | **Dependencias** | Versiones fijadas en `requirements.txt` y revisión periódica con `pip-audit`. |
 
 ### 2.6. Tests

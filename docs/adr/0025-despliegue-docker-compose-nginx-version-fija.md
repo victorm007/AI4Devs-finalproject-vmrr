@@ -1,6 +1,6 @@
 # ADR-0025 · Despliegue con Docker Compose: `nginx`, `web` y `db`, con `nginx` en versión fija
 
-- **Estado:** Aceptado
+- **Estado:** Supersedido por [ADR-0026](0026-despliegue-servidor-del-hogar-y-demo-local.md)
 - **Fecha:** 2026-11-20
 - **Supersede a:** [ADR-0003](0003-despliegue-docker-compose-tres-contenedores.md)
 - **Capabilities afectadas:** `accounts`, `catalogo`, `entidades`, `pautas`, `inventario`, `conteos`, `reportes`, `api`

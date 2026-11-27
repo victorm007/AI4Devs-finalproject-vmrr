@@ -7,6 +7,15 @@
 nginx/certs/*
 !nginx/certs/.gitkeep
 
+# Respaldos y llaves (HB-10): nunca se versionan. El hook de secretos no ve los binarios cifrados.
+*.asc
+*.gpg
+*.dump
+*.dump.*
+rootCA*.pem
+*-key.pem
+.respaldos-ensayo/
+
 # IDE
 .idea/
 

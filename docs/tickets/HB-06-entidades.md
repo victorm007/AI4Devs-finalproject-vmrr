@@ -1,6 +1,6 @@
 # HB-06 · Guía paso a paso: entidades, el Hogar y los residentes (D3)
 
-> **Ticket:** [readme, sección 6, HB-06](../../readme.md#tickets-de-habilitación-hb-01-a-hb-09) · **Tipo:** base de datos · **Estimación:** 3 puntos · **Rama:** `feature/HB-06-entidades`
+> **Ticket:** [readme, sección 6, HB-06](../../readme.md#tickets-de-habilitación-hb-01-a-hb-10) · **Tipo:** base de datos · **Estimación:** 3 puntos · **Rama:** `feature/HB-06-entidades`
 >
 > Esta guía explica **cómo** hacerlo. El **qué** y el **porqué** están en el ticket y en las secciones 3.1, 3.2 (D3) y 3.3 del readme. Si algo de esta guía contradice al readme, manda el readme: avisa en el PR.
 >
