@@ -95,7 +95,8 @@ Esta guía pasó 5 revisiones adversariales en papel; la última terminó sin bl
 | El *job* `respaldos` en un *runner* real, con `tests/test_candado.py` y GNU Make 4.3 | Solo existe en GitHub Actions | El *job* en verde en el PR (paso 4) |
 | La rama de `RESPALDOS_EXIGIR=1` que hace fallar la recolección | Solo se alcanza cuando falta `db`, `gpg` o `bash`, y en el *job* nunca faltan | Con `db` detenido, `RESPALDOS_EXIGIR=1 python -m pytest tests/test_respaldos.py` falla con `RESPALDOS_EXIGIR=1, pero no pueden correr: ...`, sin ningún test omitido. La salida va en el PR |
 | El ensayo completo del paso 6 con el `Makefile` real | El `Makefile` (`reset`, `mock`, `candado`) nace en TK-01 y se completa en el paso 4; los pasos se simularon sin él | Los 5 puntos del paso 6 en tu equipo, con su resultado esperado. La salida va en el PR |
-| La vuelta atrás completa de la sección 8.2 (`DROP DATABASE ... WITH (FORCE)`, `CREATE DATABASE` y la restauración) | Borra la base: no se ejecutó al escribir la guía | El punto 4 del paso 6 en tu equipo: después de restaurar, `consulta.demo` ve las existencias del mock |
+| La vuelta atrás completa de la sección 8.2 (`DROP DATABASE ... WITH (FORCE)`, `CREATE DATABASE` y la restauración por la entrada estándar) | Borra la base: no se ejecutó al escribir la guía | El punto 4 del paso 6 en tu equipo: `restore_db.sh -` restaura, `make restore-ensayo` dice `ensayo: cuadra.` y el login responde `200`. La parte de la 8.2 que necesita una actualización real (el `diff` de `showmigrations --plan` y el respaldo del estado actual) se prueba en la primera actualización del servidor |
+| Publicar los puertos de la demo solo en `127.0.0.1` | Cambia `docker-compose.yml` (configuración: va con `implementar-ticket`), y el servidor sí necesita los puertos en la red local | En el plan: o se queda la nota del paso 15, o los puertos de nginx toman la IP de una variable (`"${NGINX_IP:-0.0.0.0}:443:443"`) que solo la demo define, con su comando con resultado esperado |
 | ShellCheck dentro de `scripts/verificar.py --herramientas`, con su test | Es una tarea de este ticket (paso 4) | `verificar.py --herramientas` lo corre, también en el CI |
 | La señal `/etc/cron.d/hogar` del candado | Necesita `root` en Linux | `sudo touch /etc/cron.d/hogar && make candado` se niega en una máquina de prueba (y después `sudo rm` del archivo) |
 | La instalación con LUKS, la copia de su cabecera y el desbloqueo por SSH con `dropbear-initramfs` | Necesitan el servidor real | Paso 7.1, con un reinicio de prueba |
@@ -582,14 +583,16 @@ make restore-ensayo F="$ULTIMO"
 # ensayo: cuadra. NN tablas de negocio con las mismas filas que hogar, y la conciliación vacía
 gpg --decrypt "$ULTIMO" | ./scripts/restore_db.sh --ensayo -      # el mismo resultado
 
-# 4. Vuelta atrás completa (sección 8.2): vaciar la base y restaurar el respaldo
+# 4. Vuelta atrás completa (sección 8.2): vaciar la base y restaurar el respaldo por la entrada
+#    estándar, como en el servidor ("make restore F=archivo" hace lo mismo con el archivo)
 docker compose stop web
 docker compose exec -T db psql -U "$POSTGRES_USER" -d postgres \
     -c "DROP DATABASE \"$POSTGRES_DB\" WITH (FORCE)" -c "CREATE DATABASE \"$POSTGRES_DB\" OWNER app_owner"
-make restore F="$ULTIMO"
+gpg --decrypt "$ULTIMO" | ./scripts/restore_db.sh -         # ... restaurado en hogar
+make restore-ensayo F="$ULTIMO"                             # ensayo: cuadra. (la base restaurada = el respaldo)
 docker compose start web && make static
 curl -sk -o /dev/null -w "%{http_code}\n" https://localhost/accounts/login/      # 200
-# Entra como consulta.demo: las existencias del mock siguen ahí
+# Y a mano: entra como consulta.demo, y las existencias del mock siguen ahí
 
 # 5. Limpieza
 rm -rf .respaldos-ensayo "$GNUPGHOME"; unset GNUPGHOME RESPALDO_DESTINATARIO RESPALDO_DIR RESPALDO_SIN_DISCO ULTIMO
@@ -1028,7 +1031,7 @@ La demo es la misma aplicación que producción, con la misma imagen y la misma 
 
 6. **Si la demo es tu equipo de desarrollo:** las 2 son la misma instalación de Compose, porque `docker-compose.yml` fija `name: hogar`. Tienen los mismos volúmenes, y `make reset` borra tu base de desarrollo. Para tenerlas aparte, clona el repositorio en otra carpeta y agrega `COMPOSE_PROJECT_NAME=hogar-demo` a su `.env`: Compose le da prioridad sobre `name:`. Las 2 no pueden correr a la vez, porque usan los puertos 80 y 443.
 7. **Sin internet en el lugar de la demo:** el primer `make up` descarga imágenes. Hazlo antes, con conexión. Después, `make reset` y `make mock` ya no necesitan red.
-   **No la presentes conectada a una red ajena.** `docker-compose.yml` publica los puertos 80 y 443 de nginx en todas las interfaces, y los usuarios del mock y sus contraseñas son públicos: están en el readme. En la red del lugar de la demo, cualquiera que la comparta podría entrar como `operador.demo`. Como la demo no necesita red, desconecta la máquina antes de presentar o usa una red tuya, como el punto de acceso de tu celular. El firewall del sistema no basta: Docker Desktop publica los puertos por su cuenta.
+   **No la presentes conectada a una red ajena.** `docker-compose.yml` publica los puertos 80 y 443 de nginx en todas las interfaces, y los usuarios del mock y sus contraseñas son públicos: están en el readme. Un navegador que entre por la IP de tu máquina recibe un `400`, porque `ALLOWED_HOSTS` solo trae `localhost` y `127.0.0.1`. Pero quien comparta la red y mande la cabecera `Host: localhost` a mano (por ejemplo, con `curl`) llega a la aplicación y puede entrar como `operador.demo`. Como la demo no necesita red, desconecta la máquina antes de presentar o usa una red tuya, como el punto de acceso de tu celular. El firewall del sistema puede no bastar: Docker Desktop agrega su propia regla al instalarse. Publicar los puertos solo en `127.0.0.1` queda como pendiente de la sección 0.5.
 
 8. **Para quien evalúe a distancia:** graba el guion completo con la herramienta de grabación de pantalla del sistema. Muestra el candado de HTTPS y una pantalla a 390 px (las herramientas de desarrollo del navegador la simulan).
 

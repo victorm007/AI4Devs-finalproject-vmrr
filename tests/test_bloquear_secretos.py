@@ -4,6 +4,7 @@ Las líneas con datos que parecen reales llevan el comentario secreto-ok, que el
 reconoce: así este archivo puede commitearse sin que el hook lo bloquee.
 """
 
+import bloquear_secretos
 import pytest
 from bloquear_secretos import RE_ENV, RE_ENV_EJEMPLO, revisar_linea
 
@@ -23,6 +24,11 @@ BLOQUEA = [
     ("DB_PASSWORD=hogar-app-cifrado1", "secreto_asignado"),  # secreto-ok
     ("contacto = 'x@app-cielo.mx'", "correo"),  # secreto-ok
     ("contacto = 'digit@github.com'", "correo"),  # secreto-ok
+    # La frase de paso como opción de gpg, separada por un espacio o en una lista de subprocess
+    ("gpg --batch --passphrase 'Xk82hd9Qw7zP' --decrypt respaldo.gpg", "secreto_asignado"),  # secreto-ok
+    ('    "--passphrase", "Xk82hd9Qw7zP",', "secreto_asignado"),  # secreto-ok
+    # La clave entre comillas invertidas y el valor también
+    ("`DB_PASSWORD`: `Xk82hd9Qw7zP`", "secreto_asignado"),  # secreto-ok
 ]
 
 PERMITE = [
@@ -37,6 +43,13 @@ PERMITE = [
     "el `env:` define `DB_OWNER_PASSWORD: owner-ci`, y Compose lo prefiere al `.env`",
     # El usuario SSH de GitHub en la URL de clonación (guía de HB-10, paso 8)
     "git clone git@github.com:org/repo.git /opt/hogar",
+    # Las opciones de gpg sin frase, con la frase en una variable o leída de un descriptor (HB-10)
+    "gpg --batch --passphrase '' --quick-gen-key \"Ensayo <ensayo@respaldos.test>\"",
+    '            "--passphrase",',
+    'gpg --batch --passphrase "$FRASE" --decrypt respaldo.gpg',
+    "gpg --batch --passphrase-fd 0 --decrypt respaldo.gpg",
+    # Una palabra en minúsculas, con acentos o ñ, es texto y no un secreto
+    "`DB_PASSWORD`: contraseña de app_user",
 ]
 
 
@@ -52,6 +65,15 @@ def test_permite_ejemplos(linea):
 
 def test_secreto_ok_exceptua_la_linea():
     assert revisar_linea("x.py", "correo = 'ana.lopez@empresa.mx'  # secreto-ok") == []  # secreto-ok
+
+
+def test_los_correos_permitidos_se_comparan_completos(monkeypatch):
+    # Un correo de la lista solo vale completo: como subcadena dejaría pasar otros correos
+    monkeypatch.setattr(bloquear_secretos, "PERMITIDOS", ["contacto@curso.mx"])  # secreto-ok
+    assert revisar_linea("x.md", "Contacto: contacto@curso.mx") == []  # secreto-ok
+    assert revisar_linea("x.md", "Contacto: Contacto@Curso.MX") == []  # secreto-ok
+    assert "correo" in revisar_linea("x.md", "Contacto: otro.contacto@curso.mx")  # secreto-ok
+    assert "correo" in revisar_linea("x.md", "Contacto: contacto@curso.mx.empresa.com")  # secreto-ok
 
 
 def test_los_datos_personales_del_mock_son_ejemplo():

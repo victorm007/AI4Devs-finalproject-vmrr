@@ -1269,6 +1269,32 @@ Para m5 no cambié `docker-compose.yml` para publicar los puertos solo en `127.0
 
 ---
 
+## Prompt 46 — Usuario
+
+(Después del push de `c2e88fd` y de su revisión adversarial, que dejó 0 bloqueantes, 0 mayores y 6 menores, comentada en el PR #2.) Ok, resolver los 6 menores en el PR #2.
+
+---
+
+## Respuesta 46 — Claude
+
+Resolví los 6 menores de la revisión de `c2e88fd`. Los del hook, con los tests primero: en rojo, 4 fallaban.
+
+| Menor | Cambio |
+|---|---|
+| 1 | El hook también reconoce la clave como opción de línea de órdenes: `--passphrase valor` y `"--passphrase", "valor"`, igual con `--password`. No reconoce `--passphrase-fd` ni `--passphrase-file`, que no llevan la frase |
+| 2 | Comentario con el límite conocido: un valor que lleva una comilla en medio se corta ahí. Una palabra en minúsculas con acentos o ñ cuenta como texto, así que `` `DB_PASSWORD`: contraseña de app_user `` ya no se bloquea |
+| 3 | Los correos de `secretos-permitidos.txt` se comparan completos, sin distinguir mayúsculas. Un correo con más letras delante del @ o con más dominio detrás vuelve a bloquearse |
+| 4 | El mensaje de bloqueo, el docstring del hook y `CLAUDE.md` advierten que la lista compara por subcadena y piden el valor completo. `git@github.com` aparece entre los correos permitidos |
+| 5 | La nota del paso 15 es más precisa. Por la IP, el navegador recibe un `400` (`ALLOWED_HOSTS`). Con la cabecera `Host` a mano, sí se llega a la aplicación. Y el firewall "puede no bastar". Publicar solo en `127.0.0.1` queda como fila de la sección 0.5, con una propuesta: una variable `NGINX_IP` que solo define la demo |
+| 6 | El punto 4 del paso 6 restaura por la entrada estándar, como la 8.2, y termina con `make restore-ensayo` → `ensayo: cuadra.`. La fila de la 0.5 lo refleja y deja para la primera actualización del servidor lo que necesita una actualización real. `CLAUDE.md` nombra `test_candado.py` y el caso de ShellCheck en la excepción de TDD y en el *job* `respaldos` |
+
+**Verificación:**
+- `pytest tests`: 65 passed.
+- `verificar.py --herramientas`: limpio.
+- Comparé el hook anterior con el nuevo en todas las líneas del repositorio. Solo cambia el caso de prueba de la palabra con ñ, que deja de bloquearse, y ninguna línea queda bloqueada.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 6)
 
 ## 6. Tickets de Trabajo

@@ -8,12 +8,13 @@ Ni el mensaje ni el registro incluyen el valor encontrado: solo archivo, línea
 y categoría.
 
 Qué cuenta como ejemplo (y no bloquea):
-- Correos de dominios reservados (example.com, *.test, *.invalid, localhost)
-  y los noreply de GitHub/Anthropic.
+- Correos de dominios reservados (example.com, *.test, *.invalid, localhost),
+  los noreply de GitHub/Anthropic y el usuario SSH git@github.com.
 - Datos personales y hashes en rutas de datos ficticios (fixtures/mock, *.example).
 - Valores con marcadores de ejemplo (demo, ejemplo, cambia-esto, ${VAR}, <valor>...).
 - Cualquier línea con el comentario `secreto-ok`.
-- Los valores listados en .claude/hooks/secretos-permitidos.txt.
+- Los valores listados en .claude/hooks/secretos-permitidos.txt: los correos, completos;
+  lo demás, como subcadena (por eso solo valores públicos completos y largos).
 Los tokens con formato inconfundible (claves privadas, AWS, GitHub, etc.) solo
 se exceptúan con `secreto-ok` o la lista de permitidos.
 
@@ -51,11 +52,16 @@ ALTA = [
 
 # Media: depende del valor; se exceptúa si el valor parece de ejemplo.
 # PASSPHRASE: las frases de paso de GPG, LUKS y la CA (HB-10). La comilla invertida cierra el valor,
-# como las otras comillas: en Markdown queda pegada a él (`CLAVE: valor`).
+# como las otras comillas: en Markdown queda pegada a él (`CLAVE: valor`). Límite conocido: un valor
+# que lleva una comilla en medio se corta ahí, y si quedan menos de 8 caracteres no se detecta.
 RE_ASIGNACION = re.compile(
     r"(?i)\b[A-Z0-9_-]*(?:PASSWORD|PASSWD|PASSPHRASE|PWD|SECRET|TOKEN|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY)"
     r"""[A-Z0-9_]*\b["'`]?\s*[:=]\s*(["'`]?)([^\s"'`#,;]{8,})"""
 )
+# La misma clave como opción de línea de órdenes, con el valor tras un espacio (gpg --passphrase valor)
+# o en el elemento siguiente de una lista de subprocess ("--passphrase", "valor"). --passphrase-fd y
+# --passphrase-file no llevan la frase, y no coinciden.
+RE_OPCION_CLAVE = re.compile(r"""(?i)--(?:passphrase|password|passwd)["']?(?:\s*,\s*|\s+)(["'`]?)([^\s"'`#,;]{8,})""")
 RE_URL_CRED = re.compile(r"""\b[a-z][a-z0-9+.-]*://[^/\s:@"']+:([^@\s/"']+)@""", re.I)
 RE_HASH = re.compile(
     r"\b(?:pbkdf2_sha256|pbkdf2_sha1|argon2|bcrypt_sha256)\$\S{20,}|\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}"
@@ -117,6 +123,12 @@ def _permitido(valor: str) -> bool:
     return any(p in valor for p in PERMITIDOS)
 
 
+def _correo_permitido(correo: str) -> bool:
+    # Completo y sin distinguir mayúsculas: como subcadena, un correo de la lista dejaría pasar
+    # otro con más letras delante del @ o con más dominio detrás.
+    return correo.lower() in {p.lower() for p in PERMITIDOS}
+
+
 def _luhn(numero: str) -> bool:
     digitos = [int(c) for c in numero if c.isdigit()]
     total = 0
@@ -134,7 +146,8 @@ def _valor_de_ejemplo(valor: str) -> bool:
         return True
     if any(c in valor for c in "([{"):  # llamadas o índices: os.environ[...], env(...)
         return True
-    if re.fullmatch(r"[a-z_][a-z0-9_.]*", valor):  # nombre de variable en código
+    # Nombre de variable en código, o una palabra en minúsculas del texto (`CLAVE`: contraseña de ...)
+    if re.fullmatch(r"[a-záéíóúüñ_][a-z0-9_.áéíóúüñ]*", valor):
         return True
     return valor.lower() in {"none", "null", "true", "false", "required", "optional"}
 
@@ -152,7 +165,7 @@ def revisar_linea(ruta: str, linea: str) -> list[str]:
                 hallazgos.append(categoria)
                 break
 
-    for m in RE_ASIGNACION.finditer(linea):
+    for m in (*RE_ASIGNACION.finditer(linea), *RE_OPCION_CLAVE.finditer(linea)):
         valor = m.group(2)
         if not (_valor_de_ejemplo(valor) or _permitido(valor)):
             hallazgos.append("secreto_asignado")
@@ -171,7 +184,7 @@ def revisar_linea(ruta: str, linea: str) -> list[str]:
 
         for m in RE_CORREO.finditer(linea):
             correo, dominio = m.group(0), m.group(1)
-            if DOMINIOS_EJEMPLO.search(dominio) or CORREOS_PERMITIDOS.match(correo) or _permitido(correo):
+            if DOMINIOS_EJEMPLO.search(dominio) or CORREOS_PERMITIDOS.match(correo) or _correo_permitido(correo):
                 continue
             hallazgos.append("correo")
             break
@@ -354,7 +367,9 @@ def main() -> int:
         f"Bloqueado git {operacion}: posible secreto, correo, dato personal o archivo .env "
         f"({len(hallazgos)} hallazgo(s)):\n{lista}{extra}\n"
         "Quita el dato o sácalo del staging. Si es un ejemplo, márcalo con el comentario "
-        "`secreto-ok` o agrégalo a .claude/hooks/secretos-permitidos.txt. "
+        "`secreto-ok` o agrega el valor completo a .claude/hooks/secretos-permitidos.txt "
+        "(se compara como subcadena: nunca un fragmento corto; para un patrón, cambia el hook "
+        "y agrégale un test). "
         "Registro: .claude/logs/secretos-bloqueados.log"
     )
     return 0
