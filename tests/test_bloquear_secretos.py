@@ -29,6 +29,15 @@ BLOQUEA = [
     ('    "--passphrase", "Xk82hd9Qw7zP",', "secreto_asignado"),  # secreto-ok
     # La clave entre comillas invertidas y el valor también
     ("`DB_PASSWORD`: `Xk82hd9Qw7zP`", "secreto_asignado"),  # secreto-ok
+    # Entre comillas, el valor se evalúa completo: con espacios y aunque sea solo de minúsculas
+    ('gpg --batch --passphrase "mi frase de paso larga" --decrypt respaldo.gpg', "secreto_asignado"),  # secreto-ok
+    ("PASSPHRASE='frase con espacios larga'", "secreto_asignado"),  # secreto-ok
+    ('DB_PASSWORD = "hogarapp2026"', "secreto_asignado"),  # secreto-ok
+    ("gpg --batch --passphrase 'correcthorsebattery' --decrypt respaldo.gpg", "secreto_asignado"),  # secreto-ok
+    # Las mismas claves que en una asignación, también como opción
+    ("curl --token Xk82hd9Qw7zPq1 https://api.example.com", "secreto_asignado"),  # secreto-ok
+    ("herramienta --api-key Xk82hd9Qw7zP", "secreto_asignado"),  # secreto-ok
+    ("herramienta --client-secret Xk82hd9Qw7zP", "secreto_asignado"),  # secreto-ok
 ]
 
 PERMITE = [
@@ -50,6 +59,16 @@ PERMITE = [
     "gpg --batch --passphrase-fd 0 --decrypt respaldo.gpg",
     # Una palabra en minúsculas, con acentos o ñ, es texto y no un secreto
     "`DB_PASSWORD`: contraseña de app_user",
+    # También con mayúscula inicial, si la sigue más texto
+    "`DB_PASSWORD`: Contraseña de app_user",
+    # En Markdown, la comilla invertida marca código: un identificador sigue siendo de ejemplo
+    "| `DB_OWNER_PASSWORD`: `app_owner` |",
+    # La definición de una opción, otra opción a continuación o una ruta no son el valor de la clave
+    'parser.add_argument("--password", required=True)',
+    'parser.add_argument("--token", type=str, default=None)',
+    "gpg --passphrase --decrypt respaldo.gpg",
+    "herramienta --private-key ./nginx/certs/local-key.pem",
+    "docker login --password-stdin",
 ]
 
 
@@ -60,6 +79,26 @@ def test_bloquea_datos_reales(linea, categoria):
 
 @pytest.mark.parametrize("linea", PERMITE)
 def test_permite_ejemplos(linea):
+    assert revisar_linea("app/config/settings/base.py", linea) == []
+
+
+LIMITES_ACEPTADOS = [
+    # Sin comillas y solo de minúsculas: no se distingue de un nombre de variable
+    "gpg --batch --passphrase correcthorsebattery --decrypt respaldo.gpg",
+    # El valor en la línea siguiente (una lista de subprocess con un elemento por línea)
+    '            "--passphrase",',
+    '            "Xk82hd9Qw7zP",',
+    # Sin comillas, una comilla en medio corta el valor y quedan menos de 8 caracteres
+    "DB_PASSWORD=ab`cdefghij",
+]
+
+
+@pytest.mark.parametrize("linea", LIMITES_ACEPTADOS)
+def test_limites_aceptados_del_hook(linea):
+    """Estos casos pasan a propósito: son los límites de docs/herramientas/hook-secretos.md.
+
+    Si un cambio del hook cierra alguno, este test falla: se quita de esta lista y del documento.
+    """
     assert revisar_linea("app/config/settings/base.py", linea) == []
 
 

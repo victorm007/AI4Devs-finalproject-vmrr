@@ -18,6 +18,10 @@ Qué cuenta como ejemplo (y no bloquea):
 Los tokens con formato inconfundible (claves privadas, AWS, GitHub, etc.) solo
 se exceptúan con `secreto-ok` o la lista de permitidos.
 
+Lo demás es una heurística línea por línea: no lo detecta todo, y cada regla que quita un falso
+positivo abre un hueco. Los límites aceptados, sus razones y los pendientes están en
+docs/herramientas/hook-secretos.md; un cambio del hook empieza por sus tests y termina ahí.
+
 Prueba manual: python bloquear_secretos.py --escanear-repo
 """
 
@@ -51,17 +55,18 @@ ALTA = [
 ]
 
 # Media: depende del valor; se exceptúa si el valor parece de ejemplo.
-# PASSPHRASE: las frases de paso de GPG, LUKS y la CA (HB-10). La comilla invertida cierra el valor,
-# como las otras comillas: en Markdown queda pegada a él (`CLAVE: valor`). Límite conocido: un valor
-# que lleva una comilla en medio se corta ahí, y si quedan menos de 8 caracteres no se detecta.
-RE_ASIGNACION = re.compile(
-    r"(?i)\b[A-Z0-9_-]*(?:PASSWORD|PASSWD|PASSPHRASE|PWD|SECRET|TOKEN|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY)"
-    r"""[A-Z0-9_]*\b["'`]?\s*[:=]\s*(["'`]?)([^\s"'`#,;]{8,})"""
-)
-# La misma clave como opción de línea de órdenes, con el valor tras un espacio (gpg --passphrase valor)
-# o en el elemento siguiente de una lista de subprocess ("--passphrase", "valor"). --passphrase-fd y
-# --passphrase-file no llevan la frase, y no coinciden.
-RE_OPCION_CLAVE = re.compile(r"""(?i)--(?:passphrase|password|passwd)["']?(?:\s*,\s*|\s+)(["'`]?)([^\s"'`#,;]{8,})""")
+# Es una heurística línea por línea, y por eso cada revisión le encuentra casos nuevos: los límites
+# aceptados y los pendientes están en docs/herramientas/hook-secretos.md, y los fija un test.
+# PASSPHRASE: las frases de paso de GPG, LUKS y la CA (HB-10).
+CLAVES = r"PASSWORD|PASSWD|PASSPHRASE|PWD|SECRET|TOKEN|API[_-]?KEY|ACCESS[_-]?KEY|PRIVATE[_-]?KEY"
+# El valor: entre comillas dobles o simples, completo y con espacios; si no, hasta el primer espacio,
+# comilla o separador. La comilla invertida (código en Markdown, `CLAVE: valor`) cuenta como sin comillas.
+VALOR = r"""(?:"(?P<dq>[^"\n]{8,})"|'(?P<sq>[^'\n]{8,})'|["'`]?(?P<libre>[^\s"'`#,;]{8,}))"""
+RE_ASIGNACION = re.compile(rf"""(?i)\b[A-Z0-9_-]*(?:{CLAVES})[A-Z0-9_]*\b["'`]?\s*[:=]\s*{VALOR}""")
+# La misma clave como opción de línea de órdenes (gpg --passphrase valor, --api-key valor), o en el
+# elemento siguiente de una lista de subprocess en la misma línea ("--passphrase", "valor").
+# --passphrase-fd, --passphrase-file y --password-stdin no llevan el valor, y no coinciden.
+RE_OPCION_CLAVE = re.compile(rf"""(?i)--(?:[a-z0-9]+-)*(?:{CLAVES})["']?(?:\s*,\s*|\s+){VALOR}""")
 RE_URL_CRED = re.compile(r"""\b[a-z][a-z0-9+.-]*://[^/\s:@"']+:([^@\s/"']+)@""", re.I)
 RE_HASH = re.compile(
     r"\b(?:pbkdf2_sha256|pbkdf2_sha1|argon2|bcrypt_sha256)\$\S{20,}|\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}"
@@ -141,14 +146,25 @@ def _luhn(numero: str) -> bool:
     return len(digitos) >= 13 and total % 10 == 0
 
 
-def _valor_de_ejemplo(valor: str) -> bool:
+def _valor_de_ejemplo(valor: str, entre_comillas: bool = False, sigue_texto: bool = False) -> bool:
     if MARCADORES_EJEMPLO.search(valor):
         return True
     if any(c in valor for c in "([{"):  # llamadas o índices: os.environ[...], env(...)
         return True
-    # Nombre de variable en código, o una palabra en minúsculas del texto (`CLAVE`: contraseña de ...)
-    if re.fullmatch(r"[a-záéíóúüñ_][a-z0-9_.áéíóúüñ]*", valor):
+    if valor.startswith("-"):  # otra opción: gpg --passphrase --decrypt
         return True
+    if re.match(r"[A-Za-z_]\w*=", valor):  # un argumento con nombre: add_argument("--password", required=True)
+        return True
+    if valor.startswith(("/", "./", "../", "~/")):  # una ruta: --private-key ./llave.pem
+        return True
+    if not entre_comillas:
+        # Nombre de variable en código, o una palabra en minúsculas del texto (`CLAVE`: contraseña de ...).
+        # Entre comillas no: ahí es un valor literal, aunque sea solo de minúsculas.
+        if re.fullmatch(r"[a-záéíóúüñ_][a-z0-9_.áéíóúüñ]*", valor):
+            return True
+        # Una palabra con mayúscula inicial seguida de más texto (`CLAVE`: Contraseña de ...)
+        if sigue_texto and re.fullmatch(r"[A-ZÁÉÍÓÚÑ][a-záéíóúüñ]+", valor):
+            return True
     return valor.lower() in {"none", "null", "true", "false", "required", "optional"}
 
 
@@ -166,8 +182,10 @@ def revisar_linea(ruta: str, linea: str) -> list[str]:
                 break
 
     for m in (*RE_ASIGNACION.finditer(linea), *RE_OPCION_CLAVE.finditer(linea)):
-        valor = m.group(2)
-        if not (_valor_de_ejemplo(valor) or _permitido(valor)):
+        entre_comillas = m.group("libre") is None
+        valor = m.group("dq") or m.group("sq") or m.group("libre")
+        sigue_texto = bool(re.match(r"\s+[A-Za-zÁÉÍÓÚÑáéíóúüñ]", linea[m.end() :]))
+        if not (_valor_de_ejemplo(valor, entre_comillas, sigue_texto) or _permitido(valor)):
             hallazgos.append("secreto_asignado")
             break
 

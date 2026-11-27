@@ -803,6 +803,7 @@ AI4Devs-finalproject-vmrr/
 ├── docs/                      # documentación de apoyo y diagramas
 │   ├── api/openapi.yaml       # contrato de la API (sección 4)
 │   ├── adr/                   # decisiones de arquitectura (ADR), índice en adr/README.md
+│   ├── herramientas/          # límites y pendientes de las herramientas del repositorio (hook de secretos)
 │   └── tickets/               # guías paso a paso de los tickets (sección 6)
 ├── docker-compose.yml         # servicios: nginx, web, db
 ├── Makefile                   # atajos de desarrollo local (make help); el CI no lo usa

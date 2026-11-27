@@ -96,7 +96,7 @@ Esta guía pasó 5 revisiones adversariales en papel; la última terminó sin bl
 | La rama de `RESPALDOS_EXIGIR=1` que hace fallar la recolección | Solo se alcanza cuando falta `db`, `gpg` o `bash`, y en el *job* nunca faltan | Con `db` detenido, `RESPALDOS_EXIGIR=1 python -m pytest tests/test_respaldos.py` falla con `RESPALDOS_EXIGIR=1, pero no pueden correr: ...`, sin ningún test omitido. La salida va en el PR |
 | El ensayo completo del paso 6 con el `Makefile` real | El `Makefile` (`reset`, `mock`, `candado`) nace en TK-01 y se completa en el paso 4; los pasos se simularon sin él | Los 5 puntos del paso 6 en tu equipo, con su resultado esperado. La salida va en el PR |
 | La vuelta atrás completa de la sección 8.2 (`DROP DATABASE ... WITH (FORCE)`, `CREATE DATABASE` y la restauración por la entrada estándar) | Borra la base: no se ejecutó al escribir la guía | El punto 4 del paso 6 en tu equipo: `restore_db.sh -` restaura, `make restore-ensayo` dice `ensayo: cuadra.` y el login responde `200`. La parte de la 8.2 que necesita una actualización real (el `diff` de `showmigrations --plan` y el respaldo del estado actual) se prueba en la primera actualización del servidor |
-| Publicar los puertos de la demo solo en `127.0.0.1` | Cambia `docker-compose.yml` (configuración: va con `implementar-ticket`), y el servidor sí necesita los puertos en la red local | En el plan: o se queda la nota del paso 15, o los puertos de nginx toman la IP de una variable (`"${NGINX_IP:-0.0.0.0}:443:443"`) que solo la demo define, con su comando con resultado esperado |
+| Publicar los puertos de la demo solo en `127.0.0.1` | Cambia `docker-compose.yml` (configuración: va con `implementar-ticket`), y el servidor sí necesita los puertos en la red local | En el plan: o se queda la nota del paso 15, o los puertos de nginx toman la IP de una variable que solo la demo define (`NGINX_IP=127.0.0.1` en su `.env`, paso 15). Sin la variable, la publicación debe quedar como hoy, en IPv4 y en IPv6, para no cambiar las salidas esperadas de HB-04 y del paso 10: `"${NGINX_IP:+${NGINX_IP}:}443:443"`, no `"${NGINX_IP:-0.0.0.0}:443:443"`, que deja fuera IPv6. Se comprueba con `docker compose config` y `docker compose ps`, con la variable y sin ella |
 | ShellCheck dentro de `scripts/verificar.py --herramientas`, con su test | Es una tarea de este ticket (paso 4) | `verificar.py --herramientas` lo corre, también en el CI |
 | La señal `/etc/cron.d/hogar` del candado | Necesita `root` en Linux | `sudo touch /etc/cron.d/hogar && make candado` se niega en una máquina de prueba (y después `sudo rm` del archivo) |
 | La instalación con LUKS, la copia de su cabecera y el desbloqueo por SSH con `dropbear-initramfs` | Necesitan el servidor real | Paso 7.1, con un reinicio de prueba |
@@ -591,7 +591,9 @@ docker compose exec -T db psql -U "$POSTGRES_USER" -d postgres \
 gpg --decrypt "$ULTIMO" | ./scripts/restore_db.sh -         # ... restaurado en hogar
 make restore-ensayo F="$ULTIMO"                             # ensayo: cuadra. (la base restaurada = el respaldo)
 docker compose start web && make static
-curl -sk -o /dev/null -w "%{http_code}\n" https://localhost/accounts/login/      # 200
+# start no espera a Gunicorn: mientras arranca, nginx responde 502, y curl reintenta
+curl -sk --retry 10 --retry-delay 2 --retry-connrefused -o /dev/null -w "%{http_code}\n" \
+    https://localhost/accounts/login/                                            # 200
 # Y a mano: entra como consulta.demo, y las existencias del mock siguen ahí
 
 # 5. Limpieza
@@ -1019,6 +1021,7 @@ La demo es la misma aplicación que producción, con la misma imagen y la misma 
    | `GUNICORN_CMD_ARGS` | Vacía |
    | `ALLOWED_HOSTS` y `CSRF_TRUSTED_ORIGINS` | Los de `.env.example` (`localhost`) |
    | `RESPALDO_*` | Sin definir: la demo no tiene respaldos ni cron |
+   | `NGINX_IP` | `127.0.0.1`, solo si el plan del ticket adoptó la variable (sección 0.5). Si no, no existe |
 
 4. **Antes de cada demo**, déjala como nueva:
 

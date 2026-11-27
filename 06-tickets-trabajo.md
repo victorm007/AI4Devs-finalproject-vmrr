@@ -1295,6 +1295,41 @@ Resolví los 6 menores de la revisión de `c2e88fd`. Los del hook, con los tests
 
 ---
 
+## Prompt 47 — Usuario
+
+(Después del push de `0d1dfba` y de su revisión adversarial: 0 bloqueantes, 1 mayor y 5 menores. Pregunté si hubo hallazgos, y la respuesta propuso arreglar lo que vale la pena, corregir la guía y documentar como límite lo que una revisión línea por línea no puede resolver.) Hazlo así, luego documenta los pendientes en la guía, o donde sea apropiado, pero que quede en el repositorio para poder arreglarlo cuando tengamos más detalles con los TK. Documenta el hecho de que el hook encuentra casos nuevos en cada ronda y la razón.
+
+---
+
+## Respuesta 47 — Claude
+
+**El hook**, con los tests primero (en rojo, 10 fallaban):
+- Un valor entre comillas dobles o simples se evalúa completo, con espacios, y aunque sea solo de minúsculas.
+- Sin comillas, un valor de minúsculas sigue contando como nombre de variable. Una palabra con mayúscula inicial seguida de más texto cuenta como prosa.
+- No son el valor de la clave lo que empieza por `-` (otra opción), una ruta (`/`, `./`, `~/`) ni un argumento con nombre (`required=True`). Así deja de bloquearse `add_argument("--password", required=True)`.
+- La opción de línea de órdenes usa las mismas claves que la asignación: `--token`, `--api-key`, `--client-secret`...
+
+**Los límites que no se resuelven** quedan fijados en `LIMITES_ACEPTADOS` del test: el valor sin comillas solo de minúsculas, el valor en la línea siguiente y la comilla en medio de un valor sin comillas. Si un cambio cierra alguno, el test falla.
+
+**La guía de HB-10:**
+- La propuesta `NGINX_IP` queda como `"${NGINX_IP:+${NGINX_IP}:}443:443"`, que sin la variable conserva IPv6, y la variable aparece en la tabla del `.env` de la demo.
+- El `curl` del paso 6 reintenta mientras arranca Gunicorn.
+
+**Documentación:** `docs/herramientas/hook-secretos.md`, enlazado desde el hook, `CLAUDE.md` y el árbol de carpetas del readme. Explica por qué cada revisión encuentra casos nuevos:
+- el hook decide línea por línea y con expresiones regulares;
+- fuera de los tokens con forma fija, un secreto no tiene forma propia, y lo que lo distingue de un ejemplo depende del tipo de archivo, de la forma del valor y de las líneas de alrededor;
+- cada regla que quita un falso positivo abre un hueco, y no hay un punto en el que los 2 errores lleguen a cero.
+
+El documento también lista los límites aceptados y los pendientes para cuando haya código de los TK y de HB-10. Los pendientes son revisar el hook con el código de cada ticket, las claves con nombre en español y un escáner dedicado en el CI (con un ADR). Además, el cierre de `implementar-ticket` corre `--escanear-repo` y lleva al documento lo que encuentre.
+
+**Verificación:**
+- `pytest tests`: 83 passed.
+- `verificar.py --herramientas`: limpio.
+- `--escanear-repo`: `0 hallazgo(s)`.
+- Comparación con el hook anterior: ninguna línea del repositorio queda bloqueada, y solo cambian líneas nuevas de este cambio.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 6)
 
 ## 6. Tickets de Trabajo
