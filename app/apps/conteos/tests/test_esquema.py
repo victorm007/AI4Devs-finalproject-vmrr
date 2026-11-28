@@ -26,14 +26,22 @@ TK-01 ya los rechaza con tg_conteo_cerrado y tg_detalle_conteo_cerrado, y los pr
 la migración 0003 los rompa.
 
 Ajustes de la segunda revisión de TK-01 (PR #3):
-- test_la_fk_de_usuario_de_conteo_fisico_sin_indice (bloqueante 1, ADR-0018). Rojo esperado:
+- test_la_fk_de_usuario_de_conteo_fisico_sin_indice (bloqueante 1, ADR-0018). Rojo comprobado:
   Django crea conteo_fisico_usuario_id_<hash>, así que el conjunto no está vacío.
 - test_cerrar_un_conteo_mientras_se_captura_un_renglon y
   test_capturar_un_renglon_mientras_se_cierra_el_conteo (menor 5; design, decisiones 4 y 5),
   con 2 conexiones propias de psycopg como app_user y lock_timeout, sin hilos ni sleep. Rojo
-  esperado: hoy fn_detalle_conteo_cerrado lee el estado sin FOR SHARE y la FK del renglón es
-  diferida, así que nadie espera: el cierre (en el primero) y la captura (en el segundo) pasan
-  al instante ("DID NOT RAISE").
+  comprobado: fn_detalle_conteo_cerrado leía el estado sin FOR SHARE y la FK del renglón es
+  diferida, así que nadie esperaba: el cierre (en el primero) y la captura (en el segundo)
+  pasaban al instante ("DID NOT RAISE").
+
+Ajustes de la tercera revisión de TK-01 (PR #3):
+- test_borrar_un_renglon_mientras_se_cierra_el_conteo (menor 1; design, decisión 4): la rama
+  de OLD de fn_detalle_conteo_cerrado, con las mismas 2 conexiones. Regresión: 0005 ya bloquea
+  las 2 lecturas del estado con FOR SHARE. Lo protege también el count("FOR SHARE") == 2 de
+  test_revertir_y_volver_a_aplicar_las_migraciones (apps/inventario/tests/test_esquema.py).
+- conectar_como_app_user cierra la conexión si falla algo después de abrirla (nit 4).
+  Regresión: no cambia lo que comprueba ningún test.
 """
 
 import re
@@ -242,12 +250,16 @@ def test_los_renglones_de_un_conteo_en_proceso_si_se_mueven_y_se_borran(datos_de
 
 
 # ---------------------------------------------------------------------------------------------
-# Cierre y captura en paralelo (segunda revisión de TK-01, menor 5; design, decisiones 4 y 5)
+# Cierre y captura en paralelo (segunda revisión de TK-01, menor 5; design, decisiones 4 y 5) y
+# borrado en paralelo (tercera revisión de TK-01, menor 1)
 # ---------------------------------------------------------------------------------------------
 
 # Losartán (2) es uno de los renglones que le faltan al conteo 2: no choca con uq_detalle_conteo
 LOSARTAN_EN_EL_CONTEO_2 = insertar_renglon(2, 2, "18", "20")
 CERRAR_EL_CONTEO_2 = "UPDATE conteo_fisico SET estado = 'CERRADO', cerrado_en = now() WHERE id = 2"
+# El renglón de Omeprazol (5) del conteo 2: 58 contadas contra 59
+OMEPRAZOL_DEL_CONTEO_2 = "FROM detalle_conteo WHERE conteo_id = 2 AND medicamento_id = 5"
+BORRAR_OMEPRAZOL_DEL_CONTEO_2 = "DELETE " + OMEPRAZOL_DEL_CONTEO_2
 
 
 def conectar_como_app_user() -> psycopg.Connection:
@@ -256,6 +268,10 @@ def conectar_como_app_user() -> psycopg.Connection:
     Los SET se confirman: un SET dentro de una transacción que después se revierte se deshace,
     y el test revierte varias veces. El lock_timeout va en las 2 conexiones para que ningún
     test se quede colgado; solo la que debe esperar llega a usarlo.
+
+    Si falla algo después de abrirla (el SET ROLE, la comprobación del rol...), la conexión se
+    cierra antes de propagar el error: el fixture todavía no la tiene y no la cerraría, y una
+    conexión abierta impediría el vaciado de la base (nit 4 de la tercera revisión de TK-01).
     """
     ajustes = connection.settings_dict
     conexion = psycopg.connect(
@@ -266,11 +282,15 @@ def conectar_como_app_user() -> psycopg.Connection:
         port=ajustes["PORT"] or None,
         autocommit=False,
     )
-    conexion.execute("SET ROLE app_user")
-    conexion.execute("SET lock_timeout = '500ms'")
-    conexion.commit()
-    assert conexion.execute("SELECT current_user").fetchone() == ("app_user",)
-    conexion.rollback()
+    try:
+        conexion.execute("SET ROLE app_user")
+        conexion.execute("SET lock_timeout = '500ms'")
+        conexion.commit()
+        assert conexion.execute("SELECT current_user").fetchone() == ("app_user",)
+        conexion.rollback()
+    except BaseException:
+        conexion.close()
+        raise
     return conexion
 
 
@@ -338,6 +358,33 @@ def test_capturar_un_renglon_mientras_se_cierra_el_conteo(dos_conexiones):
     assert ejecutar_sql(
         "SELECT count(*) FROM detalle_conteo WHERE conteo_id = 2 AND medicamento_id = 2"
     ) == [(0,)]
+
+
+@pytest.mark.django_db(transaction=True, serialized_rollback=True)
+def test_borrar_un_renglon_mientras_se_cierra_el_conteo(dos_conexiones):
+    # Scenario: Borrar un renglón mientras se cierra el conteo (tercera revisión de TK-01,
+    # menor 1). Regresión: 0005 ya bloquea también la lectura del conteo de OLD
+    cierre, borrado = dos_conexiones
+    # Control: el mock está confirmado, las conexiones ven el conteo 2 EN_PROCESO y app_user ve
+    # su renglón de Omeprazol; sin él, el DELETE no tocaría ninguna fila y no dispararía nada
+    assert estado_del_conteo_2(borrado) == "EN_PROCESO"
+    assert borrado.execute("SELECT count(*) " + OMEPRAZOL_DEL_CONTEO_2).fetchone() == (1,)
+    borrado.rollback()
+    cierre.execute(CERRAR_EL_CONTEO_2)
+    # El borrado espera al cierre: con lock_timeout, falla por tiempo de espera del bloqueo
+    with pytest.raises(LockNotAvailable):
+        borrado.execute(BORRAR_OMEPRAZOL_DEL_CONTEO_2)
+    borrado.rollback()
+    # Cuando el cierre se confirma, la base rechaza el borrado
+    cierre.commit()
+    with pytest.raises(RaiseException, match="El conteo 2 está cerrado"):
+        borrado.execute(BORRAR_OMEPRAZOL_DEL_CONTEO_2)
+    borrado.rollback()
+    assert ejecutar_sql("SELECT estado FROM conteo_fisico WHERE id = 2") == [("CERRADO",)]
+    # El renglón sigue en el conteo 2, con su captura
+    assert ejecutar_sql("SELECT cantidad_fisica, cantidad_sistema " + OMEPRAZOL_DEL_CONTEO_2) == [
+        (Decimal("58"), Decimal("59"))
+    ]
 
 
 def test_la_diferencia_del_mock(datos_demo):

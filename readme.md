@@ -1448,7 +1448,7 @@ CREATE INDEX ix_residente_nombre ON residente (f_unaccent(lower(primer_apellido)
 | `movimiento.usuario_id` | Ninguna consulta de esta sección filtra por el usuario que registró el Movimiento |
 | `conteo_fisico.usuario_id` | Ninguna consulta de esta sección filtra por el usuario del conteo |
 
-Cada índice de más encarece las escrituras de `movimiento`, la tabla que más crece. Sin índice, el chequeo de la FK al borrar un usuario o un motivo de baja recorrería la tabla, pero ninguno se borra: `PROTECT` lo impide (ADR-0027) y se dan de baja de forma lógica (ADR-0009).
+Cada índice de más encarece las escrituras de `movimiento`, la tabla que más crece. Sin índice, el chequeo de la FK al borrar un usuario o un motivo de baja recorrería la tabla, pero ninguno se borra: `PROTECT` lo impide (ADR-0027) y se dan de baja de forma lógica (ADR-0009). La misma regla queda pendiente para `pauta.medicamento_id` y `pauta.registrado_por_id`, que conservan su índice sin que ninguna consulta lo use (historia de Pautas, `docs/tickets/pendientes.md`).
 
 #### Restricciones de integridad adicionales
 
@@ -1536,15 +1536,16 @@ END $$;
 CREATE TRIGGER tg_conteo_cerrado BEFORE UPDATE OR DELETE ON conteo_fisico
     FOR EACH ROW EXECUTE FUNCTION fn_conteo_cerrado();
 
--- Un renglón tampoco sale de un conteo cerrado: en UPDATE se revisan los 2 conteos
+-- Un renglón tampoco sale de un conteo cerrado: en UPDATE se revisan los 2 conteos.
+-- FOR SHARE: el cierre del conteo espera a la captura en curso
 CREATE FUNCTION fn_detalle_conteo_cerrado() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
     IF TG_OP IN ('UPDATE', 'DELETE')
-       AND (SELECT estado FROM conteo_fisico WHERE id = OLD.conteo_id) = 'CERRADO' THEN
+       AND (SELECT estado FROM conteo_fisico WHERE id = OLD.conteo_id FOR SHARE) = 'CERRADO' THEN
         RAISE EXCEPTION 'El conteo % está cerrado', OLD.conteo_id;
     END IF;
     IF TG_OP IN ('INSERT', 'UPDATE')
-       AND (SELECT estado FROM conteo_fisico WHERE id = NEW.conteo_id) = 'CERRADO' THEN
+       AND (SELECT estado FROM conteo_fisico WHERE id = NEW.conteo_id FOR SHARE) = 'CERRADO' THEN
         RAISE EXCEPTION 'El conteo % está cerrado', NEW.conteo_id;
     END IF;
     IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;

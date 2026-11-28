@@ -10,12 +10,16 @@ SHELL := /bin/bash
 # "GerontolÃ³gico". También evita pasar las contraseñas a cada proceso hijo.
 
 DC    := docker compose
-# La contraseña de app_owner la lee el shell de .env al ejecutar la receta, no make: así ni el
-# eco de la receta, ni make -n, ni --trace la muestran (solo la expresión sed). Con :=, $$ queda
-# como $ y make no la expande. Las comillas protegen un valor con espacios, y tr quita el \r de
-# un .env con fin de línea CRLF. make -p sí imprime los valores de .env, porque se incluye
-# arriba para el candado de HB-10: límite aceptado (pendiente de HB-10).
-OWNER := -e DB_USER=app_owner -e DB_PASSWORD="$$(sed -n 's/^DB_OWNER_PASSWORD=//p' .env | tr -d '\r')"
+# La contraseña de app_owner la lee el shell al ejecutar la receta, no make: así ni el eco de
+# la receta, ni make -n, ni --trace la muestran (solo la expresión). Manda DB_OWNER_PASSWORD del
+# entorno si está definida, como en HB-10; si no, la primera línea de .env que la define (head),
+# sin el \r de un .env con fin de línea CRLF (tr). Con :=, $$ queda como $ y make no la expande.
+# La receta la pone en el entorno de docker compose, entre comillas para un valor con espacios,
+# y -e DB_PASSWORD sin valor la copia de ahí: no va en sus argumentos ni aparece en ps. make -p
+# sí imprime los valores de .env, porque se incluye arriba para el candado de HB-10: límite
+# aceptado (pendiente de HB-10).
+CLAVE_OWNER := $${DB_OWNER_PASSWORD-$$(sed -n 's/^DB_OWNER_PASSWORD=//p' .env | head -n 1 | tr -d '\r')}
+OWNER := -e DB_USER=app_owner -e DB_PASSWORD
 T ?=
 
 .PHONY: help up down reset actualizar migrate superuser static mock test test-ci e2e lint format check-migrations shell psql openapi
@@ -42,11 +46,11 @@ mock: ## Carga el dataset mock (solo en una base recién migrada)
 	$(DC) cp app/fixtures/mock/. db:/tmp/mock/
 	$(DC) exec db sh -c 'psql -U app_owner -d "$$POSTGRES_DB" -v ON_ERROR_STOP=1 -f /tmp/mock/cargar_mock.sql'
 test: ## Corre los tests (uno solo: make test T=ruta::nombre_del_test)
-	$(DC) exec $(OWNER) web pytest -q $(T)
+	DB_PASSWORD="$(CLAVE_OWNER)" $(DC) exec $(OWNER) web pytest -q $(T)
 test-ci: ## Corre lo mismo que el CI en cada PR, con cobertura
-	$(DC) exec $(OWNER) web pytest -m "not e2e and not lento" --cov=apps --cov-fail-under=80
+	DB_PASSWORD="$(CLAVE_OWNER)" $(DC) exec $(OWNER) web pytest -m "not e2e and not lento" --cov=apps --cov-fail-under=80
 e2e: ## Corre las pruebas de extremo a extremo con Playwright
-	$(DC) exec $(OWNER) -e DJANGO_ALLOW_ASYNC_UNSAFE=true web pytest -m e2e e2e/ -q
+	DB_PASSWORD="$(CLAVE_OWNER)" $(DC) exec $(OWNER) -e DJANGO_ALLOW_ASYNC_UNSAFE=true web pytest -m e2e e2e/ -q
 lint: ## Revisa Python (ruff) y plantillas (djLint) sin modificar archivos
 	$(DC) exec web ruff check . && $(DC) exec web ruff format --check .
 	$(DC) exec web djlint . --check && $(DC) exec web djlint . --lint

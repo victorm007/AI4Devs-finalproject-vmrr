@@ -34,7 +34,7 @@ en el ORM y NO ACTION DEFERRABLE en la base.
 
 Ajustes de la segunda revisión de TK-01 (PR #3):
 - test_las_fk_de_motivo_y_usuario_de_movimiento_sin_indice (bloqueante 1, ADR-0018). Rojo
-  esperado: Django crea movimiento_motivo_baja_id_<hash> y movimiento_usuario_id_<hash>, así
+  comprobado: Django crea movimiento_motivo_baja_id_<hash> y movimiento_usuario_id_<hash>, así
   que el conjunto no está vacío.
 - test_django_impide_borrar_lo_que_tiene_historial y
   test_la_base_rechaza_borrar_lo_que_tiene_historial (mayor 2; design, decisión 3), para
@@ -44,10 +44,17 @@ Ajustes de la segunda revisión de TK-01 (PR #3):
   cambio es que ahora prueban la causa.
 - test_revertir_y_volver_a_aplicar_las_migraciones (menor 1; design, decisión 7): el try
   protege también migrate conteos zero, y el cuerpo de fn_detalle_conteo_cerrado se compara en
-  0002_triggers y al volver a migrar. Rojo esperado: la última aserción, FOR SHARE, porque
-  conteos/0005_detalle_conteo_bloqueo no existe todavía.
+  0002_triggers y al volver a migrar. Rojo comprobado: la última aserción, FOR SHARE, porque
+  conteos/0005_detalle_conteo_bloqueo no existía todavía.
 - test_ejecutar_sql_con_otro_rol_vuelve_al_usuario_de_la_sesion (nit 3): compara con
   session_user en lugar de suponer que no es app_user. Regresión.
+
+Ajustes de la tercera revisión de TK-01 (PR #3):
+- test_revertir_y_volver_a_aplicar_las_migraciones (mayor 2 y menor 1; design, decisión 3):
+  revierte primero a conteos/0004_fk_sin_indice y exige el cuerpo de 0003 (OLD.CONTEO_ID y
+  NEW.CONTEO_ID, sin FOR SHARE ni V_CONTEO); después sigue a 0002_triggers. Al volver a migrar
+  exige 2 FOR SHARE, uno por lectura del estado. Regresión: 0005 ya existe, su reversa ya está
+  escrita y ya bloquea las 2 lecturas; el test cubre ahora la reversa de 0005.
 """
 
 import re
@@ -744,7 +751,8 @@ def cuerpo_de_fn_detalle_conteo_cerrado() -> str:
 def test_revertir_y_volver_a_aplicar_las_migraciones():
     # Scenario: Revertir y volver a aplicar (TK-01, criterio 1), de inventario y de conteos, y
     # La función del conteo cerrado vuelve a su versión anterior (segunda revisión de TK-01,
-    # menor 1)
+    # menor 1; tercera revisión, mayor 2 y menor 1: la reversa de 0005 y los 2 FOR SHARE).
+    # Regresión: 0005 y su reversa ya existen
     todas = set(TABLAS_DE_INVENTARIO) | set(TABLAS_DE_CONTEOS)
     # Control: la base migrada tiene todo, y la función ya mira por separado el conteo de OLD y
     # el de NEW (desde 0003), sin la variable v_conteo de 0002
@@ -756,6 +764,15 @@ def test_revertir_y_volver_a_aplicar_las_migraciones():
     # Si una aserción o una migración falla a medias, el finally deja la base migrada para los
     # tests siguientes (migrate sin argumentos no hace nada si ya está al día)
     try:
+        # Con 0004_fk_sin_indice (reversa de 0005), la función es la de 0003: mira por separado
+        # el conteo de OLD y el de NEW, sin bloquear y sin la variable v_conteo
+        call_command("migrate", "conteos", "0004_fk_sin_indice", verbosity=0)
+        cuerpo = cuerpo_de_fn_detalle_conteo_cerrado()
+        assert "OLD.CONTEO_ID" in cuerpo, cuerpo
+        assert "NEW.CONTEO_ID" in cuerpo, cuerpo
+        assert "FOR SHARE" not in cuerpo, cuerpo
+        assert "V_CONTEO" not in cuerpo, cuerpo
+
         # Con 0002_triggers, la función mira un solo conteo (v_conteo: OLD en DELETE, NEW en lo
         # demás) y no bloquea
         call_command("migrate", "conteos", "0002_triggers", verbosity=0)
@@ -794,12 +811,13 @@ def test_revertir_y_volver_a_aplicar_las_migraciones():
         )
         filas = ejecutar_sql("SELECT reloptions FROM pg_class WHERE oid = 'existencia'::regclass")
         assert "fillfactor=90" in (filas[0][0] or [])
-        # Al volver a migrar, la función mira el conteo de OLD y el de NEW con FOR SHARE (0005)
+        # Al volver a migrar, la función mira el conteo de OLD y el de NEW con FOR SHARE (0005),
+        # uno en cada lectura del estado: con uno solo, una de las 2 ramas no esperaría al cierre
         cuerpo = cuerpo_de_fn_detalle_conteo_cerrado()
         assert "V_CONTEO" not in cuerpo, cuerpo
         assert "OLD.CONTEO_ID" in cuerpo, cuerpo
         assert "NEW.CONTEO_ID" in cuerpo, cuerpo
-        assert "FOR SHARE" in cuerpo, cuerpo
+        assert cuerpo.count("FOR SHARE") == 2, cuerpo
     finally:
         call_command("migrate", verbosity=0)
 

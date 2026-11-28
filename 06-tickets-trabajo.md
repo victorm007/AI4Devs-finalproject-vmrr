@@ -1461,6 +1461,29 @@ Atendí la revisión en el cambio de OpenSpec `tk-01-ajustes-revision-2`:
 
 ---
 
+## Prompt 53 — Usuario
+
+(Tras la tercera revisión adversarial del PR #3, de `4523afd`, sin bloqueantes, con 2 mayores, 7 menores y 5 *nits*:) Hay pendientes, ¿qué recomiendas? (Tras la recomendación de atender los mayores y los menores baratos, y dejar el resto como pendientes:) Hazlo, aunque no vamos a cerrar el PR hasta tener varios tickets hechos.
+
+---
+
+## Respuesta 53 — Claude
+
+Atendí la revisión en el cambio de OpenSpec `tk-01-ajustes-revision-3`:
+
+| Hallazgo | Cambio |
+|---|---|
+| Mayor 1. El DDL de `fn_detalle_conteo_cerrado` en la sección 3.3 no tenía `FOR SHARE` | `FOR SHARE` en las 2 lecturas del estado, en el readme y en el anexo de `03` |
+| Mayor 2 y menor 1. La reversa de `conteos/0005` y la rama de `OLD` no tenían test | El test de migraciones revierte primero a `0004` y comprueba el cuerpo de `0003`; al volver a migrar exige 2 `FOR SHARE`; test nuevo de borrar un renglón mientras se cierra el conteo |
+| Menores 3 y 4, y *nit* 1. El `Makefile` no aceptaba la contraseña del entorno, rompía con una clave duplicada y la ponía en los argumentos de `docker compose` | `DB_PASSWORD="$(CLAVE_OWNER)" $(DC) exec -e DB_PASSWORD …`: manda el entorno, si no la primera línea de `.env`; test con un `docker` falso y `make test` real |
+| Menores 2, 5, 6 y 7, y *nits* 2 y 4 | Riesgos de bloqueo para TK-06, documentación al día (guía de TK-01, `pendientes.md`, guía de HB-10), la regla de ADR-0018 pendiente para `pauta`, un MUST de la spec de `inventario` que era propiedad del test, "Rojo comprobado" y la conexión del test que se cierra si falla |
+
+**Límites aceptados y pendientes:** que falle cada FK del historial por separado exigiría borrar Movimientos, que son inmutables (*nit* 5); los tests de concurrencia del *trigger* viven en `test_esquema.py`, con 2 conexiones en lugar de hilos (*nit* 3); los índices de `pauta` siguen en la historia de Pautas.
+
+**Comprobaciones:** fallaron primero los 3 casos del `docker` falso; la suite da 341 pasan y 1 omitido, con 98,81 % de cobertura, más 107 tests de herramientas, y la huella de los tests está intacta. El PR #3 sigue abierto para los tickets siguientes.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 6)
 
 ## 6. Tickets de Trabajo

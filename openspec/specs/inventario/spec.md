@@ -201,7 +201,7 @@ Los grupos *Solo lectura* y *Lectura y escritura* DEBEN (MUST) tener `view_exist
 
 ### Requirement: Migraciones reversibles de inventario
 
-Las migraciones de `inventario` DEBEN (MUST) aplicarse en una base vacía y revertirse hasta `zero` sin errores, y volver a aplicarse. Si una comprobación falla a la mitad, la base DEBE (MUST) quedar migrada para los tests siguientes.
+Las migraciones de `inventario` DEBEN (MUST) aplicarse en una base vacía y revertirse hasta `zero` sin errores, y volver a aplicarse.
 
 #### Scenario: Revertir y volver a aplicar (TK-01, criterio 1)
 
