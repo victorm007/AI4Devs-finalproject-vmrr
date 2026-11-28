@@ -16,7 +16,7 @@ git log --oneline -5          # deben estar los merges de TK-01 y TK-02
 git switch feature/TK-03-pantalla-existencias
 git rebase main               # resuelve conflictos con las reglas de "Archivos que tocan varios tickets"
 
-set -a && . ./.env && set +a
+while IFS= read -r linea || [ -n "$linea" ]; do case $linea in ''|'#'*) ;; *) export "$linea" ;; esac; done < .env
 dj()    { docker compose exec web python manage.py "$@"; }
 dtest() { docker compose exec -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PASSWORD" web pytest "$@"; }
 dpsql() { docker compose exec db psql -U app_owner -d "$POSTGRES_DB" "$@"; }

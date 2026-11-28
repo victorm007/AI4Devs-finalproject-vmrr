@@ -1359,6 +1359,34 @@ Con esto cierro las revisiones del hook en este PR. Lo siguiente que aporta info
 
 ---
 
+## Prompt 49 — Usuario
+
+Implementar TK-01. (Tras el plan:) Apruebo con todas las decisiones §6 y el `down -v` del §7. (Tras las 2 disputas de la implementación:) Sumar los permisos de inventario a los tests de HB-08; sí, agregar `ANALYZE` al test `lento`.
+
+---
+
+## Respuesta 49 — Claude
+
+Implementé TK-01 con la skill `implementar-ticket`, en el cambio de OpenSpec `tk-01-esquema-inventario` (archivado, con las specs de `inventario` y `conteos` nuevas y las de `catalogo` e `infraestructura` actualizadas):
+
+| Paso | Archivos |
+|---|---|
+| `Makefile` y `.env` | `Makefile` (18 comandos, con `actualizar`), `scripts/migrate.sh` (lectura línea por línea), `.env.example` con `HOGAR_NOMBRE` sin comentar y el atajo nuevo en readme, `CLAUDE.md`, las guías y la skill |
+| *Fixtures* | `conftest.py` (`datos_demo`, `demo`, `como_app_user`) y `pruebas.py` (`saldo`) |
+| Inventario | `MotivoBaja`, `Existencia` y `Movimiento`; migraciones `0001` a `0004` (motivos, permisos de los grupos, *triggers*, `fillfactor`, `v_conciliacion_existencia` y `REVOKE UPDATE, DELETE, TRUNCATE`) |
+| Conteos | `ConteoFisico` y `DetalleConteo`, con `diferencia` generada; `0002_triggers` |
+| Panel | `MedicamentoAdmin` rechaza con un mensaje la baja de un medicamento con existencias |
+
+**Decisiones aprobadas:** `ck_movimiento_entregado` con `no_vacio()`, tests de esquema contra el catálogo de PostgreSQL y de migraciones reversibles, el control con Tempra, sin `# noqa: DJ001`, y en el readme el `REVOKE` con `TRUNCATE` (sección 3.1) y 18 comandos en el criterio 3.
+
+**Disputas resueltas:** 3 tests de HB-08 fijaban exactamente los permisos de los grupos; ahora suman los de inventario (8 y 19). El test `lento` hace `ANALYZE` antes del `EXPLAIN`, porque sin estadísticas los índices empataban en coste.
+
+**Hallazgo del cierre:** con el `export` del `Makefile`, `docker compose` tomaba la copia de `make`, y en Windows (GNU Make 3.81 de GnuWin32) `HOGAR_NOMBRE` llegaba a `web` como "GerontolÃ³gico". El `Makefile` ya no exporta: compose lee `.env` por su cuenta.
+
+**Comprobaciones:** la suite da 317 pasan y 1 omitido, con 98,81 % de cobertura; los 2 `lento` pasan; la huella de los 10 archivos de tests está intacta. Sección 5 de la guía: `\d movimiento` con los nombres exactos, reversión hasta `zero`, instalación desde cero con el mock (conciliación en 0) y, con 175,000 movimientos, *Index Scan using `ix_movimiento_origen_med_fecha`*, sin *Seq Scan*.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 6)
 
 ## 6. Tickets de Trabajo
@@ -1627,7 +1655,7 @@ No agrega dependencias nuevas.
 **Criterios de aceptación**
 - [ ] `python manage.py migrate` crea el esquema en una base vacía, y `migrate inventario zero` y `migrate conteos zero` lo revierten sin errores.
 - [ ] `makemigrations --check` no detecta cambios pendientes.
-- [ ] `make help` lista los 17 comandos, y `make migrate`, `make test` y `make mock` hacen lo mismo que sus comandos directos.
+- [ ] `make help` lista los 18 comandos, y `make migrate`, `make test` y `make mock` hacen lo mismo que sus comandos directos.
 - [ ] Un valor con espacios y sin comillas en `.env`, como `HOGAR_NOMBRE=Hogar Gerontológico Demo`, funciona con `make`, con `scripts/migrate.sh` y los atajos, y con `docker compose`; `.env.example` lo trae sin comentar, y en una base nueva el Hogar queda con ese nombre.
 - [ ] `\d movimiento` en `psql` muestra todas las restricciones e índices de las secciones 3.1 y 3.3 con sus nombres exactos.
 - [ ] Sin índices duplicados: ninguna FK de la tabla de la sección 3.3 tiene un índice propio además del compuesto.

@@ -97,6 +97,7 @@ git clone <url-del-repositorio> && cd AI4Devs-finalproject-vmrr
 cp .env.example .env
 #    Edita .env: POSTGRES_PASSWORD, DB_OWNER_PASSWORD, DB_APP_PASSWORD y la clave secreta de Django.
 #    Sin $, # ni comillas en los valores: make lee .env y los interpreta distinto que el shell.
+#    Los espacios sí valen sin comillas (HOGAR_NOMBRE=Hogar Gerontológico Demo).
 #    DB_OWNER_CREATEDB=true solo en desarrollo (permite que pytest cree la base de tests).
 
 # 2. Certificado HTTPS local (los nombres deben coincidir con nginx/default.conf)
@@ -129,11 +130,13 @@ make lint            # ruff (Python) y djLint (plantillas), sin modificar archiv
 make format          # formatea Python y plantillas
 
 # Sin make, equivale a:
-set -a && . ./.env && set +a
+while IFS= read -r linea || [ -n "$linea" ]; do case $linea in ''|'#'*) ;; *) export "$linea" ;; esac; done < .env
 docker compose exec -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PASSWORD" web pytest -q
 ```
 
-**Volver a empezar** (borra la base local): `make reset` (equivale a `docker compose down -v`, `up` y `migrate.sh`), y repite desde el paso 5.
+**Al traer cambios** (`git pull`): `make actualizar` reconstruye `web`, aplica las migraciones y ejecuta `collectstatic` (equivale a `docker compose up -d --build`, `./scripts/migrate.sh` y `collectstatic --noinput`).
+
+**Volver a empezar** (borra la base local): `make reset` (equivale a `docker compose down -v`, `up`, `migrate.sh` y `collectstatic`), y repite desde el paso 5.
 
 Las guías de `docs/tickets/` tienen los comandos de verificación de cada parte, y la sección 2.4 describe el despliegue en el servidor del hogar y la demo en una máquina local, que la guía de HB-10 detalla paso a paso.
 
@@ -681,7 +684,7 @@ C4Container
    - `DB_OWNER_PASSWORD`: `app_owner`, para las migraciones y los respaldos.
    - `DB_APP_PASSWORD`: `app_user`, para la aplicación.
 
-   También `HOGAR_NOMBRE`, con el nombre real del hogar (o el de la demo, si es la demo). La primera migración crea el Hogar con ese nombre, una sola vez, y `config.settings.prod` no arranca sin la variable ni con más de 150 caracteres. En desarrollo, sin ella, el Hogar se llama "Hogar Gerontológico Demo". Hasta TK-01, un valor con espacios rompe `scripts/migrate.sh`, que lee `.env` con `. ./.env`: el despliegue en el servidor del hogar va después de TK-01 (sección 6, ficha de TK-01).
+   También `HOGAR_NOMBRE`, con el nombre real del hogar (o el de la demo, si es la demo). La primera migración crea el Hogar con ese nombre, una sola vez, y `config.settings.prod` no arranca sin la variable ni con más de 150 caracteres. En desarrollo, sin ella, el Hogar se llama "Hogar Gerontológico Demo". El valor va sin comillas aunque lleve espacios: `make`, `docker compose`, `scripts/migrate.sh` y los atajos lo leen completo, porque desde TK-01 `.env` se lee línea por línea y no con `. ./.env` (sección 6, ficha de TK-01).
 
    Al crear el volumen `pgdata`, el contenedor `db` ejecuta `db/init/01_roles.sh`, que crea `app_owner` y `app_user` (sección 6, HB-01). Después, en la PC del Administrador y con la CA propia del hogar, se genera el certificado de `mkcert` para la IP fija del servidor. Al servidor solo van el certificado y su llave, nunca la llave de la CA, y la CA se instala en cada PC y celular del hogar. Por último se crea el superusuario con `createsuperuser` (guía de HB-10). El mock nunca se carga en el servidor del hogar. Los grupos de permisos, el Hogar y los catálogos semilla no se cargan aparte: los crean las migraciones de datos (sección 3.1).
 4. **Respaldos:** un cron diario ejecuta `scripts/backup_db.sh` (HB-10), que genera un `pg_dump` comprimido y cifrado con la llave pública GPG del Administrador (la privada no queda en el servidor), sin los datos de `axes` ni de sesiones, que no salen del servidor (ADR-0022), con retención de 14 días y copia a un disco externo. Una vez al mes, el Administrador copia el último respaldo a un segundo disco que se guarda fuera del hogar, y `scripts/restore_db.sh --ensayo` restaura un respaldo recién hecho en una base aparte y compara las tablas de negocio, sin detener la aplicación. Si el último respaldo completo tiene más de 26 horas, el mensaje de entrada por SSH lo avisa. El cron también ejecuta cada día `clearsessions`, y cada semana la limpieza de `axes`: los registros de acceso y de fallos de más de 30 días y los intentos fallidos ([ADR-0022](docs/adr/0022-autenticacion-sesion-argon2-axes.md)).
@@ -1004,7 +1007,7 @@ ALTER TABLE movimiento
     ADD CONSTRAINT ck_movimiento_no_autocorrige CHECK (corrige_a_id <> id);
 
 -- D5: inmutabilidad (doble barrera: privilegios + trigger)
-REVOKE UPDATE, DELETE ON movimiento FROM app_user;
+REVOKE UPDATE, DELETE, TRUNCATE ON movimiento FROM app_user;
 CREATE FUNCTION fn_movimiento_inmutable() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
     RAISE EXCEPTION 'Los movimientos son inmutables: registre un movimiento de corrección';
@@ -2611,7 +2614,7 @@ No agrega dependencias nuevas.
 **Criterios de aceptación**
 - [ ] `python manage.py migrate` crea el esquema en una base vacía, y `migrate inventario zero` y `migrate conteos zero` lo revierten sin errores.
 - [ ] `makemigrations --check` no detecta cambios pendientes.
-- [ ] `make help` lista los 17 comandos, y `make migrate`, `make test` y `make mock` hacen lo mismo que sus comandos directos.
+- [ ] `make help` lista los 18 comandos, y `make migrate`, `make test` y `make mock` hacen lo mismo que sus comandos directos.
 - [ ] Un valor con espacios y sin comillas en `.env`, como `HOGAR_NOMBRE=Hogar Gerontológico Demo`, funciona con `make`, con `scripts/migrate.sh` y los atajos, y con `docker compose`; `.env.example` lo trae sin comentar, y en una base nueva el Hogar queda con ese nombre.
 - [ ] `\d movimiento` en `psql` muestra todas las restricciones e índices de las secciones 3.1 y 3.3 con sus nombres exactos.
 - [ ] Sin índices duplicados: ninguna FK de la tabla de la sección 3.3 tiene un índice propio además del compuesto.

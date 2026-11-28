@@ -452,7 +452,7 @@ ALTER TABLE movimiento
     ADD CONSTRAINT ck_movimiento_no_autocorrige CHECK (corrige_a_id <> id);
 
 -- D5: inmutabilidad (doble barrera: privilegios + trigger)
-REVOKE UPDATE, DELETE ON movimiento FROM app_user;
+REVOKE UPDATE, DELETE, TRUNCATE ON movimiento FROM app_user;
 CREATE FUNCTION fn_movimiento_inmutable() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
     RAISE EXCEPTION 'Los movimientos son inmutables: registre un movimiento de corrección';

@@ -57,7 +57,7 @@ git switch -c feature/TK-01-esquema-inventario
 Pégalos en tu terminal (Git Bash o Linux) cada vez que la abras:
 
 ```bash
-set -a && . ./.env && set +a      # carga las variables de .env
+while IFS= read -r linea || [ -n "$linea" ]; do case $linea in ''|'#'*) ;; *) export "$linea" ;; esac; done < .env  # carga las variables de .env
 dj()    { docker compose exec web python manage.py "$@"; }                       # manage.py como app_user
 dtest() { docker compose exec -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PASSWORD" web pytest "$@"; }
 dpsql() { docker compose exec db psql -U app_owner -d "$POSTGRES_DB" "$@"; }    # psql como app_owner
@@ -176,7 +176,7 @@ Tres reglas para que funcione:
 - **En Windows, Git Bash no trae `make`.** Instálalo, por ejemplo con `winget install ezwinports.make` o `choco install make`, o trabaja desde WSL.
 
 ```bash
-make help        # lista los 17 comandos con su descripción
+make help        # lista los 18 comandos con su descripción (17 + actualizar)
 make openapi     # 0 errores y 2 advertencias intencionales
 ```
 
@@ -1220,6 +1220,30 @@ docker compose down -v && docker compose up -d && ./scripts/migrate.sh   # deja 
 ```
 
 > El paso 7 inserta bajas sin descontar existencias: por eso después se recrea la base. Es solo para medir el plan de ejecución.
+
+> **Diferencias de forma con el DDL de las secciones 3.1 y 3.3, con el mismo efecto** (cambio de OpenSpec `tk-01-esquema-inventario`). Los nombres son idénticos; cambia cómo los escribe Django:
+>
+> | Readme | `\d movimiento` / `\d detalle_conteo` | Por qué está bien |
+> |---|---|---|
+> | `DEFAULT now()` | `DEFAULT statement_timestamp()` | Es lo que genera `Now()`, como en HB-06 y HB-07 |
+> | `btrim(entregado_por) <> ''` | `length(TRIM(BOTH FROM entregado_por)) > 0` | `no_vacio()` de `apps/expresiones.py`, el helper de HB-05 a HB-07, en lugar de la expresión regular del paso 5 |
+> | `diferencia <> 0` | `NOT diferencia = 0::numeric` | Equivalentes |
+> | `(estado = 'CERRADO') = (cerrado_en IS NOT NULL)` | `Q(estado="CERRADO", cerrado_en__isnull=False) \| (~Q(estado="CERRADO") & Q(cerrado_en__isnull=True))` | La forma del DDL. La del paso 8 (`EN_PROCESO` con `cerrado_en` nulo) también rechazaba un estado desconocido, y PostgreSQL evalúa los `CHECK` en orden alfabético: el error salía con el nombre `ck_conteo_cierre` en lugar de `ck_conteo_estado` |
+> | FK con `ON DELETE RESTRICT` | FK `DEFERRABLE INITIALLY DEFERRED`, sin `ON DELETE` | `PROTECT` lo impide en Django, como en HB-05 a HB-07 |
+>
+> Además de los índices de la sección 3.3, Django crea los de las FK `motivo_baja_id` y `usuario_id`; el readme no los excluye. `corrige_a` lleva `db_index=False`: la cubre `uq_movimiento_corrige`.
+
+> **Diferencias con el código de esta guía.**
+>
+> - **`Makefile` sin `export`.** Las recetas usan los valores con `$(...)` y `docker compose` lee `.env` por su cuenta. Con `export`, compose prefería la copia de `make`, y en Windows (GNU Make 3.81 de GnuWin32) los acentos llegaban mal a `web`: "Gerontológico" como "GerontolÃ³gico". La base no se veía afectada, porque `migrate.sh` vuelve a leer `.env`. Así tampoco se pasan las contraseñas a cada proceso hijo. GNU Make 3.81 de GnuWin32 no usa `SHELL := /bin/bash`, sino el `sh` de Git, y las recetas funcionan igual. Si un ticket futuro (HB-10) necesita una variable en el entorno de un script, la exporta por su nombre.
+> - **`ix_movimiento_med_fecha` va primero en `Meta.indexes`.** Sin estadísticas, los índices de `movimiento` empatan en coste y gana el último creado; el test `lento` hace además `ANALYZE movimiento` antes del `EXPLAIN`.
+> - **Sin `# noqa: DJ001`:** `ruff` no tiene activas las reglas DJ.
+> - **Mensaje del panel** en la constante `CON_EXISTENCIAS` de `apps/catalogo/admin.py`, con punto final.
+> - **`make help` lista 18 comandos** (los 17 del paso 1 y `actualizar`).
+>
+> **Tests añadidos a los de la sección 3:** nombres exactos de las restricciones y de los *triggers*, definición de los índices, tipos y valores por omisión, `fillfactor`, ningún índice extra por columna inicial en las FK cubiertas, los 8 motivos, los permisos de los grupos, migraciones reversibles con `call_command` (`transaction=True, serialized_rollback=True`), los *fixtures* (`como_app_user` falla sin transacción), la lectura de la conciliación como `app_user` y, en el panel, el control de que Tempra (saldo 0) sí se da de baja. El test del panel envía el renglón real del principio activo, para que el aviso no se confunda con el de "al menos un principio activo". Los 3 tests de HB-08 que fijaban los permisos de los grupos (`test_grupos.py` y `test_admin_usuarios.py`) suman ahora los de inventario: 8 en *Solo lectura* y 19 en *Lectura y escritura*. La rama fue `final-project-vmrr`, no `feature/TK-01-esquema-inventario` (`CLAUDE.md`, sección Git).
+>
+> **Consulta 2c con un año de datos:** las salidas solas usan *Index Scan using `ix_movimiento_origen_med_fecha`*. La consulta completa, con `OR` entre origen y destino, usa un *Bitmap Index Scan* sobre `ix_movimiento_med_fecha` y filtra por entidad, como prevé la sección 3.3. En ningún caso hay *Seq Scan*.
 
 ---
 

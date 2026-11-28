@@ -17,3 +17,10 @@ def ejecutar_sql(sql: str, params=None, *, rol: str | None = None) -> list[tuple
         if rol:
             cursor.execute("RESET ROLE")
         return filas
+
+
+def saldo(entidad, medicamento):
+    """Saldo actual de una entidad y un medicamento (lo usan los tests de TK-02 y TK-03)."""
+    from apps.inventario.models import Existencia
+
+    return Existencia.objects.get(entidad=entidad, medicamento=medicamento).saldo

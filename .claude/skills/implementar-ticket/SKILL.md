@@ -10,7 +10,7 @@ Este orden no se cambia: **explorar → plan → (aprobación) → tests → roj
 `<tmp>` es el directorio temporal de la sesión. El shell no conserva funciones, así que cada comando define lo que usa:
 
 ```bash
-set -a && . ./.env && set +a
+while IFS= read -r linea || [ -n "$linea" ]; do case $linea in ''|'#'*) ;; *) export "$linea" ;; esac; done < .env
 dtest() { docker compose exec -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PASSWORD" web pytest "$@"; }
 ```
 
