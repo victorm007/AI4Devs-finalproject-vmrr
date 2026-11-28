@@ -13,25 +13,37 @@ Protect (10), y le faltan Losartán (2) y Tempra (7).
 Casos agregados a la guía (DDL de las secciones 3.1 y 3.3): ck_conteo_estado, ck_detalle_fisica
 y ck_detalle_sistema.
 
-Rojo esperado: apps.conteos.models no existe, así que falla la importación del módulo
+Rojo comprobado: apps.conteos.models no existe, así que falla la importación del módulo
 (ModuleNotFoundError). Después de crear los modelos, cada test falla hasta que existe la
 restricción, el trigger o el índice que comprueba.
 
 Ajustes de la revisión de TK-01 (PR #3): el conteo cerrado es inmutable también al borrar su
 encabezado, al cambiar o borrar sus renglones y al cambiar el conteo_id de un renglón, para
 sacarlo del conteo cerrado o meterlo en él (hallazgo 2; design, decisiones 1 y 5). Rojo
-esperado: solo test_sacar_un_renglon_de_un_conteo_cerrado (hoy fn_detalle_conteo_cerrado mira
+comprobado: solo test_sacar_un_renglon_de_un_conteo_cerrado (hoy fn_detalle_conteo_cerrado mira
 solo el conteo de NEW, así que el UPDATE pasa: "DID NOT RAISE"). Los demás son de regresión:
 TK-01 ya los rechaza con tg_conteo_cerrado y tg_detalle_conteo_cerrado, y los protegen de que
 la migración 0003 los rompa.
+
+Ajustes de la segunda revisión de TK-01 (PR #3):
+- test_la_fk_de_usuario_de_conteo_fisico_sin_indice (bloqueante 1, ADR-0018). Rojo esperado:
+  Django crea conteo_fisico_usuario_id_<hash>, así que el conjunto no está vacío.
+- test_cerrar_un_conteo_mientras_se_captura_un_renglon y
+  test_capturar_un_renglon_mientras_se_cierra_el_conteo (menor 5; design, decisiones 4 y 5),
+  con 2 conexiones propias de psycopg como app_user y lock_timeout, sin hilos ni sleep. Rojo
+  esperado: hoy fn_detalle_conteo_cerrado lee el estado sin FOR SHARE y la FK del renglón es
+  diferida, así que nadie espera: el cierre (en el primero) y la captura (en el segundo) pasan
+  al instante ("DID NOT RAISE").
 """
 
 import re
 from decimal import Decimal
 
+import psycopg
 import pytest
 from django.contrib import admin
-from django.db import DatabaseError
+from django.db import DatabaseError, connection
+from psycopg.errors import LockNotAvailable, RaiseException
 
 from apps.catalogo.models import Medicamento
 from apps.conteos.models import ConteoFisico, DetalleConteo
@@ -227,6 +239,105 @@ def test_los_renglones_de_un_conteo_en_proceso_si_se_mueven_y_se_borran(datos_de
         "ORDER BY 1, 2",
         [nuevo],
     ) == [(2, 10), (nuevo, 5)]
+
+
+# ---------------------------------------------------------------------------------------------
+# Cierre y captura en paralelo (segunda revisión de TK-01, menor 5; design, decisiones 4 y 5)
+# ---------------------------------------------------------------------------------------------
+
+# Losartán (2) es uno de los renglones que le faltan al conteo 2: no choca con uq_detalle_conteo
+LOSARTAN_EN_EL_CONTEO_2 = insertar_renglon(2, 2, "18", "20")
+CERRAR_EL_CONTEO_2 = "UPDATE conteo_fisico SET estado = 'CERRADO', cerrado_en = now() WHERE id = 2"
+
+
+def conectar_como_app_user() -> psycopg.Connection:
+    """Una conexión propia de psycopg a la base de pruebas, como app_user y con lock_timeout.
+
+    Los SET se confirman: un SET dentro de una transacción que después se revierte se deshace,
+    y el test revierte varias veces. El lock_timeout va en las 2 conexiones para que ningún
+    test se quede colgado; solo la que debe esperar llega a usarlo.
+    """
+    ajustes = connection.settings_dict
+    conexion = psycopg.connect(
+        dbname=ajustes["NAME"],
+        user=ajustes["USER"],
+        password=ajustes["PASSWORD"],
+        host=ajustes["HOST"] or None,
+        port=ajustes["PORT"] or None,
+        autocommit=False,
+    )
+    conexion.execute("SET ROLE app_user")
+    conexion.execute("SET lock_timeout = '500ms'")
+    conexion.commit()
+    assert conexion.execute("SELECT current_user").fetchone() == ("app_user",)
+    conexion.rollback()
+    return conexion
+
+
+@pytest.fixture
+def dos_conexiones(datos_demo):
+    """2 conexiones como app_user. Se revierten y se cierran antes del vaciado de la base."""
+    conexiones = []
+    try:
+        conexiones.append(conectar_como_app_user())
+        conexiones.append(conectar_como_app_user())
+        yield conexiones
+    finally:
+        for conexion in conexiones:
+            conexion.rollback()
+            conexion.close()
+
+
+def estado_del_conteo_2(conexion) -> str:
+    """Estado confirmado del conteo 2, leído sin dejar la transacción abierta."""
+    ((estado,),) = conexion.execute("SELECT estado FROM conteo_fisico WHERE id = 2").fetchall()
+    conexion.rollback()
+    return estado
+
+
+@pytest.mark.django_db(transaction=True, serialized_rollback=True)
+def test_cerrar_un_conteo_mientras_se_captura_un_renglon(dos_conexiones):
+    # Scenario: Cerrar un conteo mientras se captura un renglón (segunda revisión de TK-01,
+    # menor 5)
+    captura, cierre = dos_conexiones
+    # Control: el mock está confirmado y las conexiones ven el conteo 2 EN_PROCESO
+    assert estado_del_conteo_2(cierre) == "EN_PROCESO"
+    captura.execute(*LOSARTAN_EN_EL_CONTEO_2)
+    with pytest.raises(LockNotAvailable):
+        cierre.execute(CERRAR_EL_CONTEO_2)
+    cierre.rollback()
+    # Control: el rechazo era la espera, no un permiso ni una regla. Cuando la captura se
+    # confirma, el mismo cierre pasa como app_user, con el renglón dentro
+    captura.commit()
+    cierre.execute(CERRAR_EL_CONTEO_2)
+    cierre.commit()
+    assert ejecutar_sql("SELECT estado FROM conteo_fisico WHERE id = 2") == [("CERRADO",)]
+    assert ejecutar_sql(
+        "SELECT cantidad_fisica FROM detalle_conteo WHERE conteo_id = 2 AND medicamento_id = 2"
+    ) == [(Decimal("18"),)]
+
+
+@pytest.mark.django_db(transaction=True, serialized_rollback=True)
+def test_capturar_un_renglon_mientras_se_cierra_el_conteo(dos_conexiones):
+    # Scenario: Capturar un renglón mientras se cierra el conteo (segunda revisión de TK-01,
+    # menor 5)
+    cierre, captura = dos_conexiones
+    # Control: el mock está confirmado y las conexiones ven el conteo 2 EN_PROCESO
+    assert estado_del_conteo_2(captura) == "EN_PROCESO"
+    cierre.execute(CERRAR_EL_CONTEO_2)
+    # La captura espera al cierre: con lock_timeout, falla por tiempo de espera del bloqueo
+    with pytest.raises(LockNotAvailable):
+        captura.execute(*LOSARTAN_EN_EL_CONTEO_2)
+    captura.rollback()
+    # Cuando el cierre se confirma, la base rechaza el renglón
+    cierre.commit()
+    with pytest.raises(RaiseException, match="El conteo 2 está cerrado"):
+        captura.execute(*LOSARTAN_EN_EL_CONTEO_2)
+    captura.rollback()
+    assert ejecutar_sql("SELECT estado FROM conteo_fisico WHERE id = 2") == [("CERRADO",)]
+    assert ejecutar_sql(
+        "SELECT count(*) FROM detalle_conteo WHERE conteo_id = 2 AND medicamento_id = 2"
+    ) == [(0,)]
 
 
 def test_la_diferencia_del_mock(datos_demo):
@@ -434,3 +545,24 @@ def test_las_cantidades_del_conteo_y_la_diferencia_generada():
 def test_sin_indices_duplicados_sobre_las_fk(tabla, columna_fk, esperados):
     # Scenario: Sin índices duplicados sobre las FK (TK-01, criterio 6)
     assert indices_por_primera_columna(tabla, columna_fk) == esperados
+
+
+def tablas_referidas(tabla: str, columna_fk: str) -> list[str]:
+    """Las tablas a las que apunta la FK cuya primera columna es columna_fk."""
+    filas = ejecutar_sql(
+        """SELECT c.confrelid::regclass::text
+           FROM pg_constraint c
+           JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+           WHERE c.conrelid = %s::regclass AND c.contype = 'f' AND a.attname = %s""",
+        [tabla, columna_fk],
+    )
+    return [fila[0] for fila in filas]
+
+
+def test_la_fk_de_usuario_de_conteo_fisico_sin_indice():
+    # Scenario: La FK de usuario de conteo_fisico sin índice (segunda revisión de TK-01,
+    # bloqueante 1; ADR-0018)
+    # Control: la columna existe y su FK sigue apuntando a usuario (ADR-0027); con un nombre
+    # mal escrito, el conjunto vacío de abajo pasaría por casualidad
+    assert tablas_referidas("conteo_fisico", "usuario_id") == ["usuario"]
+    assert indices_por_primera_columna("conteo_fisico", "usuario_id") == set()

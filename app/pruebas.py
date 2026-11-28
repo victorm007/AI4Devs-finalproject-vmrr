@@ -10,6 +10,8 @@ def ejecutar_sql(sql: str, params=None, *, rol: str | None = None) -> list[tuple
     test puede seguir. Con rol=, al terminar vuelve al rol que había antes, y no hace
     RESET ROLE: eso dejaba el usuario de la sesión (app_owner) y deshacía en silencio el
     SET LOCAL ROLE de como_app_user para el resto del test.
+    El rol se cita con quote_name, así que distingue mayúsculas: rol="APP_USER" no es
+    app_user, sino un rol "APP_USER" que no existe, y la sentencia falla.
     Ejemplo: ejecutar_sql("SELECT current_user", rol="app_user") -> [("app_user",)]
     """
     with transaction.atomic(), connection.cursor() as cursor:

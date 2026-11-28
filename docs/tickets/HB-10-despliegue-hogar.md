@@ -104,6 +104,7 @@ Esta guía pasó 5 revisiones adversariales en papel; la última terminó sin bl
 | Quitar el VPS de `prod.py`, `.env.example`, `docker-compose.yml` y las guías de HB-02 y HB-04 | Es código y configuración de este ticket | Paso 5, con su `git grep` |
 | Tests automáticos de los Scenarios del `Makefile` y de `.env` (18 comandos, `HOGAR_NOMBRE` sin comentar, valores con espacios) | Revisión de TK-01 (PR #3), hallazgo 5 ([`pendientes.md`](pendientes.md)) | Un test en `tests/` con un `.env` temporal, junto a `tests/test_candado.py` |
 | `scripts/migrate.sh` no quita el `\r` de un `.env` en CRLF, y `make format` con `\|\| true` oculta un fallo real de djLint | Revisión de TK-01 (PR #3), *nits* | Al escribir la lectura de `.env` de los scripts y al completar el `Makefile` |
+| `make -p` imprime la base de variables de `make`, incluidos los valores de `.env` (contraseñas), porque el `Makefile` hace `-include .env` para el candado | Límite aceptado en la segunda revisión de TK-01 (PR #3), mayor 1 ([`pendientes.md`](pendientes.md)) | Decidir al completar el `Makefile` (paso 4) si se filtran, por ejemplo incluyendo solo las variables que necesita |
 
 ---
 

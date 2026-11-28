@@ -748,7 +748,7 @@ ALTER TABLE detalle_conteo
 
 **Principios aplicados:**
 - Cada índice atiende una consulta concreta. No se indexa "por si acaso", porque cada índice encarece las escrituras.
-- **Sin índices redundantes:** Django crea un índice por cada `ForeignKey`. Cuando un índice compuesto ya empieza por esa columna, se declara `db_index=False` para no duplicarlo. Las FK siguen protegidas por `RESTRICT`, porque el índice compuesto también sirve para esas comprobaciones.
+- **Sin índices redundantes:** Django crea un índice por cada `ForeignKey`. Cuando un índice compuesto ya empieza por esa columna, se declara `db_index=False` para no duplicarlo. Las FK siguen protegidas por `PROTECT` (ADR-0027), porque el índice compuesto también sirve para esas comprobaciones.
 - **Orden de columnas:** primero la de igualdad (`=`), luego la de rango u orden (`fecha`).
 - **Índices parciales e `INCLUDE`** donde reducen tamaño o permiten *index-only scans*, sin indexar columnas que se actualizan en cada movimiento (`existencia.saldo`).
 
@@ -884,6 +884,16 @@ CREATE INDEX ix_residente_nombre ON residente (f_unaccent(lower(primer_apellido)
 | `detalle_conteo.conteo_id` / `medicamento_id` | `uq_detalle_conteo` / `ix_detalle_medicamento_conteo` |
 | `conteo_fisico.entidad_id` | `ix_conteo_entidad_periodo` |
 | `pauta.residente_id` | `ix_pauta_residente_inicio` |
+
+**FK sin índice porque ninguna consulta las usa** (`db_index=False`, ADR-0018):
+
+| FK | Por qué no lleva índice |
+|---|---|
+| `movimiento.motivo_baja_id` | Ninguna consulta de esta sección filtra por el motivo de baja |
+| `movimiento.usuario_id` | Ninguna consulta de esta sección filtra por el usuario que registró el Movimiento |
+| `conteo_fisico.usuario_id` | Ninguna consulta de esta sección filtra por el usuario del conteo |
+
+Cada índice de más encarece las escrituras de `movimiento`, la tabla que más crece. Sin índice, el chequeo de la FK al borrar un usuario o un motivo de baja recorrería la tabla, pero ninguno se borra: `PROTECT` lo impide (ADR-0027) y se dan de baja de forma lógica (ADR-0009).
 
 #### Restricciones de integridad adicionales
 

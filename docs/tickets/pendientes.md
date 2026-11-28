@@ -18,10 +18,9 @@ Hallazgos de las revisiones y comprobaciones que un ticket dejó para otro. Ning
 | Pendiente | Origen | Qué hacer |
 |---|---|---|
 | EXPLAIN de la consulta 1 de la sección 3.3: que la búsqueda por medicamento use `ix_existencia_med_entidad`, además de los índices trigram | Revisión de TK-01 (PR #3), hallazgo 8 | Un test `lento` con el selector `buscar_existencias` |
-| El criterio 11 de TK-01 (readme, sección 6) habla de "las consultas 1c y 2", pero la consulta 1c no existe | Revisión de TK-01 (PR #3), hallazgo 8 | Corregir la errata en el readme y en el anexo de `06` |
 | En el *job* `e2e`, el paso `Crear app_owner y app_user` debe terminar sin `connection refused` | HB-03, "Comprobaciones pendientes" | Revisarlo en el primer PR de TK-03 (guía de HB-03, sección 7.1) |
 
-Las 3 están también en la guía de TK-03, sección 0.4.
+Las 2 están también en la guía de TK-03, sección 0.4.
 
 ## TK-06 · Servicio de conteos (sin guía todavía)
 
@@ -29,6 +28,8 @@ Las 3 están también en la guía de TK-03, sección 0.4.
 |---|---|---|
 | EXPLAIN de la consulta 2b de la sección 3.3: que el historial de diferencias use `ix_detalle_con_diferencia`. Django lo declara como `NOT diferencia = 0`, y no está comprobado que el planificador lo empareje con `diferencia <> 0` | Revisión de TK-01 (PR #3), hallazgo 8 | Un test `lento` con la consulta del servicio |
 | Los permisos de los grupos sobre `conteos` (`view_conteofisico`, `add_conteofisico`…) cambian los conjuntos exactos que fijan `apps/accounts/tests/test_grupos.py` y `test_admin_usuarios.py`, y la spec de `accounts` | Lección de TK-01 (disputa 1) | Sumarlos a esos tests y a la spec en el mismo cambio, como hizo TK-01 con inventario |
+| La próxima migración de `conteos` es `0006`: TK-01 tomó de `0003` a `0005`, y el ejemplo de PR de TK-06 (readme, sección 7) ya dice `0006_permisos_grupos.py` | Segunda revisión de TK-01 (PR #3), menor 4 | Crear los permisos de los grupos en `conteos/migrations/0006_permisos_grupos.py`, que depende de `0005_detalle_conteo_bloqueo` |
+| El cierre del conteo ya espera a las capturas en curso: `fn_detalle_conteo_cerrado` lee el estado con `FOR SHARE` (`conteos/0005_detalle_conteo_bloqueo`) | Segunda revisión de TK-01 (PR #3), menor 5 | El servicio no necesita bloquear el conteo para eso. Sí valida antes el estado, para que el usuario vea el mensaje y no el error de la base |
 
 ## HB-10 · Despliegue en el hogar
 
@@ -36,14 +37,9 @@ Las 3 están también en la guía de TK-03, sección 0.4.
 |---|---|---|
 | Los Scenarios del `Makefile` y de `.env` (18 comandos, `HOGAR_NOMBRE` sin comentar, valores con espacios) solo se comprueban a mano | Revisión de TK-01 (PR #3), hallazgo 5 | Un test en `tests/` con un `.env` temporal, junto a `tests/test_candado.py` |
 | `scripts/migrate.sh` no quita el `\r` de un `.env` con fin de línea CRLF, y `make format` con `\|\| true` oculta también un fallo real de djLint | Revisión de TK-01 (PR #3), *nits* | Al escribir la lectura de `.env` de los scripts de respaldo y al completar el `Makefile` |
+| `make -p` imprime la base de variables de `make`, incluidos los valores de `.env` (contraseñas), porque el `Makefile` hace `-include .env` para el candado | Segunda revisión de TK-01 (PR #3), mayor 1 (límite aceptado) | Decidir al completar el `Makefile` si se filtran, por ejemplo incluyendo solo las variables que necesita |
 
 Están también en la guía de HB-10, sección 0.5, que tiene además los pendientes propios de su ejecución.
-
-## Historia de reportes (EP-04, sin ticket)
-
-| Pendiente | Origen | Qué hacer |
-|---|---|---|
-| Django crea índices sobre `movimiento.motivo_baja_id`, `movimiento.usuario_id` y `conteo_fisico.usuario_id` que ninguna consulta de la sección 3.3 usa (ADR-0018) | Revisión de TK-01 (PR #3), hallazgo 6 | Con las consultas del reporte mensual, decidir en el readme si se quedan o pasan a `db_index=False` |
 
 ## Historia de Pautas (EP-05, sin ticket)
 
@@ -53,11 +49,12 @@ Los 8 pendientes de las 2 revisiones de HB-07 están en la guía de HB-07, en la
 
 | Pendiente | Origen | Qué hacer |
 |---|---|---|
-| No hay reglas de transición de estado del Residente (de `FALLECIDO` a `ACTIVO`, `fecha_baja` futura) ni protección contra Residentes duplicados | Revisión de HB-09, hallazgo 5 | Decidirlo en la historia que lleve los Residentes fuera de `/admin/` |
-| Los títulos del panel no tienen test, y `accounts` no usa `SinBorrarMixin` | Revisión de HB-09, hallazgo 10 | Al volver a tocar el panel |
+| No hay reglas de transición de estado del Residente (de `FALLECIDO` a `ACTIVO`, `fecha_baja` futura) ni protección contra Residentes duplicados | Primera revisión adversarial de HB-09, hallazgo 5 | Decidirlo en la historia que lleve los Residentes fuera de `/admin/` |
+| Los títulos del panel no tienen test, y `accounts` no usa `SinBorrarMixin` | Primera revisión adversarial de HB-09, hallazgo 10 | Al volver a tocar el panel |
 
 ## Al tocar el archivo
 
 | Pendiente | Origen | Qué hacer |
 |---|---|---|
 | "Rojo esperado" queda como texto permanente en los *docstrings* de los tests de TK-01 | Revisión de TK-01 (PR #3), *nit* | Pasarlo a tiempo pasado ("Rojo comprobado") al volver a editar cada archivo |
+| `openspec validate --specs --strict` falla en `catalogo`: un requisito pasa de 500 caracteres (aviso que `--strict` vuelve error). Ya fallaba antes de TK-01 | Cierre de la segunda revisión de TK-01 (PR #3) | Al volver a tocar la spec de `catalogo`, partir ese requisito o pasar sus ejemplos a escenarios |

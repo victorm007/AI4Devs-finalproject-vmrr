@@ -65,7 +65,6 @@ Vienen de tickets anteriores ([`pendientes.md`](pendientes.md)). Cada uno entra 
 | Pendiente | Origen | Qué hacer |
 |---|---|---|
 | EXPLAIN de la consulta 1 de la sección 3.3: que la búsqueda por medicamento use `ix_existencia_med_entidad`, además de los índices trigram | Revisión de TK-01 (PR #3), hallazgo 8 | Un test `lento` con el selector `buscar_existencias` |
-| El criterio 11 de TK-01 (readme, sección 6) habla de "las consultas 1c y 2", pero la consulta 1c no existe | Revisión de TK-01 (PR #3), hallazgo 8 | Corregir la errata en el readme y en el anexo de `06` |
 | En el *job* `e2e`, el paso `Crear app_owner y app_user` debe terminar sin `connection refused` | HB-03, sección 7.1 | Revisarlo en el primer PR de este ticket |
 
 ---

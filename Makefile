@@ -10,10 +10,12 @@ SHELL := /bin/bash
 # "GerontolÃ³gico". También evita pasar las contraseñas a cada proceso hijo.
 
 DC    := docker compose
-OWNER := -e DB_USER=app_owner -e DB_PASSWORD=$(DB_OWNER_PASSWORD)
-# test, test-ci y e2e no muestran su receta (@): llevaría la contraseña de app_owner a la
-# terminal y a los registros. Antes imprimen el mismo comando con la contraseña oculta.
-OWNER_OCULTO := -e DB_USER=app_owner -e DB_PASSWORD=***
+# La contraseña de app_owner la lee el shell de .env al ejecutar la receta, no make: así ni el
+# eco de la receta, ni make -n, ni --trace la muestran (solo la expresión sed). Con :=, $$ queda
+# como $ y make no la expande. Las comillas protegen un valor con espacios, y tr quita el \r de
+# un .env con fin de línea CRLF. make -p sí imprime los valores de .env, porque se incluye
+# arriba para el candado de HB-10: límite aceptado (pendiente de HB-10).
+OWNER := -e DB_USER=app_owner -e DB_PASSWORD="$$(sed -n 's/^DB_OWNER_PASSWORD=//p' .env | tr -d '\r')"
 T ?=
 
 .PHONY: help up down reset actualizar migrate superuser static mock test test-ci e2e lint format check-migrations shell psql openapi
@@ -40,14 +42,11 @@ mock: ## Carga el dataset mock (solo en una base recién migrada)
 	$(DC) cp app/fixtures/mock/. db:/tmp/mock/
 	$(DC) exec db sh -c 'psql -U app_owner -d "$$POSTGRES_DB" -v ON_ERROR_STOP=1 -f /tmp/mock/cargar_mock.sql'
 test: ## Corre los tests (uno solo: make test T=ruta::nombre_del_test)
-	@echo '$(DC) exec $(OWNER_OCULTO) web pytest -q $(T)'
-	@$(DC) exec $(OWNER) web pytest -q $(T)
+	$(DC) exec $(OWNER) web pytest -q $(T)
 test-ci: ## Corre lo mismo que el CI en cada PR, con cobertura
-	@echo '$(DC) exec $(OWNER_OCULTO) web pytest -m "not e2e and not lento" --cov=apps --cov-fail-under=80'
-	@$(DC) exec $(OWNER) web pytest -m "not e2e and not lento" --cov=apps --cov-fail-under=80
+	$(DC) exec $(OWNER) web pytest -m "not e2e and not lento" --cov=apps --cov-fail-under=80
 e2e: ## Corre las pruebas de extremo a extremo con Playwright
-	@echo '$(DC) exec $(OWNER_OCULTO) -e DJANGO_ALLOW_ASYNC_UNSAFE=true web pytest -m e2e e2e/ -q'
-	@$(DC) exec $(OWNER) -e DJANGO_ALLOW_ASYNC_UNSAFE=true web pytest -m e2e e2e/ -q
+	$(DC) exec $(OWNER) -e DJANGO_ALLOW_ASYNC_UNSAFE=true web pytest -m e2e e2e/ -q
 lint: ## Revisa Python (ruff) y plantillas (djLint) sin modificar archivos
 	$(DC) exec web ruff check . && $(DC) exec web ruff format --check .
 	$(DC) exec web djlint . --check && $(DC) exec web djlint . --lint

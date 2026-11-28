@@ -646,7 +646,7 @@ La configuración `config.settings.prod` NO DEBE (MUST NOT) repetir la redirecci
 
 ### Requirement: Makefile de desarrollo local
 
-El `Makefile` de la raíz DEBE (MUST) listar con `make help` sus 18 comandos con su descripción, y cada *target* DEBE (MUST) ejecutar los mismos comandos directos de la guía: `make migrate` es `./scripts/migrate.sh`, `make test` corre `pytest` en `web` como `app_owner` y `make mock` carga el mock con `cargar_mock.sql` como `app_owner`.
+El `Makefile` de la raíz DEBE (MUST) listar con `make help` sus 18 comandos con su descripción, y cada *target* DEBE (MUST) ejecutar los mismos comandos directos de la guía: `make migrate` es `./scripts/migrate.sh`, `make test` corre `pytest` en `web` como `app_owner` y `make mock` carga el mock con `cargar_mock.sql` como `app_owner`. La contraseña de `app_owner` NO DEBE (MUST NOT) aparecer en lo que `make` imprime: la lee el shell de `.env` al ejecutar la receta.
 
 #### Scenario: make help lista los comandos (TK-01, criterio 3)
 
@@ -671,6 +671,13 @@ El `Makefile` de la raíz DEBE (MUST) listar con `make help` sus 18 comandos con
 - **GIVEN** el repositorio con su `Makefile` y un `.env`
 - **WHEN** se ejecuta `make test T=apps/conteos`
 - **THEN** la salida no contiene el valor de `DB_OWNER_PASSWORD`
+
+#### Scenario: make -n no muestra la contraseña (segunda revisión de TK-01, mayor 1)
+
+- **GIVEN** un directorio con el `Makefile` y un `.env` temporal con un `DB_OWNER_PASSWORD` de ejemplo
+- **WHEN** se ejecutan `make -n test`, `make -n test-ci` y `make -n e2e`
+- **THEN** ninguna salida contiene el valor de `DB_OWNER_PASSWORD`
+- **AND** cada una muestra `docker compose exec -e DB_USER=app_owner` y el `pytest` de su receta
 
 ### Requirement: Valores con espacios en .env
 

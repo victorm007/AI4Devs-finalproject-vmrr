@@ -86,8 +86,14 @@ class Movimiento(models.Model):
         related_name="llegadas",
         db_index=False,
     )
+    # db_index=False: ninguna consulta de la sección 3.3 filtra por ella (ADR-0018)
     motivo_baja = models.ForeignKey(
-        MotivoBaja, on_delete=models.PROTECT, null=True, blank=True, related_name="movimientos"
+        MotivoBaja,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="movimientos",
+        db_index=False,
     )
     # null=True en textos a propósito: el CHECK por tipo distingue "no aplica" (NULL)
     origen_entrada = models.CharField(
@@ -105,8 +111,12 @@ class Movimiento(models.Model):
         db_index=False,
     )
     nota = models.TextField(null=True, blank=True)
+    # db_index=False: ninguna consulta de la sección 3.3 filtra por ella (ADR-0018)
     usuario = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="movimientos"
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="movimientos",
+        db_index=False,
     )
     fecha_hora = models.DateTimeField(db_default=Now())
 

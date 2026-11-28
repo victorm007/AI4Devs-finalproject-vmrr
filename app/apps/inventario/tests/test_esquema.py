@@ -18,7 +18,7 @@ que sí entra a un Residente egresado. También van aquí las migraciones (rever
 volver a aplicar, design, decisión 10; makemigrations --check) y los fixtures compartidos
 (datos_demo, demo, como_app_user y saldo).
 
-Rojo esperado: apps.inventario.models no existe, así que falla la importación del módulo
+Rojo comprobado: apps.inventario.models no existe, así que falla la importación del módulo
 (ModuleNotFoundError) y ninguno de estos tests llega a correr. Después de crear los modelos,
 cada test falla hasta que existe la restricción, el trigger o el índice que comprueba.
 
@@ -26,11 +26,28 @@ Ajustes de la revisión de TK-01 (PR #3): Transferencia a un Residente egresado 
 fallecido (hallazgo 9), las claves foráneas que impiden borrar un Medicamento con historial, con
 el ORM y saltándose Django (hallazgo 3, ADR-0027), ejecutar_sql con rol= dentro de
 como_app_user (hallazgo 11; design, decisión 3) y el try/finally que deja la base migrada si
-falla una aserción de test_revertir_y_volver_a_aplicar_las_migraciones. Rojo esperado: solo
+falla una aserción de test_revertir_y_volver_a_aplicar_las_migraciones. Rojo comprobado: solo
 test_ejecutar_sql_con_otro_rol_no_deshace_como_app_user (hoy ejecutar_sql termina con RESET
 ROLE y current_user queda en app_owner). Los demás son de regresión (design, decisión 5): TK-01
 ya rechaza esos destinos con tg_movimiento_validar_destino, y las FK de Django ya son PROTECT
 en el ORM y NO ACTION DEFERRABLE en la base.
+
+Ajustes de la segunda revisión de TK-01 (PR #3):
+- test_las_fk_de_motivo_y_usuario_de_movimiento_sin_indice (bloqueante 1, ADR-0018). Rojo
+  esperado: Django crea movimiento_motivo_baja_id_<hash> y movimiento_usuario_id_<hash>, así
+  que el conjunto no está vacío.
+- test_django_impide_borrar_lo_que_tiene_historial y
+  test_la_base_rechaza_borrar_lo_que_tiene_historial (mayor 2; design, decisión 3), para
+  Eutirox, el Hogar, operador.demo y CONSUMO. En la base, el test quita antes las referencias
+  que no son historial (principios activos, Pautas y grupo del usuario) y exige que el mensaje
+  nombre una tabla del historial. Regresión: las FK ya son PROTECT y NO ACTION DEFERRABLE; el
+  cambio es que ahora prueban la causa.
+- test_revertir_y_volver_a_aplicar_las_migraciones (menor 1; design, decisión 7): el try
+  protege también migrate conteos zero, y el cuerpo de fn_detalle_conteo_cerrado se compara en
+  0002_triggers y al volver a migrar. Rojo esperado: la última aserción, FOR SHARE, porque
+  conteos/0005_detalle_conteo_bloqueo no existe todavía.
+- test_ejecutar_sql_con_otro_rol_vuelve_al_usuario_de_la_sesion (nit 3): compara con
+  session_user en lugar de suponer que no es app_user. Regresión.
 """
 
 import re
@@ -219,31 +236,90 @@ def test_no_entra_medicamento_a_residente_inactivo(datos_demo, residente, estado
     ) == [(1,)]
 
 
-def test_django_impide_borrar_un_medicamento_con_historial(demo):
+@pytest.mark.parametrize(
+    ("dueno", "modelos_del_historial"),
+    [
+        # Eutirox (8): las entradas 9 y 27 y la baja 19 de Carmen, y su Existencia de 33 dosis
+        pytest.param(lambda demo: demo.med["Eutirox"], {Movimiento, Existencia}, id="medicamento"),
+        pytest.param(lambda demo: demo.hogar, {Movimiento}, id="entidad"),
+        # operador.demo registró los 28 movimientos del mock
+        pytest.param(lambda demo: demo.operador, {Movimiento}, id="usuario"),
+        # Las bajas 15 a 21 son por CONSUMO
+        pytest.param(lambda demo: demo.motivo["CONSUMO"], {Movimiento}, id="motivo-de-baja"),
+    ],
+)
+def test_django_impide_borrar_lo_que_tiene_historial(demo, dueno, modelos_del_historial):
     # Scenario: Django impide borrar un Medicamento con historial (revisión de TK-01,
-    # hallazgo 3; ADR-0027). Regresión: las FK ya son PROTECT (design, decisión 5)
-    eutirox = demo.med["Eutirox"]
-    # Control: Eutirox tiene Movimientos y Existencias en el mock
-    assert Movimiento.objects.filter(medicamento=eutirox).exists()
-    assert Existencia.objects.filter(medicamento=eutirox).exists()
-    with pytest.raises(ProtectedError):
-        eutirox.delete()
-    assert Medicamento.objects.filter(pk=eutirox.pk, nombre_comercial="Eutirox").exists()
+    # hallazgo 3) y Django impide borrar la Entidad, el usuario o el motivo de baja con
+    # historial (segunda revisión de TK-01, mayor 2; ADR-0027). Regresión: las FK ya son
+    # PROTECT (design, decisión 5); ahora el test exige que la causa sea el historial
+    registro = dueno(demo)
+    with pytest.raises(ProtectedError) as excinfo:
+        registro.delete()
+    # Los objetos protegidos son del historial, no solo los principios activos o las Pautas
+    protegidos = {type(objeto) for objeto in excinfo.value.protected_objects}
+    assert modelos_del_historial <= protegidos, protegidos
+    assert type(registro).objects.filter(pk=registro.pk).exists()
 
 
-def test_la_base_rechaza_borrar_un_medicamento_con_historial(datos_demo):
+EUTIROX = "(SELECT id FROM medicamento WHERE nombre_comercial = 'Eutirox')"
+TABLA_DEL_HISTORIAL = (
+    r'violates foreign key constraint "\w+" on table '
+    r'"(movimiento|existencia|conteo_fisico|detalle_conteo)"'
+)
+
+# (tabla, filtro de la fila, referencias que no son historial con las filas que borra cada una)
+BORRADOS_CON_HISTORIAL = [
+    # Eutirox tiene 1 principio activo (Levotiroxina) y ninguna Pauta en el mock
+    pytest.param(
+        "medicamento",
+        "nombre_comercial = 'Eutirox'",
+        [
+            (f"DELETE FROM medicamento_principio_activo WHERE medicamento_id = {EUTIROX}", 1),
+            (f"DELETE FROM pauta WHERE medicamento_id = {EUTIROX}", 0),
+        ],
+        id="medicamento",
+    ),
+    # El Hogar no es Residente: no tiene Pautas ni fila en residente
+    pytest.param("entidad", "tipo = 'HOGAR'", [], id="entidad"),
+    # operador.demo está en el grupo "Lectura y escritura" y registró las 3 Pautas del mock
+    pytest.param(
+        "usuario",
+        "username = 'operador.demo'",
+        [
+            (f"DELETE FROM usuario_groups WHERE usuario_id = {USUARIO}", 1),
+            (f"DELETE FROM pauta WHERE registrado_por_id = {USUARIO}", 3),
+        ],
+        id="usuario",
+    ),
+    # Solo movimiento apunta a motivo_baja
+    pytest.param("motivo_baja", "clave = 'CONSUMO'", [], id="motivo-de-baja"),
+]
+
+
+@pytest.mark.parametrize(("tabla", "filtro", "referencias_ajenas"), BORRADOS_CON_HISTORIAL)
+def test_la_base_rechaza_borrar_lo_que_tiene_historial(
+    datos_demo, tabla, filtro, referencias_ajenas
+):
     # Scenario: La base rechaza el borrado aunque se salte Django (revisión de TK-01,
-    # hallazgo 3; ADR-0027). Regresión: las FK de Django ya existen (design, decisión 5).
-    # Son DEFERRABLE INITIALLY DEFERRED: sin SET CONSTRAINTS ALL IMMEDIATE en el mismo
+    # hallazgo 3; segunda revisión, mayor 2; ADR-0027). Regresión: las FK de Django ya existen
+    # (design, decisión 5); ahora el test exige que la causa sea el historial.
+    # Sin Residentes: fk_residente_entidad es inmediata y saltaría antes que el historial.
+    # Las FK son DEFERRABLE INITIALLY DEFERRED: sin SET CONSTRAINTS ALL IMMEDIATE en el mismo
     # savepoint, el DELETE pasaría y solo fallaría al confirmar, cosa que el test nunca hace.
     # Si el SET CONSTRAINTS sobrevive al savepoint, solo afecta al resto de este test
-    with pytest.raises(DatabaseError, match="violates foreign key constraint"):
+    with pytest.raises(DatabaseError, match=TABLA_DEL_HISTORIAL):
         with transaction.atomic(), connection.cursor() as cursor:
+            # Como app_owner, se quitan las referencias que no son historial: así el rechazo
+            # solo puede venir de movimiento, existencia, conteo_fisico o detalle_conteo
+            for sql, filas in referencias_ajenas:
+                cursor.execute(sql)
+                # Control: la referencia ajena estaba en el mock y se quitó de verdad
+                assert cursor.rowcount == filas, sql
             cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
-            cursor.execute("DELETE FROM medicamento WHERE nombre_comercial = 'Eutirox'")
-    assert ejecutar_sql("SELECT count(*) FROM medicamento WHERE nombre_comercial = 'Eutirox'") == [
-        (1,)
-    ]
+            cursor.execute(f"DELETE FROM {tabla} WHERE {filtro}")
+    # El savepoint se revirtió: el registro sigue en la base
+    assert ejecutar_sql(f"SELECT count(*) FROM {tabla} WHERE {filtro}") == [(1,)]
 
 
 def test_la_correccion_si_entra_a_un_residente_egresado(datos_demo):
@@ -553,6 +629,32 @@ def test_cada_fk_cubierta_solo_por_su_indice_compuesto(tabla, columna_fk, espera
     assert indices_por_primera_columna(tabla, columna_fk) == esperados
 
 
+def tablas_referidas(tabla: str, columna_fk: str) -> list[str]:
+    """Las tablas a las que apunta la FK cuya primera columna es columna_fk."""
+    filas = ejecutar_sql(
+        """SELECT c.confrelid::regclass::text
+           FROM pg_constraint c
+           JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+           WHERE c.conrelid = %s::regclass AND c.contype = 'f' AND a.attname = %s""",
+        [tabla, columna_fk],
+    )
+    return [fila[0] for fila in filas]
+
+
+@pytest.mark.parametrize(
+    ("columna_fk", "referida"),
+    [("motivo_baja_id", "motivo_baja"), ("usuario_id", "usuario")],
+    ids=["motivo-baja", "usuario"],
+)
+def test_las_fk_de_motivo_y_usuario_de_movimiento_sin_indice(columna_fk, referida):
+    # Scenario: Las FK de motivo y usuario de movimiento sin índice (segunda revisión de TK-01,
+    # bloqueante 1; ADR-0018)
+    # Control: la columna existe y su FK sigue protegiendo el historial (ADR-0027); con un
+    # nombre mal escrito, el conjunto vacío de abajo pasaría por casualidad
+    assert tablas_referidas("movimiento", columna_fk) == [referida]
+    assert indices_por_primera_columna("movimiento", columna_fk) == set()
+
+
 MOTIVOS = {
     "CONSUMO",
     "CADUCIDAD",
@@ -630,19 +732,38 @@ def hay_trigger_de_baja() -> bool:
     ]
 
 
+def cuerpo_de_fn_detalle_conteo_cerrado() -> str:
+    """pg_get_functiondef de la función, en mayúsculas y con los espacios normalizados."""
+    ((definicion,),) = ejecutar_sql(
+        "SELECT pg_get_functiondef('fn_detalle_conteo_cerrado'::regproc)"
+    )
+    return " ".join(definicion.split()).upper()
+
+
 @pytest.mark.django_db(transaction=True, serialized_rollback=True)
 def test_revertir_y_volver_a_aplicar_las_migraciones():
-    # Scenario: Revertir y volver a aplicar (TK-01, criterio 1), de inventario y de conteos
+    # Scenario: Revertir y volver a aplicar (TK-01, criterio 1), de inventario y de conteos, y
+    # La función del conteo cerrado vuelve a su versión anterior (segunda revisión de TK-01,
+    # menor 1)
     todas = set(TABLAS_DE_INVENTARIO) | set(TABLAS_DE_CONTEOS)
-    # Control: la base migrada tiene todo
+    # Control: la base migrada tiene todo, y la función ya mira por separado el conteo de OLD y
+    # el de NEW (desde 0003), sin la variable v_conteo de 0002
     assert existentes(todas) == todas
     assert funciones_existentes() == set(FUNCIONES)
     assert hay_trigger_de_baja()
+    assert "V_CONTEO" not in cuerpo_de_fn_detalle_conteo_cerrado()
 
-    call_command("migrate", "conteos", "zero", verbosity=0)
-    # Si una aserción falla a medias, el finally deja la base migrada para los tests siguientes
-    # (migrate sin argumentos no hace nada si ya está al día)
+    # Si una aserción o una migración falla a medias, el finally deja la base migrada para los
+    # tests siguientes (migrate sin argumentos no hace nada si ya está al día)
     try:
+        # Con 0002_triggers, la función mira un solo conteo (v_conteo: OLD en DELETE, NEW en lo
+        # demás) y no bloquea
+        call_command("migrate", "conteos", "0002_triggers", verbosity=0)
+        cuerpo = cuerpo_de_fn_detalle_conteo_cerrado()
+        assert "V_CONTEO" in cuerpo, cuerpo
+        assert "FOR SHARE" not in cuerpo, cuerpo
+
+        call_command("migrate", "conteos", "zero", verbosity=0)
         assert existentes(todas) == set(TABLAS_DE_INVENTARIO)
 
         call_command("migrate", "inventario", "zero", verbosity=0)
@@ -673,6 +794,12 @@ def test_revertir_y_volver_a_aplicar_las_migraciones():
         )
         filas = ejecutar_sql("SELECT reloptions FROM pg_class WHERE oid = 'existencia'::regclass")
         assert "fillfactor=90" in (filas[0][0] or [])
+        # Al volver a migrar, la función mira el conteo de OLD y el de NEW con FOR SHARE (0005)
+        cuerpo = cuerpo_de_fn_detalle_conteo_cerrado()
+        assert "V_CONTEO" not in cuerpo, cuerpo
+        assert "OLD.CONTEO_ID" in cuerpo, cuerpo
+        assert "NEW.CONTEO_ID" in cuerpo, cuerpo
+        assert "FOR SHARE" in cuerpo, cuerpo
     finally:
         call_command("migrate", verbosity=0)
 
@@ -729,12 +856,13 @@ def test_ejecutar_sql_con_otro_rol_no_deshace_como_app_user(como_app_user):
 
 def test_ejecutar_sql_con_otro_rol_vuelve_al_usuario_de_la_sesion(db):
     # Control de test_ejecutar_sql_con_otro_rol_no_deshace_como_app_user: sin como_app_user,
-    # ejecutar_sql deja el rol con el que empezó (el usuario de la sesión, app_owner)
-    antes = usuario_actual()
-    assert antes != "app_user"
+    # ejecutar_sql deja el rol con el que empezó, el usuario de la sesión (nit 3 de la segunda
+    # revisión de TK-01: se lee session_user en lugar de suponer que no es app_user)
+    ((sesion,),) = ejecutar_sql("SELECT session_user")
+    assert usuario_actual() == sesion
     assert ejecutar_sql("SELECT current_user", rol="app_user") == [("app_user",)]
     ejecutar_sql("SELECT 1", rol="app_user")
-    assert usuario_actual() == antes
+    assert usuario_actual() == sesion
 
 
 @pytest.mark.django_db(transaction=True, serialized_rollback=True)

@@ -22,8 +22,9 @@ class ConteoFisico(models.Model):
     periodo_inicio = models.DateField()
     periodo_fin = models.DateField()
     estado = models.CharField(max_length=10, choices=Estado.choices, db_default="EN_PROCESO")
+    # db_index=False: ninguna consulta de la sección 3.3 filtra por ella (ADR-0018)
     usuario = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="conteos"
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="conteos", db_index=False
     )
     creado_en = models.DateTimeField(db_default=Now())
     cerrado_en = models.DateTimeField(null=True, blank=True)
