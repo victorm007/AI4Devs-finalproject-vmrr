@@ -30,7 +30,7 @@
 ```bash
 git switch main && git pull
 git switch -c feature/HB-04-nginx
-set -a && . ./.env && set +a
+while IFS= read -r linea || [ -n "$linea" ]; do case $linea in ''|'#'*) ;; *) export "$linea" ;; esac; done < .env
 dj() { docker compose exec web python manage.py "$@"; }
 dtest() { docker compose exec -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PASSWORD" web pytest "$@"; }
 ```

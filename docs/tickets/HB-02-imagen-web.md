@@ -482,7 +482,7 @@ Este ticket todavía no tiene código de negocio ni base de datos, así que **no
 ## 5. Verificación: comandos y resultado esperado
 
 ```bash
-set -a && . ./.env && set +a
+while IFS= read -r linea || [ -n "$linea" ]; do case $linea in ''|'#'*) ;; *) export "$linea" ;; esac; done < .env
 
 # 1. Lint y configuración
 docker compose exec web ruff check . && docker compose exec web ruff format --check .

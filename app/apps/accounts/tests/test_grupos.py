@@ -9,6 +9,10 @@ Los permisos se comparan como conjuntos exactos (igualdad, no inclusión) y con 
 content type, para que un permiso de más (delete_*, de usuario o de grupo, o de otra app) haga
 fallar el test.
 
+TK-01 (inventario/0003_permisos_grupos) suma los permisos de inventario: Solo lectura recibe
+view_existencia, view_movimiento y view_motivobaja (8 en total), y Lectura y escritura esos 3 y
+add_movimiento (19 en total), nunca change_movimiento ni delete_movimiento.
+
 El error de la base se busca con el nombre de la restricción entre comillas, como lo escribe
 PostgreSQL ('... violates unique constraint "uq_usuario_un_grupo"').
 
@@ -47,6 +51,15 @@ def esperados(acciones):
     return {(app, f"{accion}_{modelo}") for app, modelo in MODELOS for accion in acciones}
 
 
+# TK-01 (inventario/0003_permisos_grupos) suma los permisos de inventario
+INVENTARIO_SOLO_LECTURA = {
+    ("inventario", "view_existencia"),
+    ("inventario", "view_movimiento"),
+    ("inventario", "view_motivobaja"),
+}
+INVENTARIO_LECTURA_Y_ESCRITURA = INVENTARIO_SOLO_LECTURA | {("inventario", "add_movimiento")}
+
+
 def codigos(nombre):
     return set(Group.objects.get(name=nombre).permissions.values_list("codename", flat=True))
 
@@ -74,16 +87,21 @@ def test_solo_lectura_solo_puede_ver():
     permisos = codigos("Solo lectura")
     assert {"view_medicamento", "view_residente", "view_principioactivo"} <= permisos
     assert all(codigo.startswith("view_") for codigo in permisos)
-    # Exactamente los 5 view_ (igualdad, no inclusión)
+    # Exactamente los 8 view_ (igualdad, no inclusión): los 5 de HB-08 y, desde TK-01
+    # (inventario/0003_permisos_grupos), los 3 de inventario
     assert permisos == {
         "view_presentacion",
         "view_principioactivo",
         "view_medicamento",
         "view_medicamentoprincipioactivo",
         "view_residente",
+        "view_existencia",
+        "view_movimiento",
+        "view_motivobaja",
     }
-    # Y de los modelos de catalogo y entidades, no de otro modelo con el mismo codename
-    assert permisos_con_app("Solo lectura") == esperados(["view"])
+    # Y de los modelos de catalogo, entidades e inventario, no de otro modelo con el mismo
+    # codename
+    assert permisos_con_app("Solo lectura") == esperados(["view"]) | INVENTARIO_SOLO_LECTURA
 
 
 def test_lectura_y_escritura_ve_agrega_y_cambia_pero_no_borra():
@@ -91,16 +109,22 @@ def test_lectura_y_escritura_ve_agrega_y_cambia_pero_no_borra():
     permisos = codigos("Lectura y escritura")
     assert {"add_medicamento", "change_residente", "add_medicamentoprincipioactivo"} <= permisos
     assert not any(codigo.startswith("delete_") for codigo in permisos)
-    # Exactamente los 15 view_, add_ y change_ de los 5 modelos (igualdad, no inclusión)
-    assert len(permisos) == 15
-    assert permisos_con_app("Lectura y escritura") == esperados(["view", "add", "change"])
-    # Solo de content types de las apps catalogo y entidades
+    # Exactamente 19 (igualdad, no inclusión): los 15 view_, add_ y change_ de los 5 modelos y,
+    # desde TK-01 (inventario/0003_permisos_grupos), los 4 de inventario
+    assert len(permisos) == 19
+    assert (
+        permisos_con_app("Lectura y escritura")
+        == esperados(["view", "add", "change"]) | INVENTARIO_LECTURA_Y_ESCRITURA
+    )
+    # Los movimientos son inmutables: nadie los cambia ni los borra
+    assert not {"change_movimiento", "delete_movimiento"} & permisos
+    # Solo de content types de las apps catalogo, entidades e inventario
     apps_de_los_permisos = set(
         Group.objects.get(name="Lectura y escritura").permissions.values_list(
             "content_type__app_label", flat=True
         )
     )
-    assert apps_de_los_permisos == {"catalogo", "entidades"}
+    assert apps_de_los_permisos == {"catalogo", "entidades", "inventario"}
 
 
 @pytest.mark.parametrize("grupo", ["Solo lectura", "Lectura y escritura"], ids=["sl", "lye"])

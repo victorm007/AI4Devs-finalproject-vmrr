@@ -1,6 +1,6 @@
 # ADR-0009 · Bajas lógicas y `ON DELETE RESTRICT` en todas las claves foráneas
 
-- **Estado:** Aceptado
+- **Estado:** Aceptado. Supersedido en parte por [ADR-0027](0027-claves-foraneas-protect-diferidas.md): las FK son `PROTECT` en Django y `NO ACTION` diferidas en PostgreSQL, no `ON DELETE RESTRICT`
 - **Fecha:** 2026-11-16
 - **Capabilities afectadas:** `accounts`, `catalogo`, `entidades`, `inventario`
 - **Fuentes:** `readme.md` §2.5 (privacidad), §3.1, §3.2 (D1, D2, D3, D5 y antipatrones), §3.3, §5 (controles del panel) y §6 (TK-01); `CLAUDE.md` ("Bajas lógicas" y "Protección de datos históricos")

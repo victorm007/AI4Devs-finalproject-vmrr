@@ -1359,6 +1359,150 @@ Con esto cierro las revisiones del hook en este PR. Lo siguiente que aporta info
 
 ---
 
+## Prompt 49 — Usuario
+
+Implementar TK-01. (Tras el plan:) Apruebo con todas las decisiones §6 y el `down -v` del §7. (Tras las 2 disputas de la implementación:) Sumar los permisos de inventario a los tests de HB-08; sí, agregar `ANALYZE` al test `lento`.
+
+---
+
+## Respuesta 49 — Claude
+
+Implementé TK-01 con la skill `implementar-ticket`, en el cambio de OpenSpec `tk-01-esquema-inventario` (archivado, con las specs de `inventario` y `conteos` nuevas y las de `catalogo` e `infraestructura` actualizadas):
+
+| Paso | Archivos |
+|---|---|
+| `Makefile` y `.env` | `Makefile` (18 comandos, con `actualizar`), `scripts/migrate.sh` (lectura línea por línea), `.env.example` con `HOGAR_NOMBRE` sin comentar y el atajo nuevo en readme, `CLAUDE.md`, las guías y la skill |
+| *Fixtures* | `conftest.py` (`datos_demo`, `demo`, `como_app_user`) y `pruebas.py` (`saldo`) |
+| Inventario | `MotivoBaja`, `Existencia` y `Movimiento`; migraciones `0001` a `0004` (motivos, permisos de los grupos, *triggers*, `fillfactor`, `v_conciliacion_existencia` y `REVOKE UPDATE, DELETE, TRUNCATE`) |
+| Conteos | `ConteoFisico` y `DetalleConteo`, con `diferencia` generada; `0002_triggers` |
+| Panel | `MedicamentoAdmin` rechaza con un mensaje la baja de un medicamento con existencias |
+
+**Decisiones aprobadas:** `ck_movimiento_entregado` con `no_vacio()`, tests de esquema contra el catálogo de PostgreSQL y de migraciones reversibles, el control con Tempra, sin `# noqa: DJ001`, y en el readme el `REVOKE` con `TRUNCATE` (sección 3.1) y 18 comandos en el criterio 3.
+
+**Disputas resueltas:** 3 tests de HB-08 fijaban exactamente los permisos de los grupos; ahora suman los de inventario (8 y 19). El test `lento` hace `ANALYZE` antes del `EXPLAIN`, porque sin estadísticas los índices empataban en coste.
+
+**Hallazgo del cierre:** con el `export` del `Makefile`, `docker compose` tomaba la copia de `make`, y en Windows (GNU Make 3.81 de GnuWin32) `HOGAR_NOMBRE` llegaba a `web` como "GerontolÃ³gico". El `Makefile` ya no exporta: compose lee `.env` por su cuenta.
+
+**Comprobaciones:** la suite da 317 pasan y 1 omitido, con 98,81 % de cobertura; los 2 `lento` pasan; la huella de los 10 archivos de tests está intacta. Sección 5 de la guía: `\d movimiento` con los nombres exactos, reversión hasta `zero`, instalación desde cero con el mock (conciliación en 0) y, con 175,000 movimientos, *Index Scan using `ix_movimiento_origen_med_fecha`*, sin *Seq Scan*.
+
+---
+
+## Prompt 50 — Usuario
+
+(Tras la revisión adversarial del PR #3 de TK-01, sin bloqueantes, con 3 mayores y 9 menores:) ¿Cuáles son los hallazgos de la adversarial, si es que hay? (Tras la respuesta:) Sí, hazlo así. (Tras el plan:) Aprobado.
+
+---
+
+## Respuesta 50 — Claude
+
+Atendí la revisión en el cambio de OpenSpec `tk-01-ajustes-revision`:
+
+| Hallazgo | Cambio |
+|---|---|
+| 2. Un `UPDATE` de `conteo_id` sacaba un renglón de un conteo cerrado | `conteos/0003_detalle_conteo_cerrado`: la función revisa también `OLD.conteo_id`; tests de borrar y cambiar renglones, borrar el encabezado y meter un renglón; DDL de la sección 3.3 |
+| 1. La spec de `accounts` seguía con 5 y 15 permisos | Delta de `accounts` con 8 y 19 |
+| 3. Las FK no son `ON DELETE RESTRICT` (ADR-0009) | ADR-0027, que lo supersede en parte: `PROTECT` en Django y FK `NO ACTION` diferidas, con un test de `SET CONSTRAINTS ALL IMMEDIATE` |
+| 4. `make test` mostraba la contraseña de `app_owner` | `test`, `test-ci` y `e2e` imprimen el comando con `DB_PASSWORD=***` |
+| 11. `ejecutar_sql(rol=...)` deshacía `como_app_user` | Restaura el rol previo en lugar de `RESET ROLE` |
+| 7, 9, 10 y 12 | `ck_movimiento_origen_entrada` y `ck_conteo_estado` en el DDL de 3.1; tests de Transferencia a egresado y Entrada a fallecido; `try/finally` en el test de migraciones; documentación sincronizada (readme 1.4, 3.1, 3.3, 5 y 6, anexos de 03, 05 y 06, `CLAUDE.md` y las guías de HB-03, HB-06, TK-01 y TK-02) |
+
+**Pendientes**, anotados en la guía de TK-01: tests automáticos del `Makefile` y de `.env` (5), índices de Django sin consulta (6), EXPLAIN de las consultas 1 y 2b (8) y los *nits*. La regla de que una corrección sea el inverso del original va a la guía de TK-02.
+
+**Comprobaciones:** fallaron primero solo los 2 tests declarados (sacar un renglón y el rol de `ejecutar_sql`); la suite da 329 pasan y 1 omitido, con 98,81 % de cobertura, y la huella de los tests está intacta.
+
+---
+
+## Prompt 51 — Usuario
+
+Cuando nos movamos a los siguientes tickets, ¿cuándo se retoman los pendientes? (Tras la respuesta:) Hazlo, así le damos seguimiento en los futuros tickets.
+
+---
+
+## Respuesta 51 — Claude
+
+Cada pendiente tiene un ticket que lo retoma, pero hasta ahora solo estaban anotados en la guía del ticket que los dejó. `implementar-ticket` lee la guía del ticket que implementa, así que podían pasarse por alto. Ahora:
+
+- **`docs/tickets/pendientes.md`** los reúne por ticket destino:
+  - **TK-02:** la corrección como inverso exacto del original.
+  - **TK-03:** el EXPLAIN de la consulta 1, la errata "1c" del criterio 11 de TK-01 y el *job* `e2e` sin `connection refused` (HB-03).
+  - **TK-06:** el EXPLAIN de la consulta 2b y los permisos de `conteos` en los tests de grupos.
+  - **HB-10:** los tests del `Makefile` y de `.env`, y los *nits* de `migrate.sh` y `make format`.
+  - **Reportes (EP-04):** los índices de Django sin consulta.
+  - **Pautas (EP-05):** la tabla de HB-07.
+  - **Pantallas de Residentes:** los hallazgos 5 y 10 de HB-09.
+  - **Al tocar el archivo:** los pendientes sin destino claro.
+- **Copias en las guías que existen:** TK-02 (paso 6), TK-03 (sección 0.4 nueva) y HB-10 (tabla de la sección 0.5).
+- **`implementar-ticket`** lee la sección del ticket al explorar (cada pendiente entra en el plan), y al cerrar quita los atendidos y agrega los nuevos con su destino. `CLAUDE.md` lo menciona en "Tickets y pruebas".
+
+---
+
+## Prompt 52 — Usuario
+
+(Tras la segunda revisión adversarial del PR #3, de `c67f733`, con 1 bloqueante, 2 mayores, 6 menores y 3 *nits*:) ¿Cuáles son los hallazgos? (Tras la respuesta:) Atiéndelo. B1, resuélvelo con la primera opción: `db_index=False` en las 3 FK, y una migración que quite los índices. (Tras el plan:) Apruebo. Los fuera de alcance, anótalos como pendientes en los respectivos tickets si es que no están ya considerados.
+
+---
+
+## Respuesta 52 — Claude
+
+Atendí la revisión en el cambio de OpenSpec `tk-01-ajustes-revision-2`:
+
+| Hallazgo | Cambio |
+|---|---|
+| B1. Índices de Django sobre `movimiento.motivo_baja_id`, `movimiento.usuario_id` y `conteo_fisico.usuario_id` sin consulta (ADR-0018) | `db_index=False` y las migraciones `inventario/0005_fk_sin_indice` y `conteos/0004_fk_sin_indice`; tabla "FK sin índice porque ninguna consulta las usa" en la sección 3.3 |
+| M1. `make -n test` mostraba la contraseña de `app_owner` | El shell la lee de `.env` al ejecutar la receta (`$$(sed …)`), sin `@` ni `echo`; test nuevo `tests/test_makefile.py` con un `.env` temporal |
+| M2. Los tests de borrado pasaban por la tabla de principios activos | Parametrizados para Eutirox, el Hogar, `operador.demo` y `CONSUMO`: en el ORM, con `protected_objects`; en la base, sin las referencias ajenas y con el mensaje de una tabla del historial |
+| m1. El `try` del test de migraciones dejaba fuera `migrate conteos zero` | El `try` lo incluye, y el test compara el cuerpo de `fn_detalle_conteo_cerrado` en `0002` y al volver a migrar |
+| m5. Captura y cierre del conteo en paralelo | `conteos/0005_detalle_conteo_bloqueo`: la función lee el estado con `FOR SHARE`; 2 tests de concurrencia con 2 conexiones como `app_user` y `lock_timeout` |
+| m2, m3, m4, m6 y *nits* | Ficha y guía de TK-01 con las restricciones y migraciones nuevas, `PROTECT (ADR-0027)` en 3.3, `0006_permisos_grupos` en el ejemplo de TK-06, criterio 11 con "consultas 1 y 2c" (parcial), referencias de HB-09 en `pendientes.md`, el rol que distingue mayúsculas en `ejecutar_sql` y `session_user` en su test |
+
+**Pendientes:** `make -p` muestra los valores de `.env` (límite aceptado, anotado en HB-10, en `pendientes.md` y en su guía). Los demás fuera de alcance ya estaban anotados: EXPLAIN de la consulta 1 en TK-03, de la 2b en TK-06, índices de `pauta` en la historia de Pautas y los tests del `Makefile` y `.env` en HB-10.
+
+**Comprobaciones:** fallaron primero los 9 tests declarados; la suite da 340 pasan y 1 omitido, con 98,81 % de cobertura, más 104 tests de herramientas, y la huella de los tests está intacta. Una corrección de mi delta de la spec antes de congelar: con `0002`, la función sí contiene `OLD.conteo_id` (en `v_conteo`), así que lo que distingue esa versión es la variable `v_conteo`.
+
+---
+
+## Prompt 53 — Usuario
+
+(Tras la tercera revisión adversarial del PR #3, de `4523afd`, sin bloqueantes, con 2 mayores, 7 menores y 5 *nits*:) Hay pendientes, ¿qué recomiendas? (Tras la recomendación de atender los mayores y los menores baratos, y dejar el resto como pendientes:) Hazlo, aunque no vamos a cerrar el PR hasta tener varios tickets hechos.
+
+---
+
+## Respuesta 53 — Claude
+
+Atendí la revisión en el cambio de OpenSpec `tk-01-ajustes-revision-3`:
+
+| Hallazgo | Cambio |
+|---|---|
+| Mayor 1. El DDL de `fn_detalle_conteo_cerrado` en la sección 3.3 no tenía `FOR SHARE` | `FOR SHARE` en las 2 lecturas del estado, en el readme y en el anexo de `03` |
+| Mayor 2 y menor 1. La reversa de `conteos/0005` y la rama de `OLD` no tenían test | El test de migraciones revierte primero a `0004` y comprueba el cuerpo de `0003`; al volver a migrar exige 2 `FOR SHARE`; test nuevo de borrar un renglón mientras se cierra el conteo |
+| Menores 3 y 4, y *nit* 1. El `Makefile` no aceptaba la contraseña del entorno, rompía con una clave duplicada y la ponía en los argumentos de `docker compose` | `DB_PASSWORD="$(CLAVE_OWNER)" $(DC) exec -e DB_PASSWORD …`: manda el entorno, si no la primera línea de `.env`; test con un `docker` falso y `make test` real |
+| Menores 2, 5, 6 y 7, y *nits* 2 y 4 | Riesgos de bloqueo para TK-06, documentación al día (guía de TK-01, `pendientes.md`, guía de HB-10), la regla de ADR-0018 pendiente para `pauta`, un MUST de la spec de `inventario` que era propiedad del test, "Rojo comprobado" y la conexión del test que se cierra si falla |
+
+**Límites aceptados y pendientes:** que falle cada FK del historial por separado exigiría borrar Movimientos, que son inmutables (*nit* 5); los tests de concurrencia del *trigger* viven en `test_esquema.py`, con 2 conexiones en lugar de hilos (*nit* 3); los índices de `pauta` siguen en la historia de Pautas.
+
+**Comprobaciones:** fallaron primero los 3 casos del `docker` falso; la suite da 341 pasan y 1 omitido, con 98,81 % de cobertura, más 107 tests de herramientas, y la huella de los tests está intacta. El PR #3 sigue abierto para los tickets siguientes.
+
+---
+
+## Prompt 54 — Usuario
+
+(Tras la revisión acotada de `1e55324`, sin bloqueantes ni mayores, con 3 menores y 2 *nits* sobre el `Makefile` y su test:) ¿Está cerrado entonces el TK-01? (Tras la respuesta:) Anota los pendientes en HB-10 y demos TK-01 por cerrado.
+
+---
+
+## Respuesta 54 — Claude
+
+TK-01 queda cerrado. Los hallazgos de la revisión acotada pasan a HB-10, que completa el `Makefile` y sus tests, en `docs/tickets/pendientes.md` y en la sección 0.5 de su guía:
+
+- La precedencia de la contraseña de `app_owner` cuando está en el entorno y en `.env`: una sola regla para todo el `Makefile` y los scripts (lo coherente con `migrate.sh` es que gane `.env`), con un caso de test.
+- El *skip* del test del `docker` falso, que puede ocultar un fallo de la receta en el CI.
+- El reenvío de `-e DB_PASSWORD` sin valor al contenedor, que solo se comprobó a mano.
+- El último "Rojo esperado", en el *docstring* de `tests/test_makefile.py`; sale de "Al tocar el archivo".
+
+La guía de TK-01 lleva la nota de cierre. El criterio 11 queda parcial (EXPLAIN de la consulta 1 en TK-03 y de la 2b en TK-06), y el PR #3 sigue abierto para los tickets siguientes.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 6)
 
 ## 6. Tickets de Trabajo
@@ -1559,21 +1703,21 @@ No agrega dependencias nuevas.
    | `ConteoFisico` | `conteo_fisico` | `estado` con `TextChoices`, `db_default='EN_PROCESO'`; `cerrado_en` nullable |
    | `DetalleConteo` | `detalle_conteo` | `diferencia = GeneratedField(expression=F('cantidad_fisica') - F('cantidad_sistema'), output_field=DecimalField(10, 2), db_persist=True)` |
 
-   - Todas las FK con `on_delete=PROTECT` (`ON DELETE RESTRICT`).
-   - `db_index=False` en las FK cubiertas por un índice compuesto (tabla "Índices de FK que Django no debe crear", sección 3.3).
+   - Todas las FK con `on_delete=PROTECT`; en PostgreSQL quedan `NO ACTION` diferidas, la protección que acepta ADR-0027.
+   - `db_index=False` en las FK cubiertas por un índice compuesto (tabla "Índices de FK que Django no debe crear", sección 3.3) y en las que ninguna consulta usa (tabla "FK sin índice porque ninguna consulta las usa"). Las bases que ya tenían esos últimos índices los quitan con `inventario/migrations/0005_fk_sin_indice.py` y `conteos/migrations/0004_fk_sin_indice.py`.
    - `Meta.db_table` con el nombre en español de la sección 3. Los modelos no tienen `save()` ni `delete()` personalizados: la lógica vive en `services.py` (TK-02).
 
 2. **Restricciones declarativas** en `Meta.constraints`, con los mismos nombres del DDL para que los errores sean reconocibles:
    - `uq_existencia` y `ck_existencia_saldo`.
-   - `ck_movimiento_por_tipo` (con `Q` por tipo, idéntico al DDL de la sección 3.1), `ck_movimiento_cantidad`, `ck_movimiento_entregado` y `ck_movimiento_no_autocorrige`.
-   - `ck_conteo_periodo`, `ck_conteo_cierre`, `uq_detalle_conteo`, `ck_detalle_fisica` y `ck_detalle_sistema`.
+   - `ck_movimiento_por_tipo` (con `Q` por tipo, idéntico al DDL de la sección 3.1), `ck_movimiento_cantidad`, `ck_movimiento_entregado`, `ck_movimiento_no_autocorrige` y `ck_movimiento_origen_entrada`.
+   - `ck_conteo_periodo`, `ck_conteo_estado`, `ck_conteo_cierre`, `uq_detalle_conteo`, `ck_detalle_fisica` y `ck_detalle_sistema`.
 
 3. **Índices** en `Meta.indexes`: los de `existencia`, `movimiento`, `conteo_fisico` y `detalle_conteo` de la sección 3.3, incluidos los parciales, el `INCLUDE` y `BrinIndex(fields=['fecha_hora'], name='brin_movimiento_fecha')`.
 
-4. **Migraciones `RunSQL`** (`inventario/migrations/0004_sql.py` y `conteos/migrations/0002_triggers.py`), cada sentencia con su `reverse_sql`:
+4. **Migraciones `RunSQL`** (`inventario/migrations/0004_sql.py` y `conteos/migrations/0002_triggers.py`, `0003_detalle_conteo_cerrado.py` y `0005_detalle_conteo_bloqueo.py`), cada sentencia con su `reverse_sql`:
    - `fn_movimiento_inmutable` + `tg_movimiento_inmutable`.
    - `fn_movimiento_validar_destino` + `tg_movimiento_validar_destino`.
-   - `fn_conteo_cerrado` + `tg_conteo_cerrado`, y `fn_detalle_conteo_cerrado` + `tg_detalle_conteo_cerrado`.
+   - `fn_conteo_cerrado` + `tg_conteo_cerrado`, y `fn_detalle_conteo_cerrado` + `tg_detalle_conteo_cerrado`. Con `0003`, la función mira también el conteo de `OLD`, y con `0005` lee el estado con `FOR SHARE`, para que el cierre y la captura de un renglón en paralelo no dejen un renglón en un conteo cerrado.
    - `fn_medicamento_baja_sin_existencias` + `tg_medicamento_baja` (sección 3.3). Es del catálogo, pero consulta `existencia`, así que nace con esa tabla.
    - `ALTER TABLE existencia SET (fillfactor = 90)`.
    - Vista de conciliación: devuelve las existencias cuyo saldo no coincide con la suma de sus movimientos. Vacía = todo cuadra.
@@ -1627,7 +1771,7 @@ No agrega dependencias nuevas.
 **Criterios de aceptación**
 - [ ] `python manage.py migrate` crea el esquema en una base vacía, y `migrate inventario zero` y `migrate conteos zero` lo revierten sin errores.
 - [ ] `makemigrations --check` no detecta cambios pendientes.
-- [ ] `make help` lista los 17 comandos, y `make migrate`, `make test` y `make mock` hacen lo mismo que sus comandos directos.
+- [ ] `make help` lista los 18 comandos, y `make migrate`, `make test` y `make mock` hacen lo mismo que sus comandos directos.
 - [ ] Un valor con espacios y sin comillas en `.env`, como `HOGAR_NOMBRE=Hogar Gerontológico Demo`, funciona con `make`, con `scripts/migrate.sh` y los atajos, y con `docker compose`; `.env.example` lo trae sin comentar, y en una base nueva el Hogar queda con ese nombre.
 - [ ] `\d movimiento` en `psql` muestra todas las restricciones e índices de las secciones 3.1 y 3.3 con sus nombres exactos.
 - [ ] Sin índices duplicados: ninguna FK de la tabla de la sección 3.3 tiene un índice propio además del compuesto.
@@ -1654,7 +1798,7 @@ No agrega dependencias nuevas.
 - [ ] El dueño de todas las tablas es `app_owner`, y `app_user` conserva `SELECT` e `INSERT` sobre `movimiento` y los 4 permisos sobre las demás tablas.
 - [ ] En una instalación nueva (`docker compose down -v` y `up`), los 2 usuarios se crean solos, y `scripts/migrate.sh` deja la base lista para que `web` arranque como `app_user`.
 
-- [ ] Con datos sintéticos de un año (175,000 movimientos), `EXPLAIN (ANALYZE, BUFFERS)` de las consultas 1c y 2 de la sección 3.3 usa sus índices, sin *Seq Scan* sobre `movimiento`.
+- [ ] Con datos sintéticos de un año (175,000 movimientos), `EXPLAIN (ANALYZE, BUFFERS)` de las consultas 1 y 2c de la sección 3.3 usa sus índices, sin *Seq Scan* sobre `movimiento`. Queda parcial: TK-01 prueba la 2c; la 1 queda para TK-03 y la 2b para TK-06 (`docs/tickets/pendientes.md`).
 
 **Pruebas**
 - `apps/inventario/tests/test_esquema.py` y `apps/conteos/tests/test_esquema.py`: un test por fila de la tabla anterior, con `pytest.raises(IntegrityError)` o `InternalError` y verificación del nombre de la restricción en el mensaje.

@@ -209,7 +209,7 @@ Creé el dataset y su script de carga, y agregué la sección **3.4. Datos de pr
 - Las claves naturales se protegen con `UNIQUE`.
 - Las fechas con hora son `timestamptz`.
 - Las cantidades son `numeric(10,2)`, para admitir media tableta sin errores de redondeo.
-- **Todas las claves foráneas son `ON DELETE RESTRICT`** (`PROTECT` en Django): no se puede borrar físicamente ningún registro con historial.
+- **Ninguna clave foránea permite borrar historial:** `PROTECT` en Django y, en PostgreSQL, la FK `NO ACTION` diferida que crea Django, que rechaza el borrado al confirmar la transacción ([ADR-0027](docs/adr/0027-claves-foraneas-protect-diferidas.md)); la FK manual `fk_residente_entidad` es `ON DELETE RESTRICT`. No se puede borrar físicamente ningún registro con historial.
 
 ```mermaid
 erDiagram
@@ -449,10 +449,12 @@ ALTER TABLE movimiento ADD CONSTRAINT ck_movimiento_por_tipo CHECK (
 ALTER TABLE movimiento
     ADD CONSTRAINT ck_movimiento_cantidad CHECK (cantidad > 0),
     ADD CONSTRAINT uq_movimiento_corrige UNIQUE (corrige_a_id),
-    ADD CONSTRAINT ck_movimiento_no_autocorrige CHECK (corrige_a_id <> id);
+    ADD CONSTRAINT ck_movimiento_no_autocorrige CHECK (corrige_a_id <> id),
+    ADD CONSTRAINT ck_movimiento_origen_entrada
+        CHECK (origen_entrada IS NULL OR origen_entrada IN ('FAMILIAR', 'HOGAR', 'OTRO'));
 
 -- D5: inmutabilidad (doble barrera: privilegios + trigger)
-REVOKE UPDATE, DELETE ON movimiento FROM app_user;
+REVOKE UPDATE, DELETE, TRUNCATE ON movimiento FROM app_user;
 CREATE FUNCTION fn_movimiento_inmutable() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
     RAISE EXCEPTION 'Los movimientos son inmutables: registre un movimiento de corrección';
@@ -472,6 +474,7 @@ ALTER TABLE pauta
 -- Conteos: un renglón por medicamento y diferencia calculada por la base de datos
 ALTER TABLE conteo_fisico
     ADD CONSTRAINT ck_conteo_periodo CHECK (periodo_fin >= periodo_inicio),
+    ADD CONSTRAINT ck_conteo_estado  CHECK (estado IN ('EN_PROCESO', 'CERRADO')),
     ADD CONSTRAINT ck_conteo_cierre  CHECK ((estado = 'CERRADO') = (cerrado_en IS NOT NULL));
 ALTER TABLE detalle_conteo
     ADD CONSTRAINT uq_detalle_conteo UNIQUE (conteo_id, medicamento_id),
@@ -731,7 +734,7 @@ ALTER TABLE detalle_conteo
 | **EAV** (entidad-atributo-valor) | Sin tipos ni restricciones; consultas complejas | Columnas explícitas y tipadas en cada tabla |
 | **ENUM/CHECK para listas que cambian** | Requiere migraciones para agregar valores | `presentacion` y `motivo_baja` son tablas de catálogo. CHECK solo para dominios fijos ligados a la lógica (`tipo` de movimiento, `estado`) |
 | **Restricciones solo en la aplicación** | Un error o un acceso directo a la base de datos rompe las reglas | `UNIQUE`, `CHECK`, `EXCLUDE` y FK en PostgreSQL. La aplicación valida primero para dar mensajes claros |
-| **Borrado físico de historial** | Se pierde la trazabilidad y quedan FK rotas | Baja lógica (`activo`, `estado`, `is_active`), `ON DELETE RESTRICT` y movimientos inmutables |
+| **Borrado físico de historial** | Se pierde la trazabilidad y quedan FK rotas | Baja lógica (`activo`, `estado`, `is_active`), `PROTECT` en las FK (ADR-0027) y movimientos inmutables |
 | **`FLOAT` para cantidades** | Errores de redondeo en saldos | `numeric(10,2)` |
 | **Claves naturales mutables como PK** | Cambiar un nombre rompe las referencias | PK sustitutas e índices `UNIQUE` sobre las claves naturales |
 | **Datos derivados sin control** | Saldos que no cuadran | Saldo actualizado solo en la transacción del movimiento, con `CHECK ≥ 0`, conciliación y diferencia generada por la base de datos |
@@ -745,7 +748,7 @@ ALTER TABLE detalle_conteo
 
 **Principios aplicados:**
 - Cada índice atiende una consulta concreta. No se indexa "por si acaso", porque cada índice encarece las escrituras.
-- **Sin índices redundantes:** Django crea un índice por cada `ForeignKey`. Cuando un índice compuesto ya empieza por esa columna, se declara `db_index=False` para no duplicarlo. Las FK siguen protegidas por `RESTRICT`, porque el índice compuesto también sirve para esas comprobaciones.
+- **Sin índices redundantes:** Django crea un índice por cada `ForeignKey`. Cuando un índice compuesto ya empieza por esa columna, se declara `db_index=False` para no duplicarlo. Las FK siguen protegidas por `PROTECT` (ADR-0027), porque el índice compuesto también sirve para esas comprobaciones.
 - **Orden de columnas:** primero la de igualdad (`=`), luego la de rango u orden (`fecha`).
 - **Índices parciales e `INCLUDE`** donde reducen tamaño o permiten *index-only scans*, sin indexar columnas que se actualizan en cada movimiento (`existencia.saldo`).
 
@@ -882,6 +885,16 @@ CREATE INDEX ix_residente_nombre ON residente (f_unaccent(lower(primer_apellido)
 | `conteo_fisico.entidad_id` | `ix_conteo_entidad_periodo` |
 | `pauta.residente_id` | `ix_pauta_residente_inicio` |
 
+**FK sin índice porque ninguna consulta las usa** (`db_index=False`, ADR-0018):
+
+| FK | Por qué no lleva índice |
+|---|---|
+| `movimiento.motivo_baja_id` | Ninguna consulta de esta sección filtra por el motivo de baja |
+| `movimiento.usuario_id` | Ninguna consulta de esta sección filtra por el usuario que registró el Movimiento |
+| `conteo_fisico.usuario_id` | Ninguna consulta de esta sección filtra por el usuario del conteo |
+
+Cada índice de más encarece las escrituras de `movimiento`, la tabla que más crece. Sin índice, el chequeo de la FK al borrar un usuario o un motivo de baja recorrería la tabla, pero ninguno se borra: `PROTECT` lo impide (ADR-0027) y se dan de baja de forma lógica (ADR-0009). La misma regla queda pendiente para `pauta.medicamento_id` y `pauta.registrado_por_id`, que conservan su índice sin que ninguna consulta lo use (historia de Pautas, `docs/tickets/pendientes.md`).
+
 #### Restricciones de integridad adicionales
 
 Complementan las de la sección 3.1. Llevan a la base de datos las reglas de negocio que antes solo validaba la aplicación, para que ni un error de código ni un acceso directo puedan romperlas.
@@ -968,13 +981,17 @@ END $$;
 CREATE TRIGGER tg_conteo_cerrado BEFORE UPDATE OR DELETE ON conteo_fisico
     FOR EACH ROW EXECUTE FUNCTION fn_conteo_cerrado();
 
+-- Un renglón tampoco sale de un conteo cerrado: en UPDATE se revisan los 2 conteos.
+-- FOR SHARE: el cierre del conteo espera a la captura en curso
 CREATE FUNCTION fn_detalle_conteo_cerrado() RETURNS trigger LANGUAGE plpgsql AS $$
-DECLARE
-    v_conteo bigint;
 BEGIN
-    IF TG_OP = 'DELETE' THEN v_conteo := OLD.conteo_id; ELSE v_conteo := NEW.conteo_id; END IF;
-    IF (SELECT estado FROM conteo_fisico WHERE id = v_conteo) = 'CERRADO' THEN
-        RAISE EXCEPTION 'El conteo % está cerrado', v_conteo;
+    IF TG_OP IN ('UPDATE', 'DELETE')
+       AND (SELECT estado FROM conteo_fisico WHERE id = OLD.conteo_id FOR SHARE) = 'CERRADO' THEN
+        RAISE EXCEPTION 'El conteo % está cerrado', OLD.conteo_id;
+    END IF;
+    IF TG_OP IN ('INSERT', 'UPDATE')
+       AND (SELECT estado FROM conteo_fisico WHERE id = NEW.conteo_id FOR SHARE) = 'CERRADO' THEN
+        RAISE EXCEPTION 'El conteo % está cerrado', NEW.conteo_id;
     END IF;
     IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
     RETURN NEW;

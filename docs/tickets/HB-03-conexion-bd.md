@@ -37,7 +37,7 @@ git switch -c feature/HB-03-conexion-bd
 Pega estos atajos en tu terminal (Git Bash o Linux) cada vez que la abras. Son los mismos que usan todas las guías:
 
 ```bash
-set -a && . ./.env && set +a      # carga las variables de .env
+while IFS= read -r linea || [ -n "$linea" ]; do case $linea in ''|'#'*) ;; *) export "$linea" ;; esac; done < .env      # carga las variables de .env
 dj()    { docker compose exec web python manage.py "$@"; }                       # manage.py como app_user
 dtest() { docker compose exec -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PASSWORD" web pytest "$@"; }
 dpsql() { docker compose exec db psql -U app_owner -d "$POSTGRES_DB" "$@"; }    # psql como app_owner
@@ -252,6 +252,8 @@ set -a; . ./.env; set +a
 docker compose run --rm -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PASSWORD" \
     web python manage.py migrate "$@"
 ```
+
+> Desde TK-01, `migrate.sh` lee `.env` línea por línea en lugar de `. ./.env`, que rompe con valores con espacios como `HOGAR_NOMBRE` (guía de TK-01, paso 1).
 
 ```bash
 git add scripts/migrate.sh

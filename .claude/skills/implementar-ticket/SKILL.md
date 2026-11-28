@@ -10,7 +10,7 @@ Este orden no se cambia: **explorar → plan → (aprobación) → tests → roj
 `<tmp>` es el directorio temporal de la sesión. El shell no conserva funciones, así que cada comando define lo que usa:
 
 ```bash
-set -a && . ./.env && set +a
+while IFS= read -r linea || [ -n "$linea" ]; do case $linea in ''|'#'*) ;; *) export "$linea" ;; esac; done < .env
 dtest() { docker compose exec -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PASSWORD" web pytest "$@"; }
 ```
 
@@ -29,7 +29,7 @@ dtest() { docker compose exec -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PAS
 
 ## 1. Explorar
 
-Lee la ficha del ticket y las secciones aplicables de `readme.md`, el cambio de OpenSpec (`openspec/changes/<id>-*`) si existe, la guía completa, los ADR aceptados que apliquen, los puntos de integración y el código y los tests que ya existen.
+Lee la ficha del ticket y las secciones aplicables de `readme.md`, el cambio de OpenSpec (`openspec/changes/<id>-*`) si existe, la guía completa, la sección del ticket en `docs/tickets/pendientes.md` (cada pendiente entra en el plan: se atiende o se explica por qué sigue esperando), los ADR aceptados que apliquen, los puntos de integración y el código y los tests que ya existen.
 
 El código de las guías nunca se ha ejecutado. Si la guía contradice al readme, manda el readme y se avisa.
 
@@ -110,7 +110,7 @@ Después ejecuta tú la suite: `dtest -m "not e2e and not lento" --cov=apps --co
 2. Ejecuta la sección 5 de la guía y marca la sección 6. `docker compose down -v` solo se ejecuta si el plan aprobado lo declara; si no lo declaró, no lo ejecutes y repórtalo como pendiente. Solo lo ejecutas tú, nunca un subagente.
 3. Ejecuta `python scripts/verificar.py` y, desde HB-03, `dj makemigrations --check --dry-run`.
 4. Desde HB-03, comprueba el umbral de cobertura del ticket. Si cambia la API, ejecuta `npx @redocly/cli lint docs/api/openapi.yaml`.
-5. Confirma que `readme.md` está al día y que todas las tareas de `tasks.md` están marcadas.
+5. Confirma que `readme.md` está al día y que todas las tareas de `tasks.md` están marcadas. En `docs/tickets/pendientes.md`, quita los pendientes que atendió el ticket y agrega los que deja, con el ticket que los retoma; si ese ticket ya tiene guía, copia la nota también ahí.
    Ejecuta también `python .claude/hooks/bloquear_secretos.py --escanear-repo`, que revisa también los archivos nuevos sin rastrear y sale con 1 si encuentra algo. Si es un dato real, cámbialo. Si es un ejemplo legítimo, márcalo con `secreto-ok`. En los dos casos, y también si viste un valor real que el hook dejó pasar, anótalo en "Casos encontrados en los tickets" de `docs/herramientas/hook-secretos.md` y repórtalo. No cambies el hook dentro del ticket: va después, en un commit aparte (sección "Si el hook bloquea durante un ticket" de ese documento).
 6. Ejecuta `/openspec-verify-change <cambio>`. Es una revisión adicional: no reemplaza la huella ni la suite. Si reporta un hallazgo crítico, vuelve al paso 6 con `implementer` y repite el paso 7.
 7. Ejecuta `/openspec-archive-change <cambio>` y elige sincronizar las specs. Solo se archiva si no quedan disputas, hallazgos críticos ni comprobaciones pendientes; si quedan, deja el cambio sin archivar y repórtalo.

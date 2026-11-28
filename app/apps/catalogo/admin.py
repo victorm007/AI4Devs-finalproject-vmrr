@@ -2,9 +2,11 @@
 
 Nadie borra: la baja de un medicamento o de una presentación es activo = False. Los
 mensajes de duplicado salen del violation_error_message de las restricciones de HB-05, que
-el formulario valida antes de guardar.
+el formulario valida antes de guardar. La baja de un medicamento con existencias la avisa
+MedicamentoAdminForm, antes que el trigger tg_medicamento_baja (TK-01).
 """
 
+from django import forms
 from django.contrib import admin
 from django.db.models import Q
 
@@ -15,7 +17,10 @@ from apps.catalogo.models import (
     Presentacion,
     PrincipioActivo,
 )
+from apps.inventario.models import Existencia
 from apps.panel import BusquedaSinAcentosMixin, SinBorrarMixin
+
+CON_EXISTENCIAS = "No se puede dar de baja: hay existencias de este medicamento."
 
 
 @admin.register(Presentacion)
@@ -54,6 +59,31 @@ class PrincipioActivoEnLinea(admin.TabularInline):
     verbose_name_plural = "principios activos"
 
 
+class MedicamentoAdminForm(forms.ModelForm):
+    """Avisa en el campo activo, en lugar del error 500 del trigger tg_medicamento_baja.
+
+    La base sigue siendo la última barrera (sección 3.3): este formulario solo da el mensaje
+    (readme, sección 5, "Controles"). Solo lectura no tiene el campo editable, así que
+    clean_activo no corre para él.
+    """
+
+    class Meta:
+        model = Medicamento
+        fields = "__all__"
+
+    def clean_activo(self):
+        activo = self.cleaned_data["activo"]
+        # self.instance todavía tiene el valor guardado: los datos nuevos se copian después
+        # de clean_activo (ModelForm._post_clean)
+        dando_de_baja = self.instance.pk is not None and self.instance.activo and not activo
+        if (
+            dando_de_baja
+            and Existencia.objects.filter(medicamento=self.instance, saldo__gt=0).exists()
+        ):
+            raise forms.ValidationError(CON_EXISTENCIAS)
+        return activo
+
+
 @admin.register(Medicamento)
 class MedicamentoAdmin(SinBorrarMixin, BusquedaSinAcentosMixin, admin.ModelAdmin):
     list_display = ("nombre_comercial", "concentracion", "presentacion", "tipo", "activo")
@@ -62,6 +92,7 @@ class MedicamentoAdmin(SinBorrarMixin, BusquedaSinAcentosMixin, admin.ModelAdmin
     search_fields = ("nombre_comercial",)
     campos_sin_acentos = ("nombre_comercial", "principios_activos__nombre")
     fields = ("nombre_comercial", "tipo", "presentacion", "concentracion", "activo")
+    form = MedicamentoAdminForm
     inlines = [PrincipioActivoEnLinea]
     ordering = ("nombre_comercial",)
 

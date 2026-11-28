@@ -254,7 +254,7 @@ Este ticket no tiene código Python, así que no hay tests de `pytest` (el *job*
 Ejecútalos en orden desde la raíz. Copia la salida de los pasos 2 a 5 en la descripción del PR.
 
 ```bash
-set -a && . ./.env && set +a            # carga las variables de .env en tu terminal
+while IFS= read -r linea || [ -n "$linea" ]; do case $linea in ''|'#'*) ;; *) export "$linea" ;; esac; done < .env            # carga las variables de .env en tu terminal
 
 # 1. Arranque desde cero
 docker compose down -v                  # ⚠️ borra el volumen local (solo desarrollo)

@@ -29,7 +29,7 @@
 
 ```bash
 git switch main && git pull
-set -a && . ./.env && set +a
+while IFS= read -r linea || [ -n "$linea" ]; do case $linea in ''|'#'*) ;; *) export "$linea" ;; esac; done < .env
 dj()    { docker compose exec web python manage.py "$@"; }
 dtest() { docker compose exec -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PASSWORD" web pytest "$@"; }
 
@@ -57,6 +57,15 @@ ExistenciasView ── valida FiltroExistenciasForm ── buscar_existencias(..
 
 - La **misma vista** sirve la página completa y el fragmento. Así la URL con filtros siempre funciona sola, aunque se abra en otra pestaña.
 - Toda la lógica de búsqueda vive en **`selectors.py`**, no en la vista: TK-05 (`GET /api/v1/existencias`) la reutilizará.
+
+### 0.4 Pendientes que retoma este ticket
+
+Vienen de tickets anteriores ([`pendientes.md`](pendientes.md)). Cada uno entra en el plan: se atiende, o se explica por qué sigue esperando.
+
+| Pendiente | Origen | Qué hacer |
+|---|---|---|
+| EXPLAIN de la consulta 1 de la sección 3.3: que la búsqueda por medicamento use `ix_existencia_med_entidad`, además de los índices trigram | Revisión de TK-01 (PR #3), hallazgo 8 | Un test `lento` con el selector `buscar_existencias` |
+| En el *job* `e2e`, el paso `Crear app_owner y app_user` debe terminar sin `connection refused` | HB-03, sección 7.1 | Revisarlo en el primer PR de este ticket |
 
 ---
 

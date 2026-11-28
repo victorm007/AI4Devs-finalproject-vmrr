@@ -85,11 +85,11 @@ Registro de administración por turno (MAR), alertas de stock mínimo o caducida
 ### **1.4. Instrucciones de instalación:**
 > Documenta de manera precisa las instrucciones para instalar y poner en marcha el proyecto en local (librerías, backend, frontend, servidor, base de datos, migraciones y semillas de datos, etc.)
 
-> **Estado:** el código está en desarrollo. Estos son los pasos previstos, que reúnen lo definido en las secciones 2.4, 3.4 y 6. Se validan y ajustan con el primer PR de código.
+> **Estado:** el código está en desarrollo. Estos pasos reúnen lo definido en las secciones 2.4, 3.4 y 6, y se comprobaron con TK-01 (`make reset`, `make migrate`, `make mock` y `make test`). La consulta de existencias que aparece después del login llega con TK-03.
 
 **Requisitos:** Git, Docker con Docker Compose v2, `make` y [`mkcert`](https://github.com/FiloSottile/mkcert) para el HTTPS local.
 - **En Windows:** usa Git Bash, que no trae `make`. Instálalo, por ejemplo con `winget install ezwinports.make` o `choco install make`, o trabaja desde WSL. Los `.sh` deben tener fin de línea LF (HB-01 agrega un `.gitattributes` que lo fuerza).
-- **El `Makefile`** de la raíz (lo crea TK-01) tiene atajos legibles para todo lo de abajo; `make help` los lista. Cada paso muestra también el comando que ejecuta, por si no tienes `make`.
+- **El `Makefile`** de la raíz (TK-01) tiene atajos legibles para todo lo de abajo; `make help` los lista. Cada paso muestra también el comando que ejecuta, por si no tienes `make`.
 
 ```bash
 # 1. Código y configuración
@@ -97,6 +97,7 @@ git clone <url-del-repositorio> && cd AI4Devs-finalproject-vmrr
 cp .env.example .env
 #    Edita .env: POSTGRES_PASSWORD, DB_OWNER_PASSWORD, DB_APP_PASSWORD y la clave secreta de Django.
 #    Sin $, # ni comillas en los valores: make lee .env y los interpreta distinto que el shell.
+#    Los espacios sí valen sin comillas (HOGAR_NOMBRE=Hogar Gerontológico Demo).
 #    DB_OWNER_CREATEDB=true solo en desarrollo (permite que pytest cree la base de tests).
 
 # 2. Certificado HTTPS local (los nombres deben coincidir con nginx/default.conf)
@@ -129,11 +130,13 @@ make lint            # ruff (Python) y djLint (plantillas), sin modificar archiv
 make format          # formatea Python y plantillas
 
 # Sin make, equivale a:
-set -a && . ./.env && set +a
+while IFS= read -r linea || [ -n "$linea" ]; do case $linea in ''|'#'*) ;; *) export "$linea" ;; esac; done < .env
 docker compose exec -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PASSWORD" web pytest -q
 ```
 
-**Volver a empezar** (borra la base local): `make reset` (equivale a `docker compose down -v`, `up` y `migrate.sh`), y repite desde el paso 5.
+**Al traer cambios** (`git pull`): `make actualizar` reconstruye `web`, aplica las migraciones y ejecuta `collectstatic` (equivale a `docker compose up -d --build`, `./scripts/migrate.sh` y `collectstatic --noinput`).
+
+**Volver a empezar** (borra la base local): `make reset` (equivale a `docker compose down -v`, `up`, `migrate.sh` y `collectstatic`), y repite desde el paso 5.
 
 Las guías de `docs/tickets/` tienen los comandos de verificación de cada parte, y la sección 2.4 describe el despliegue en el servidor del hogar y la demo en una máquina local, que la guía de HB-10 detalla paso a paso.
 
@@ -681,7 +684,7 @@ C4Container
    - `DB_OWNER_PASSWORD`: `app_owner`, para las migraciones y los respaldos.
    - `DB_APP_PASSWORD`: `app_user`, para la aplicación.
 
-   También `HOGAR_NOMBRE`, con el nombre real del hogar (o el de la demo, si es la demo). La primera migración crea el Hogar con ese nombre, una sola vez, y `config.settings.prod` no arranca sin la variable ni con más de 150 caracteres. En desarrollo, sin ella, el Hogar se llama "Hogar Gerontológico Demo". Hasta TK-01, un valor con espacios rompe `scripts/migrate.sh`, que lee `.env` con `. ./.env`: el despliegue en el servidor del hogar va después de TK-01 (sección 6, ficha de TK-01).
+   También `HOGAR_NOMBRE`, con el nombre real del hogar (o el de la demo, si es la demo). La primera migración crea el Hogar con ese nombre, una sola vez, y `config.settings.prod` no arranca sin la variable ni con más de 150 caracteres. En desarrollo, sin ella, el Hogar se llama "Hogar Gerontológico Demo". El valor va sin comillas aunque lleve espacios: `make`, `docker compose`, `scripts/migrate.sh` y los atajos lo leen completo, porque desde TK-01 `.env` se lee línea por línea y no con `. ./.env` (sección 6, ficha de TK-01).
 
    Al crear el volumen `pgdata`, el contenedor `db` ejecuta `db/init/01_roles.sh`, que crea `app_owner` y `app_user` (sección 6, HB-01). Después, en la PC del Administrador y con la CA propia del hogar, se genera el certificado de `mkcert` para la IP fija del servidor. Al servidor solo van el certificado y su llave, nunca la llave de la CA, y la CA se instala en cada PC y celular del hogar. Por último se crea el superusuario con `createsuperuser` (guía de HB-10). El mock nunca se carga en el servidor del hogar. Los grupos de permisos, el Hogar y los catálogos semilla no se cargan aparte: los crean las migraciones de datos (sección 3.1).
 4. **Respaldos:** un cron diario ejecuta `scripts/backup_db.sh` (HB-10), que genera un `pg_dump` comprimido y cifrado con la llave pública GPG del Administrador (la privada no queda en el servidor), sin los datos de `axes` ni de sesiones, que no salen del servidor (ADR-0022), con retención de 14 días y copia a un disco externo. Una vez al mes, el Administrador copia el último respaldo a un segundo disco que se guarda fuera del hogar, y `scripts/restore_db.sh --ensayo` restaura un respaldo recién hecho en una base aparte y compara las tablas de negocio, sin detener la aplicación. Si el último respaldo completo tiene más de 26 horas, el mensaje de entrada por SSH lo avisa. El cron también ejecuta cada día `clearsessions`, y cada semana la limpieza de `axes`: los registros de acceso y de fallos de más de 30 días y los intentos fallidos ([ADR-0022](docs/adr/0022-autenticacion-sesion-argon2-axes.md)).
@@ -761,7 +764,7 @@ Todas las capas corren contra PostgreSQL real, incluida la de servicio y base de
 - Las claves naturales se protegen con `UNIQUE`.
 - Las fechas con hora son `timestamptz`.
 - Las cantidades son `numeric(10,2)`, para admitir media tableta sin errores de redondeo.
-- **Todas las claves foráneas son `ON DELETE RESTRICT`** (`PROTECT` en Django): no se puede borrar físicamente ningún registro con historial.
+- **Ninguna clave foránea permite borrar historial:** `PROTECT` en Django y, en PostgreSQL, la FK `NO ACTION` diferida que crea Django, que rechaza el borrado al confirmar la transacción ([ADR-0027](docs/adr/0027-claves-foraneas-protect-diferidas.md)); la FK manual `fk_residente_entidad` es `ON DELETE RESTRICT`. No se puede borrar físicamente ningún registro con historial.
 
 ```mermaid
 erDiagram
@@ -1001,10 +1004,12 @@ ALTER TABLE movimiento ADD CONSTRAINT ck_movimiento_por_tipo CHECK (
 ALTER TABLE movimiento
     ADD CONSTRAINT ck_movimiento_cantidad CHECK (cantidad > 0),
     ADD CONSTRAINT uq_movimiento_corrige UNIQUE (corrige_a_id),
-    ADD CONSTRAINT ck_movimiento_no_autocorrige CHECK (corrige_a_id <> id);
+    ADD CONSTRAINT ck_movimiento_no_autocorrige CHECK (corrige_a_id <> id),
+    ADD CONSTRAINT ck_movimiento_origen_entrada
+        CHECK (origen_entrada IS NULL OR origen_entrada IN ('FAMILIAR', 'HOGAR', 'OTRO'));
 
 -- D5: inmutabilidad (doble barrera: privilegios + trigger)
-REVOKE UPDATE, DELETE ON movimiento FROM app_user;
+REVOKE UPDATE, DELETE, TRUNCATE ON movimiento FROM app_user;
 CREATE FUNCTION fn_movimiento_inmutable() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
     RAISE EXCEPTION 'Los movimientos son inmutables: registre un movimiento de corrección';
@@ -1024,6 +1029,7 @@ ALTER TABLE pauta
 -- Conteos: un renglón por medicamento y diferencia calculada por la base de datos
 ALTER TABLE conteo_fisico
     ADD CONSTRAINT ck_conteo_periodo CHECK (periodo_fin >= periodo_inicio),
+    ADD CONSTRAINT ck_conteo_estado  CHECK (estado IN ('EN_PROCESO', 'CERRADO')),
     ADD CONSTRAINT ck_conteo_cierre  CHECK ((estado = 'CERRADO') = (cerrado_en IS NOT NULL));
 ALTER TABLE detalle_conteo
     ADD CONSTRAINT uq_detalle_conteo UNIQUE (conteo_id, medicamento_id),
@@ -1283,7 +1289,7 @@ ALTER TABLE detalle_conteo
 | **EAV** (entidad-atributo-valor) | Sin tipos ni restricciones; consultas complejas | Columnas explícitas y tipadas en cada tabla |
 | **ENUM/CHECK para listas que cambian** | Requiere migraciones para agregar valores | `presentacion` y `motivo_baja` son tablas de catálogo. CHECK solo para dominios fijos ligados a la lógica (`tipo` de movimiento, `estado`) |
 | **Restricciones solo en la aplicación** | Un error o un acceso directo a la base de datos rompe las reglas | `UNIQUE`, `CHECK`, `EXCLUDE` y FK en PostgreSQL. La aplicación valida primero para dar mensajes claros |
-| **Borrado físico de historial** | Se pierde la trazabilidad y quedan FK rotas | Baja lógica (`activo`, `estado`, `is_active`), `ON DELETE RESTRICT` y movimientos inmutables |
+| **Borrado físico de historial** | Se pierde la trazabilidad y quedan FK rotas | Baja lógica (`activo`, `estado`, `is_active`), `PROTECT` en las FK (ADR-0027) y movimientos inmutables |
 | **`FLOAT` para cantidades** | Errores de redondeo en saldos | `numeric(10,2)` |
 | **Claves naturales mutables como PK** | Cambiar un nombre rompe las referencias | PK sustitutas e índices `UNIQUE` sobre las claves naturales |
 | **Datos derivados sin control** | Saldos que no cuadran | Saldo actualizado solo en la transacción del movimiento, con `CHECK ≥ 0`, conciliación y diferencia generada por la base de datos |
@@ -1297,7 +1303,7 @@ ALTER TABLE detalle_conteo
 
 **Principios aplicados:**
 - Cada índice atiende una consulta concreta. No se indexa "por si acaso", porque cada índice encarece las escrituras.
-- **Sin índices redundantes:** Django crea un índice por cada `ForeignKey`. Cuando un índice compuesto ya empieza por esa columna, se declara `db_index=False` para no duplicarlo. Las FK siguen protegidas por `RESTRICT`, porque el índice compuesto también sirve para esas comprobaciones.
+- **Sin índices redundantes:** Django crea un índice por cada `ForeignKey`. Cuando un índice compuesto ya empieza por esa columna, se declara `db_index=False` para no duplicarlo. Las FK siguen protegidas por `PROTECT` (ADR-0027), porque el índice compuesto también sirve para esas comprobaciones.
 - **Orden de columnas:** primero la de igualdad (`=`), luego la de rango u orden (`fecha`).
 - **Índices parciales e `INCLUDE`** donde reducen tamaño o permiten *index-only scans*, sin indexar columnas que se actualizan en cada movimiento (`existencia.saldo`).
 
@@ -1434,6 +1440,16 @@ CREATE INDEX ix_residente_nombre ON residente (f_unaccent(lower(primer_apellido)
 | `conteo_fisico.entidad_id` | `ix_conteo_entidad_periodo` |
 | `pauta.residente_id` | `ix_pauta_residente_inicio` |
 
+**FK sin índice porque ninguna consulta las usa** (`db_index=False`, ADR-0018):
+
+| FK | Por qué no lleva índice |
+|---|---|
+| `movimiento.motivo_baja_id` | Ninguna consulta de esta sección filtra por el motivo de baja |
+| `movimiento.usuario_id` | Ninguna consulta de esta sección filtra por el usuario que registró el Movimiento |
+| `conteo_fisico.usuario_id` | Ninguna consulta de esta sección filtra por el usuario del conteo |
+
+Cada índice de más encarece las escrituras de `movimiento`, la tabla que más crece. Sin índice, el chequeo de la FK al borrar un usuario o un motivo de baja recorrería la tabla, pero ninguno se borra: `PROTECT` lo impide (ADR-0027) y se dan de baja de forma lógica (ADR-0009). La misma regla queda pendiente para `pauta.medicamento_id` y `pauta.registrado_por_id`, que conservan su índice sin que ninguna consulta lo use (historia de Pautas, `docs/tickets/pendientes.md`).
+
 #### Restricciones de integridad adicionales
 
 Complementan las de la sección 3.1. Llevan a la base de datos las reglas de negocio que antes solo validaba la aplicación, para que ni un error de código ni un acceso directo puedan romperlas.
@@ -1520,13 +1536,17 @@ END $$;
 CREATE TRIGGER tg_conteo_cerrado BEFORE UPDATE OR DELETE ON conteo_fisico
     FOR EACH ROW EXECUTE FUNCTION fn_conteo_cerrado();
 
+-- Un renglón tampoco sale de un conteo cerrado: en UPDATE se revisan los 2 conteos.
+-- FOR SHARE: el cierre del conteo espera a la captura en curso
 CREATE FUNCTION fn_detalle_conteo_cerrado() RETURNS trigger LANGUAGE plpgsql AS $$
-DECLARE
-    v_conteo bigint;
 BEGIN
-    IF TG_OP = 'DELETE' THEN v_conteo := OLD.conteo_id; ELSE v_conteo := NEW.conteo_id; END IF;
-    IF (SELECT estado FROM conteo_fisico WHERE id = v_conteo) = 'CERRADO' THEN
-        RAISE EXCEPTION 'El conteo % está cerrado', v_conteo;
+    IF TG_OP IN ('UPDATE', 'DELETE')
+       AND (SELECT estado FROM conteo_fisico WHERE id = OLD.conteo_id FOR SHARE) = 'CERRADO' THEN
+        RAISE EXCEPTION 'El conteo % está cerrado', OLD.conteo_id;
+    END IF;
+    IF TG_OP IN ('INSERT', 'UPDATE')
+       AND (SELECT estado FROM conteo_fisico WHERE id = NEW.conteo_id FOR SHARE) = 'CERRADO' THEN
+        RAISE EXCEPTION 'El conteo % está cerrado', NEW.conteo_id;
     END IF;
     IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
     RETURN NEW;
@@ -2070,7 +2090,7 @@ Se implementan en los tickets de habilitación HB-08 (login, grupos y usuarios) 
 - **Movimientos, existencias y conteos no se registran en el panel.** Solo se operan desde las pantallas de HU-01 y HU-03, así nadie puede editar un saldo ni un movimiento a mano.
 - **Principios activos en línea:** en el formulario del medicamento se agregan sus principios activos en la misma pantalla (*inline* de la tabla puente).
 - **Acceso de los grupos:** los usuarios de los 2 grupos tienen `is_staff = True` para entrar al panel. Solo el Administrador ve las secciones de usuarios y grupos.
-- **Reglas que viven en *triggers*:** el formulario las valida antes de guardar, para que el usuario vea un mensaje y no un error `500`. Por ejemplo, el formulario de `MedicamentoAdmin` rechaza desmarcar `activo` si el medicamento tiene existencias ("No se puede dar de baja: hay existencias de este medicamento"); el *trigger* `tg_medicamento_baja` queda como última barrera.
+- **Reglas que viven en *triggers*:** el formulario las valida antes de guardar, para que el usuario vea un mensaje y no un error `500`. Por ejemplo, el formulario de `MedicamentoAdmin` rechaza desmarcar `activo` si el medicamento tiene existencias ("No se puede dar de baja: hay existencias de este medicamento."); el *trigger* `tg_medicamento_baja` queda como última barrera.
 
 **Limitaciones aceptadas para el MVP:** la interfaz es genérica (no tiene el estilo de la aplicación) y es menos cómoda en el celular. Como estas operaciones se hacen pocas veces y desde la computadora, no afecta el uso diario.
 
@@ -2543,21 +2563,21 @@ No agrega dependencias nuevas.
    | `ConteoFisico` | `conteo_fisico` | `estado` con `TextChoices`, `db_default='EN_PROCESO'`; `cerrado_en` nullable |
    | `DetalleConteo` | `detalle_conteo` | `diferencia = GeneratedField(expression=F('cantidad_fisica') - F('cantidad_sistema'), output_field=DecimalField(10, 2), db_persist=True)` |
 
-   - Todas las FK con `on_delete=PROTECT` (`ON DELETE RESTRICT`).
-   - `db_index=False` en las FK cubiertas por un índice compuesto (tabla "Índices de FK que Django no debe crear", sección 3.3).
+   - Todas las FK con `on_delete=PROTECT`; en PostgreSQL quedan `NO ACTION` diferidas, la protección que acepta ADR-0027.
+   - `db_index=False` en las FK cubiertas por un índice compuesto (tabla "Índices de FK que Django no debe crear", sección 3.3) y en las que ninguna consulta usa (tabla "FK sin índice porque ninguna consulta las usa"). Las bases que ya tenían esos últimos índices los quitan con `inventario/migrations/0005_fk_sin_indice.py` y `conteos/migrations/0004_fk_sin_indice.py`.
    - `Meta.db_table` con el nombre en español de la sección 3. Los modelos no tienen `save()` ni `delete()` personalizados: la lógica vive en `services.py` (TK-02).
 
 2. **Restricciones declarativas** en `Meta.constraints`, con los mismos nombres del DDL para que los errores sean reconocibles:
    - `uq_existencia` y `ck_existencia_saldo`.
-   - `ck_movimiento_por_tipo` (con `Q` por tipo, idéntico al DDL de la sección 3.1), `ck_movimiento_cantidad`, `ck_movimiento_entregado` y `ck_movimiento_no_autocorrige`.
-   - `ck_conteo_periodo`, `ck_conteo_cierre`, `uq_detalle_conteo`, `ck_detalle_fisica` y `ck_detalle_sistema`.
+   - `ck_movimiento_por_tipo` (con `Q` por tipo, idéntico al DDL de la sección 3.1), `ck_movimiento_cantidad`, `ck_movimiento_entregado`, `ck_movimiento_no_autocorrige` y `ck_movimiento_origen_entrada`.
+   - `ck_conteo_periodo`, `ck_conteo_estado`, `ck_conteo_cierre`, `uq_detalle_conteo`, `ck_detalle_fisica` y `ck_detalle_sistema`.
 
 3. **Índices** en `Meta.indexes`: los de `existencia`, `movimiento`, `conteo_fisico` y `detalle_conteo` de la sección 3.3, incluidos los parciales, el `INCLUDE` y `BrinIndex(fields=['fecha_hora'], name='brin_movimiento_fecha')`.
 
-4. **Migraciones `RunSQL`** (`inventario/migrations/0004_sql.py` y `conteos/migrations/0002_triggers.py`), cada sentencia con su `reverse_sql`:
+4. **Migraciones `RunSQL`** (`inventario/migrations/0004_sql.py` y `conteos/migrations/0002_triggers.py`, `0003_detalle_conteo_cerrado.py` y `0005_detalle_conteo_bloqueo.py`), cada sentencia con su `reverse_sql`:
    - `fn_movimiento_inmutable` + `tg_movimiento_inmutable`.
    - `fn_movimiento_validar_destino` + `tg_movimiento_validar_destino`.
-   - `fn_conteo_cerrado` + `tg_conteo_cerrado`, y `fn_detalle_conteo_cerrado` + `tg_detalle_conteo_cerrado`.
+   - `fn_conteo_cerrado` + `tg_conteo_cerrado`, y `fn_detalle_conteo_cerrado` + `tg_detalle_conteo_cerrado`. Con `0003`, la función mira también el conteo de `OLD`, y con `0005` lee el estado con `FOR SHARE`, para que el cierre y la captura de un renglón en paralelo no dejen un renglón en un conteo cerrado.
    - `fn_medicamento_baja_sin_existencias` + `tg_medicamento_baja` (sección 3.3). Es del catálogo, pero consulta `existencia`, así que nace con esa tabla.
    - `ALTER TABLE existencia SET (fillfactor = 90)`.
    - Vista de conciliación: devuelve las existencias cuyo saldo no coincide con la suma de sus movimientos. Vacía = todo cuadra.
@@ -2611,7 +2631,7 @@ No agrega dependencias nuevas.
 **Criterios de aceptación**
 - [ ] `python manage.py migrate` crea el esquema en una base vacía, y `migrate inventario zero` y `migrate conteos zero` lo revierten sin errores.
 - [ ] `makemigrations --check` no detecta cambios pendientes.
-- [ ] `make help` lista los 17 comandos, y `make migrate`, `make test` y `make mock` hacen lo mismo que sus comandos directos.
+- [ ] `make help` lista los 18 comandos, y `make migrate`, `make test` y `make mock` hacen lo mismo que sus comandos directos.
 - [ ] Un valor con espacios y sin comillas en `.env`, como `HOGAR_NOMBRE=Hogar Gerontológico Demo`, funciona con `make`, con `scripts/migrate.sh` y los atajos, y con `docker compose`; `.env.example` lo trae sin comentar, y en una base nueva el Hogar queda con ese nombre.
 - [ ] `\d movimiento` en `psql` muestra todas las restricciones e índices de las secciones 3.1 y 3.3 con sus nombres exactos.
 - [ ] Sin índices duplicados: ninguna FK de la tabla de la sección 3.3 tiene un índice propio además del compuesto.
@@ -2638,7 +2658,7 @@ No agrega dependencias nuevas.
 - [ ] El dueño de todas las tablas es `app_owner`, y `app_user` conserva `SELECT` e `INSERT` sobre `movimiento` y los 4 permisos sobre las demás tablas.
 - [ ] En una instalación nueva (`docker compose down -v` y `up`), los 2 usuarios se crean solos, y `scripts/migrate.sh` deja la base lista para que `web` arranque como `app_user`.
 
-- [ ] Con datos sintéticos de un año (175,000 movimientos), `EXPLAIN (ANALYZE, BUFFERS)` de las consultas 1c y 2 de la sección 3.3 usa sus índices, sin *Seq Scan* sobre `movimiento`.
+- [ ] Con datos sintéticos de un año (175,000 movimientos), `EXPLAIN (ANALYZE, BUFFERS)` de las consultas 1 y 2c de la sección 3.3 usa sus índices, sin *Seq Scan* sobre `movimiento`. Queda parcial: TK-01 prueba la 2c; la 1 queda para TK-03 y la 2b para TK-06 (`docs/tickets/pendientes.md`).
 
 **Pruebas**
 - `apps/inventario/tests/test_esquema.py` y `apps/conteos/tests/test_esquema.py`: un test por fila de la tabla anterior, con `pytest.raises(IntegrityError)` o `InternalError` y verificación del nombre de la restricción en el mensaje.
@@ -3460,7 +3480,7 @@ dtest apps/inventario/tests/test_integracion.py -q          # la integración de
 |---|---|---|
 | Backend | `app/apps/conteos/exceptions.py` | Nuevo: `ConteoCerrado` (`CONTEO_CERRADO`), `ConteoSinRenglones` (`CONTEO_SIN_RENGLONES`), `CantidadInvalida` |
 | Backend | `app/apps/conteos/services.py` | Nuevo: `iniciar_conteo`, `capturar_renglon` (crea o recaptura y toma la foto del saldo) y `cerrar_conteo` |
-| BD | `app/apps/conteos/migrations/0003_permisos_grupos.py` | Nuevo: `view_*` para los 2 grupos; `add_*` y `change_*` de conteos para *Lectura y escritura* |
+| BD | `app/apps/conteos/migrations/0006_permisos_grupos.py` | Nuevo: `view_*` para los 2 grupos; `add_*` y `change_*` de conteos para *Lectura y escritura* |
 | Tests | `app/apps/conteos/tests/test_services.py` | Nuevo: los escenarios de HU-03 sobre el conteo 2 del mock, como `app_user` |
 | Docs | `readme.md` (sección 6) | Punto de integración 12: servicio de conteos → TK-07 |
 

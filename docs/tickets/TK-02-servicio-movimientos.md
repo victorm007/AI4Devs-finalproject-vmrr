@@ -28,7 +28,7 @@ TK-01 debe estar integrado en `main`. Compruébalo:
 
 ```bash
 git switch main && git pull
-set -a && . ./.env && set +a
+while IFS= read -r linea || [ -n "$linea" ]; do case $linea in ''|'#'*) ;; *) export "$linea" ;; esac; done < .env
 dj()    { docker compose exec web python manage.py "$@"; }
 dtest() { docker compose exec -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PASSWORD" web pytest "$@"; }
 
@@ -437,6 +437,8 @@ def corregir(*, usuario, movimiento: Movimiento, nota: str | None = None) -> Mov
 ```
 
 > **Por qué la corrección no bloquea el movimiento original:** no se puede usar `FOR UPDATE` sobre `movimiento` (paso 0.4). Si 2 usuarios corrigen a la vez, la restricción `uq_movimiento_corrige` deja pasar solo a uno; el otro recibe `MovimientoYaCorregido` y su transacción completa, incluido el cambio de saldo, se revierte.
+
+> **La corrección debe ser el inverso exacto del original** (revisión adversarial de TK-01, hallazgo 9). `tg_movimiento_validar_destino` exime de la regla de destino activo a cualquier Movimiento con `corrige_a`, sin comprobar que sea su inverso. `corregir` es la única vía que lo garantiza: el mismo medicamento y la misma cantidad, y las entidades del original intercambiadas según la tabla de su *docstring*. Un test de `test_services.py` debe comprobarlo.
 
 ### Paso 7. Tests en verde (≈ 30 min)
 

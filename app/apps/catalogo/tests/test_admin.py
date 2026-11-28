@@ -53,6 +53,16 @@ texto ("nombre") da un solo panel.E003 y ningún panel.E002, y una relación inv
 (medicamentos__nombre_comercial en el registro de principios activos) no da panel.E002. Rojo
 esperado: hoy el texto se recorre letra por letra (6 panel.E002) y panel.E003 no existe. El de la
 relación inversa es de regresión: la comprobación de panel.E002 ya sigue las relaciones inversas.
+
+TK-01: el panel no da de baja un medicamento con existencias (Eutirox, 33 dosis de Carmen) y
+muestra el mensaje en el campo activo, con su principio activo en el POST para que el aviso no
+se confunda con el de SIN_PRINCIPIO_ACTIVO; Tempra (saldo 0 en el Hogar) sí se da de baja, y el
+trigger tg_medicamento_baja rechaza la baja aunque se salte el formulario. Usan el mock (demo y
+datos_demo); nada de apps.inventario se importa en este módulo, para no tumbar los tests de
+HB-09. Rojo esperado: datos_demo falla porque faltan las tablas de inventario y conteos; con
+las tablas, el de Eutirox sigue en rojo (el trigger da un error 500, sin mensaje) hasta que
+MedicamentoAdminForm valida la baja. El de Tempra es su control: en verde en cuanto existen las
+tablas y el trigger.
 """
 
 import re
@@ -62,7 +72,7 @@ from django.contrib import admin
 from django.contrib.admin.models import ADDITION, LogEntry
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
-from django.db import connection
+from django.db import DatabaseError, connection
 from django.test import Client
 
 from apps.catalogo.models import (
@@ -74,6 +84,7 @@ from apps.catalogo.models import (
 from apps.catalogo.validadores import SIN_PRINCIPIO_ACTIVO
 from apps.entidades.models import Residente
 from apps.panel import BusquedaSinAcentosMixin
+from pruebas import ejecutar_sql
 
 pytestmark = [pytest.mark.django_db, pytest.mark.http]
 URL = "/admin/catalogo/medicamento/"
@@ -827,3 +838,64 @@ def test_una_relacion_inversa_valida_no_da_error():
     )
     errores = TramoMal(PrincipioActivo, admin.AdminSite()).check()
     assert "panel.E002" in [error.id for error in errores], errores
+
+
+AVISO_CON_EXISTENCIAS = "No se puede dar de baja: hay existencias de este medicamento"
+
+
+def formulario_de_baja(medicamento):
+    """POST del cambio de un medicamento del mock, con sus datos reales y su principio activo,
+    y con la casilla activo desmarcada."""
+    datos = formulario_de_cambio(
+        medicamento,
+        medicamento.principios_activos.get(),
+        nombre_comercial=medicamento.nombre_comercial,
+        tipo=medicamento.tipo,
+        presentacion=medicamento.presentacion_id,
+        concentracion=medicamento.concentracion,
+    )
+    del datos["activo"]  # casilla desmarcada
+    return datos
+
+
+def test_no_se_da_de_baja_un_medicamento_con_existencias(admin_client, demo):
+    # Scenario: El panel avisa al dar de baja un Medicamento con Existencias (TK-01, criterio 8;
+    # readme, sección 5, "Controles")
+    eutirox = demo.med["Eutirox"]  # Carmen tiene 33 dosis
+    # Control: empieza activo
+    assert eutirox.activo is True
+    respuesta = admin_client.post(f"{URL}{eutirox.pk}/change/", formulario_de_baja(eutirox))
+    assert respuesta.status_code == 200  # mensaje en el formulario, no un 500
+    assert AVISO_CON_EXISTENCIAS in respuesta.content.decode()
+    # El aviso es del campo activo, y los renglones de principio activo no tienen errores
+    errores_de_activo = respuesta.context["adminform"].form.errors.get("activo", [])
+    assert any(AVISO_CON_EXISTENCIAS in str(error) for error in errores_de_activo)
+    assert errores_del_conjunto(respuesta) == []
+    eutirox.refresh_from_db()
+    assert eutirox.activo is True
+
+
+def test_un_medicamento_sin_saldo_si_se_da_de_baja(admin_client, demo):
+    # Scenario: Un Medicamento sin saldo sí se da de baja (readme, sección 3.4, guion de la
+    # demo, paso 7). Control del anterior: el mismo POST, con un medicamento sin existencias
+    tempra = demo.med["Tempra"]  # saldo 0 en el Hogar
+    assert tempra.activo is True
+    respuesta = admin_client.post(f"{URL}{tempra.pk}/change/", formulario_de_baja(tempra))
+    assert respuesta.status_code == 302
+    tempra.refresh_from_db()
+    assert tempra.activo is False
+
+
+def test_el_trigger_rechaza_la_baja_aunque_se_salte_el_formulario(datos_demo):
+    # Scenario: La base rechaza la baja aunque se salte el formulario (TK-01, criterio 8)
+    with pytest.raises(DatabaseError, match=r"No se puede dar de baja el medicamento \d+: tiene"):
+        ejecutar_sql("UPDATE medicamento SET activo = false WHERE nombre_comercial = 'Eutirox'")
+    assert ejecutar_sql("SELECT activo FROM medicamento WHERE nombre_comercial = 'Eutirox'") == [
+        (True,)
+    ]
+    # Control: el mismo UPDATE sobre Tempra (saldo 0) sí se guarda; el rechazo se debe a las
+    # existencias de Eutirox
+    ejecutar_sql("UPDATE medicamento SET activo = false WHERE nombre_comercial = 'Tempra'")
+    assert ejecutar_sql("SELECT activo FROM medicamento WHERE nombre_comercial = 'Tempra'") == [
+        (False,)
+    ]

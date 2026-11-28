@@ -222,8 +222,9 @@ def test_los_grupos_no_se_cambian_a_mano(admin_client, admin_user):
     # Scenario: Los grupos no se cambian a mano (revisión de HB-08, hallazgo 5)
     solo_lectura = Group.objects.get(name="Solo lectura")
     permisos = set(solo_lectura.permissions.values_list("pk", flat=True))
-    # Control: el grupo tiene sus 5 permisos antes del POST
-    assert len(permisos) == 5
+    # Control: el grupo tiene sus 8 permisos antes del POST. TK-01
+    # (inventario/0003_permisos_grupos) suma los permisos de inventario a los 5 de HB-08
+    assert len(permisos) == 8
     # Control positivo del botón de guardar (2.ª revisión de HB-08, hallazgo 7): en una página
     # de cambio editable, la del propio Administrador, sí aparece. Así, su ausencia en la del
     # grupo se debe al modo de solo lectura y no a que el panel lo escriba de otra forma
@@ -237,7 +238,7 @@ def test_los_grupos_no_se_cambian_a_mano(admin_client, admin_user):
     assert 'name="_save"' not in consulta.content.decode()
     respuesta = admin_client.post(url, {"name": "Otro nombre", "permissions": sorted(permisos)})
     assert respuesta.status_code == 403
-    # El grupo conserva su nombre y sus 5 permisos
+    # El grupo conserva su nombre y sus 8 permisos
     solo_lectura.refresh_from_db()
     assert solo_lectura.name == "Solo lectura"
     assert set(solo_lectura.permissions.values_list("pk", flat=True)) == permisos
