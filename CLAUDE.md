@@ -64,7 +64,7 @@ Cada ticket se implementa como un cambio de OpenSpec (`openspec/changes/<id-del-
   - Consecuencia: **nunca uses `select_for_update()` sobre `Movimiento`**, porque `FOR UPDATE` exige permiso de `UPDATE` y fallaría solo en producción. Sobre `Existencia` sí se usa, bloqueando siempre en orden de `entidad_id` para evitar *deadlocks*.
   - Los tests que deben comportarse como la aplicación corren como `app_user` (ver "Permisos reales en tests").
 - **Delegación a PostgreSQL:** La base de datos es la barrera final. Usa `CheckConstraint`, `UniqueConstraint`, `GeneratedField` e índices trigram a nivel esquema. Las validaciones en la app son para dar mensajes claros al usuario, no sustituyen las restricciones de la BD.
-- **Protección de Datos Históricos:** TODAS las claves foráneas (`ForeignKey`) deben usar `on_delete=models.PROTECT` en Django (que equivale a `ON DELETE RESTRICT` en PostgreSQL). Nunca permitas borrados en cascada en tablas transaccionales.
+- **Protección de Datos Históricos:** TODAS las claves foráneas (`ForeignKey`) deben usar `on_delete=models.PROTECT` en Django (en PostgreSQL, una FK `NO ACTION` diferida que rechaza el borrado al confirmar la transacción: ADR-0027). Nunca permitas borrados en cascada en tablas transaccionales.
 - **Tipos de Datos Sensibles:**
   - Para fechas con hora, usa siempre `timestamptz` (en Django, `DateTimeField` con `USE_TZ = True`). Para fechas de calendario, `date`.
   - Para cantidades y saldos en dosis (`existencia.saldo`, `movimiento.cantidad`, `detalle_conteo.*`), usa `numeric(10,2)` (`DecimalField(max_digits=10, decimal_places=2)`). La dosis por toma de una pauta es `numeric(6,2)` (sección 3.2). NUNCA uses `Float` ni `Integer` para cantidades.
@@ -112,6 +112,8 @@ El entregable del curso exige mostrar los prompts usados con IA, y por eso cada 
 
 Orden de ejecución: tickets de habilitación HB-01 a HB-09 (semanas 1 y 2: contenedores, conexión con los 2 usuarios de BD, catálogo, residentes, pautas, login y `/admin/`) → TK-01 (BD) → TK-02 (backend) y TK-03 (frontend) → prueba de integración → backlog (TK-04 a TK-07) → HB-10 (semana 6: despliegue en el servidor del hogar, respaldos y demo en una máquina local, sin VPS; ADR-0026). Las guías paso a paso están en `docs/tickets/` (`HB-*.md` y `TK-*.md`), y `integracion.md` tiene la prueba conjunta.
 
+Los pendientes que un ticket deja para otro (hallazgos de revisión, comprobaciones) se siguen en `docs/tickets/pendientes.md`, por ticket destino: `implementar-ticket` los lee al explorar y los actualiza al cerrar.
+
 Los tests usan el dataset real del mock (`app/fixtures/mock/`, sección 3.4), no *factories*, porque los criterios de aceptación están escritos con esos datos. `conftest.py` y `pruebas.py` (con `ejecutar_sql`) nacen en HB-03; los *fixtures* compartidos (`datos_demo`, `demo`, `como_app_user`) y el helper `saldo` los agrega TK-01, y los demás tickets los usan sin modificarlos. Antes de TK-01 no existe el mock completo: los tests de HB-05 a HB-09 crean sus propios datos mínimos.
 
 ## Estrategia de Pruebas Estricta (Testing Rules)
@@ -141,7 +143,8 @@ Los tests usan el dataset real del mock (`app/fixtures/mock/`, sección 3.4), no
 | Tarea | `make` | Comando directo |
 |---|---|---|
 | Levantar / detener | `make up` / `make down` | `docker compose up -d --build` / `docker compose down` |
-| Borrar la base local y recrearla | `make reset` | `docker compose down -v`, `up` y `./scripts/migrate.sh` |
+| Borrar la base local y recrearla | `make reset` | `docker compose down -v`, `docker compose up -d --build`, `./scripts/migrate.sh` y `collectstatic --noinput` en `web` |
+| Poner al día imagen, migraciones y estáticos tras traer cambios | `make actualizar` | `docker compose up -d --build`, `./scripts/migrate.sh` y `collectstatic --noinput` en `web` |
 | Migraciones (siempre como `app_owner`) | `make migrate` | `./scripts/migrate.sh` |
 | Cargar el mock | `make mock` | ver el bloque de abajo |
 | Toda la suite / un solo test | `make test` / `make test T=ruta::test` | `dtest -q` / `dtest ruta::test` |

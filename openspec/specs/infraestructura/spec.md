@@ -666,6 +666,12 @@ El `Makefile` de la raíz DEBE (MUST) listar con `make help` sus 18 comandos con
 - **WHEN** se ejecuta `make actualizar`
 - **THEN** termina sin errores y `https://localhost/static/css/vendor/bootstrap.min.css` responde `200`
 
+#### Scenario: make test no muestra la contraseña (revisión de TK-01, hallazgo 4)
+
+- **GIVEN** el repositorio con su `Makefile` y un `.env`
+- **WHEN** se ejecuta `make test T=apps/conteos`
+- **THEN** la salida no contiene el valor de `DB_OWNER_PASSWORD`
+
 ### Requirement: Valores con espacios en .env
 
 Un valor con espacios y sin comillas en `.env`, como `HOGAR_NOMBRE=Hogar Gerontológico Demo`, DEBE (MUST) leerse completo con `make`, con `scripts/migrate.sh` y los atajos de la documentación, y con `docker compose`. `.env.example` DEBE (MUST) traer esa línea sin comentar.

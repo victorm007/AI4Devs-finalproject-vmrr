@@ -1387,6 +1387,55 @@ Implementé TK-01 con la skill `implementar-ticket`, en el cambio de OpenSpec `t
 
 ---
 
+## Prompt 50 — Usuario
+
+(Tras la revisión adversarial del PR #3 de TK-01, sin bloqueantes, con 3 mayores y 9 menores:) ¿Cuáles son los hallazgos de la adversarial, si es que hay? (Tras la respuesta:) Sí, hazlo así. (Tras el plan:) Aprobado.
+
+---
+
+## Respuesta 50 — Claude
+
+Atendí la revisión en el cambio de OpenSpec `tk-01-ajustes-revision`:
+
+| Hallazgo | Cambio |
+|---|---|
+| 2. Un `UPDATE` de `conteo_id` sacaba un renglón de un conteo cerrado | `conteos/0003_detalle_conteo_cerrado`: la función revisa también `OLD.conteo_id`; tests de borrar y cambiar renglones, borrar el encabezado y meter un renglón; DDL de la sección 3.3 |
+| 1. La spec de `accounts` seguía con 5 y 15 permisos | Delta de `accounts` con 8 y 19 |
+| 3. Las FK no son `ON DELETE RESTRICT` (ADR-0009) | ADR-0027, que lo supersede en parte: `PROTECT` en Django y FK `NO ACTION` diferidas, con un test de `SET CONSTRAINTS ALL IMMEDIATE` |
+| 4. `make test` mostraba la contraseña de `app_owner` | `test`, `test-ci` y `e2e` imprimen el comando con `DB_PASSWORD=***` |
+| 11. `ejecutar_sql(rol=...)` deshacía `como_app_user` | Restaura el rol previo en lugar de `RESET ROLE` |
+| 7, 9, 10 y 12 | `ck_movimiento_origen_entrada` y `ck_conteo_estado` en el DDL de 3.1; tests de Transferencia a egresado y Entrada a fallecido; `try/finally` en el test de migraciones; documentación sincronizada (readme 1.4, 3.1, 3.3, 5 y 6, anexos de 03, 05 y 06, `CLAUDE.md` y las guías de HB-03, HB-06, TK-01 y TK-02) |
+
+**Pendientes**, anotados en la guía de TK-01: tests automáticos del `Makefile` y de `.env` (5), índices de Django sin consulta (6), EXPLAIN de las consultas 1 y 2b (8) y los *nits*. La regla de que una corrección sea el inverso del original va a la guía de TK-02.
+
+**Comprobaciones:** fallaron primero solo los 2 tests declarados (sacar un renglón y el rol de `ejecutar_sql`); la suite da 329 pasan y 1 omitido, con 98,81 % de cobertura, y la huella de los tests está intacta.
+
+---
+
+## Prompt 51 — Usuario
+
+Cuando nos movamos a los siguientes tickets, ¿cuándo se retoman los pendientes? (Tras la respuesta:) Hazlo, así le damos seguimiento en los futuros tickets.
+
+---
+
+## Respuesta 51 — Claude
+
+Cada pendiente tiene un ticket que lo retoma, pero hasta ahora solo estaban anotados en la guía del ticket que los dejó. `implementar-ticket` lee la guía del ticket que implementa, así que podían pasarse por alto. Ahora:
+
+- **`docs/tickets/pendientes.md`** los reúne por ticket destino:
+  - **TK-02:** la corrección como inverso exacto del original.
+  - **TK-03:** el EXPLAIN de la consulta 1, la errata "1c" del criterio 11 de TK-01 y el *job* `e2e` sin `connection refused` (HB-03).
+  - **TK-06:** el EXPLAIN de la consulta 2b y los permisos de `conteos` en los tests de grupos.
+  - **HB-10:** los tests del `Makefile` y de `.env`, y los *nits* de `migrate.sh` y `make format`.
+  - **Reportes (EP-04):** los índices de Django sin consulta.
+  - **Pautas (EP-05):** la tabla de HB-07.
+  - **Pantallas de Residentes:** los hallazgos 5 y 10 de HB-09.
+  - **Al tocar el archivo:** los pendientes sin destino claro.
+- **Copias en las guías que existen:** TK-02 (paso 6), TK-03 (sección 0.4 nueva) y HB-10 (tabla de la sección 0.5).
+- **`implementar-ticket`** lee la sección del ticket al explorar (cada pendiente entra en el plan), y al cerrar quita los atendidos y agrega los nuevos con su destino. `CLAUDE.md` lo menciona en "Tickets y pruebas".
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 6)
 
 ## 6. Tickets de Trabajo
@@ -1587,7 +1636,7 @@ No agrega dependencias nuevas.
    | `ConteoFisico` | `conteo_fisico` | `estado` con `TextChoices`, `db_default='EN_PROCESO'`; `cerrado_en` nullable |
    | `DetalleConteo` | `detalle_conteo` | `diferencia = GeneratedField(expression=F('cantidad_fisica') - F('cantidad_sistema'), output_field=DecimalField(10, 2), db_persist=True)` |
 
-   - Todas las FK con `on_delete=PROTECT` (`ON DELETE RESTRICT`).
+   - Todas las FK con `on_delete=PROTECT`; en PostgreSQL quedan `NO ACTION` diferidas, la protección que acepta ADR-0027.
    - `db_index=False` en las FK cubiertas por un índice compuesto (tabla "Índices de FK que Django no debe crear", sección 3.3).
    - `Meta.db_table` con el nombre en español de la sección 3. Los modelos no tienen `save()` ni `delete()` personalizados: la lógica vive en `services.py` (TK-02).
 

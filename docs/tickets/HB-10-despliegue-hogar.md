@@ -102,6 +102,8 @@ Esta guía pasó 5 revisiones adversariales en papel; la última terminó sin bl
 | La instalación con LUKS, la copia de su cabecera y el desbloqueo por SSH con `dropbear-initramfs` | Necesitan el servidor real | Paso 7.1, con un reinicio de prueba |
 | Las decisiones 4 y 5 de la sección 0.4 (hora del respaldo y retención) | Se cierran en el plan del ticket | Anotadas en la sección 0.4 |
 | Quitar el VPS de `prod.py`, `.env.example`, `docker-compose.yml` y las guías de HB-02 y HB-04 | Es código y configuración de este ticket | Paso 5, con su `git grep` |
+| Tests automáticos de los Scenarios del `Makefile` y de `.env` (18 comandos, `HOGAR_NOMBRE` sin comentar, valores con espacios) | Revisión de TK-01 (PR #3), hallazgo 5 ([`pendientes.md`](pendientes.md)) | Un test en `tests/` con un `.env` temporal, junto a `tests/test_candado.py` |
+| `scripts/migrate.sh` no quita el `\r` de un `.env` en CRLF, y `make format` con `\|\| true` oculta un fallo real de djLint | Revisión de TK-01 (PR #3), *nits* | Al escribir la lectura de `.env` de los scripts y al completar el `Makefile` |
 
 ---
 

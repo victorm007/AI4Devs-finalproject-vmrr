@@ -16,6 +16,14 @@ y ck_detalle_sistema.
 Rojo esperado: apps.conteos.models no existe, así que falla la importación del módulo
 (ModuleNotFoundError). Después de crear los modelos, cada test falla hasta que existe la
 restricción, el trigger o el índice que comprueba.
+
+Ajustes de la revisión de TK-01 (PR #3): el conteo cerrado es inmutable también al borrar su
+encabezado, al cambiar o borrar sus renglones y al cambiar el conteo_id de un renglón, para
+sacarlo del conteo cerrado o meterlo en él (hallazgo 2; design, decisiones 1 y 5). Rojo
+esperado: solo test_sacar_un_renglon_de_un_conteo_cerrado (hoy fn_detalle_conteo_cerrado mira
+solo el conteo de NEW, así que el UPDATE pasa: "DID NOT RAISE"). Los demás son de regresión:
+TK-01 ya los rechaza con tg_conteo_cerrado y tg_detalle_conteo_cerrado, y los protegen de que
+la migración 0003 los rompa.
 """
 
 import re
@@ -142,6 +150,83 @@ def test_cerrar_con_fecha_si_se_guarda_y_ya_no_se_modifica(datos_demo):
         ejecutar_sql("UPDATE conteo_fisico SET nota = 'x' WHERE id = 2")
     with pytest.raises(DatabaseError, match="El conteo 2 está cerrado"):
         ejecutar_sql(*insertar_renglon(2, 2, "18", "20"))
+
+
+RENGLONES = "SELECT conteo_id, medicamento_id, cantidad_fisica FROM detalle_conteo ORDER BY 1, 2"
+
+CERRADO_INMUTABLE = [
+    pytest.param(
+        "DELETE FROM conteo_fisico WHERE id = 1",
+        "El conteo 1 está cerrado y no se puede modificar",
+        id="borrar-encabezado-cerrado",
+    ),
+    # El renglón de Metformina (1) del conteo 1 de María
+    pytest.param(
+        "UPDATE detalle_conteo SET cantidad_fisica = 5 WHERE conteo_id = 1 AND medicamento_id = 1",
+        "El conteo 1 está cerrado",
+        id="cambiar-renglon-cerrado",
+    ),
+    pytest.param(
+        "DELETE FROM detalle_conteo WHERE conteo_id = 1 AND medicamento_id = 1",
+        "El conteo 1 está cerrado",
+        id="borrar-renglon-cerrado",
+    ),
+    # El renglón de Omeprazol (5) del conteo 2 pasaría al conteo 1, que no tiene Omeprazol
+    pytest.param(
+        "UPDATE detalle_conteo SET conteo_id = 1 WHERE conteo_id = 2 AND medicamento_id = 5",
+        "El conteo 1 está cerrado",
+        id="meter-renglon-en-conteo-cerrado",
+    ),
+]
+
+
+@pytest.mark.parametrize(("sql", "mensaje"), CERRADO_INMUTABLE)
+def test_un_conteo_cerrado_no_se_borra_ni_cambian_sus_renglones(datos_demo, sql, mensaje):
+    # Scenario: Borrar el encabezado de un conteo cerrado, Cambiar o borrar un renglón de un
+    # conteo cerrado y Meter un renglón en un conteo cerrado (revisión de TK-01, hallazgo 2).
+    # Regresión: TK-01 ya los rechaza (design, decisión 5)
+    antes = ejecutar_sql(RENGLONES)
+    # Control: el mock tiene el renglón de Metformina en el conteo 1 y el de Omeprazol en el 2
+    assert (1, 1, Decimal("2")) in antes
+    assert (2, 5, Decimal("58")) in antes
+    with pytest.raises(DatabaseError, match=mensaje):
+        ejecutar_sql(sql)
+    assert ejecutar_sql("SELECT id, estado FROM conteo_fisico ORDER BY id") == [
+        (1, "CERRADO"),
+        (2, "EN_PROCESO"),
+    ]
+    assert ejecutar_sql(RENGLONES) == antes
+
+
+def test_sacar_un_renglon_de_un_conteo_cerrado(datos_demo):
+    # Scenario: Sacar un renglón de un conteo cerrado (revisión de TK-01, hallazgo 2). El
+    # conteo 2 no tiene Metformina (1), así que el cambio no choca con uq_detalle_conteo
+    with pytest.raises(DatabaseError, match="El conteo 1 está cerrado"):
+        ejecutar_sql(
+            "UPDATE detalle_conteo SET conteo_id = 2 WHERE conteo_id = 1 AND medicamento_id = 1"
+        )
+    # El renglón sigue en el conteo 1
+    assert ejecutar_sql(
+        "SELECT conteo_id, cantidad_fisica FROM detalle_conteo WHERE medicamento_id = 1"
+    ) == [(1, Decimal("2"))]
+
+
+def test_los_renglones_de_un_conteo_en_proceso_si_se_mueven_y_se_borran(datos_demo):
+    # Control de CERRADO_INMUTABLE y de test_sacar_un_renglon_de_un_conteo_cerrado: entre
+    # conteos EN_PROCESO, el mismo UPDATE de conteo_id y el mismo DELETE sí se aplican, así que
+    # los rechazos de arriba se deben al cierre del conteo 1
+    sql, params = insertar_conteo()
+    ((nuevo,),) = ejecutar_sql(sql + " RETURNING id", params)
+    ejecutar_sql(
+        "UPDATE detalle_conteo SET conteo_id = %s WHERE conteo_id = 2 AND medicamento_id = 5",
+        [nuevo],
+    )
+    ejecutar_sql("DELETE FROM detalle_conteo WHERE conteo_id = 2 AND medicamento_id = 6")
+    assert ejecutar_sql(
+        "SELECT conteo_id, medicamento_id FROM detalle_conteo WHERE conteo_id IN (2, %s) "
+        "ORDER BY 1, 2",
+        [nuevo],
+    ) == [(2, 10), (nuevo, 5)]
 
 
 def test_la_diferencia_del_mock(datos_demo):

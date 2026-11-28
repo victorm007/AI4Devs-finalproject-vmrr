@@ -21,6 +21,16 @@ volver a aplicar, design, decisión 10; makemigrations --check) y los fixtures c
 Rojo esperado: apps.inventario.models no existe, así que falla la importación del módulo
 (ModuleNotFoundError) y ninguno de estos tests llega a correr. Después de crear los modelos,
 cada test falla hasta que existe la restricción, el trigger o el índice que comprueba.
+
+Ajustes de la revisión de TK-01 (PR #3): Transferencia a un Residente egresado y Entrada a uno
+fallecido (hallazgo 9), las claves foráneas que impiden borrar un Medicamento con historial, con
+el ORM y saltándose Django (hallazgo 3, ADR-0027), ejecutar_sql con rol= dentro de
+como_app_user (hallazgo 11; design, decisión 3) y el try/finally que deja la base migrada si
+falla una aserción de test_revertir_y_volver_a_aplicar_las_migraciones. Rojo esperado: solo
+test_ejecutar_sql_con_otro_rol_no_deshace_como_app_user (hoy ejecutar_sql termina con RESET
+ROLE y current_user queda en app_owner). Los demás son de regresión (design, decisión 5): TK-01
+ya rechaza esos destinos con tg_movimiento_validar_destino, y las FK de Django ya son PROTECT
+en el ORM y NO ACTION DEFERRABLE en la base.
 """
 
 import re
@@ -30,8 +40,9 @@ import pytest
 from django.contrib import admin
 from django.contrib.auth.models import Group
 from django.core.management import call_command
-from django.db import DatabaseError, connection
+from django.db import DatabaseError, connection, transaction
 from django.db.migrations.loader import MigrationLoader
+from django.db.models import ProtectedError
 
 from apps.catalogo.models import Medicamento
 from apps.inventario.models import Existencia, Movimiento
@@ -166,6 +177,73 @@ def test_no_entra_medicamento_a_residente_egresado(datos_demo):
     assert ejecutar_sql(
         "SELECT count(*) FROM movimiento WHERE entidad_destino_id = 103 AND id > 28"
     ) == [(1,)]
+
+
+@pytest.mark.parametrize(
+    ("residente", "estado", "movimiento"),
+    [
+        # Paracetamol (6) del Hogar (1) a Carmen
+        (
+            103,
+            "EGRESADO",
+            insertar_movimiento(
+                tipo="TRANSFERENCIA",
+                medicamento_id=6,
+                cantidad=Decimal("1"),
+                entidad_origen_id=1,
+                entidad_destino_id=103,
+                **SIN_ENTRADA,
+            ),
+        ),
+        # Cozaar (3) para José Luis
+        (102, "FALLECIDO", insertar_movimiento(medicamento_id=3, entidad_destino_id=102)),
+    ],
+    ids=["transferencia-a-egresado", "entrada-a-fallecido"],
+)
+def test_no_entra_medicamento_a_residente_inactivo(datos_demo, residente, estado, movimiento):
+    # Scenario: Transferencia a un Residente egresado y Entrada a un Residente fallecido
+    # (revisión de TK-01, hallazgo 9). Regresión: TK-01 ya los rechaza (design, decisión 5)
+    # Control: mientras el Residente está activo, el mismo Movimiento sí se guarda
+    ejecutar_sql(*movimiento)
+    ejecutar_sql(
+        "UPDATE residente SET estado = %s, fecha_baja = '2026-10-16' WHERE entidad_id = %s",
+        [estado, residente],
+    )
+    assert ejecutar_sql("SELECT estado FROM residente WHERE entidad_id = %s", [residente]) == [
+        (estado,)
+    ]
+    with pytest.raises(DatabaseError, match=f"La entidad destino {residente} no está activa"):
+        ejecutar_sql(*movimiento)
+    assert ejecutar_sql(
+        "SELECT count(*) FROM movimiento WHERE entidad_destino_id = %s AND id > 28", [residente]
+    ) == [(1,)]
+
+
+def test_django_impide_borrar_un_medicamento_con_historial(demo):
+    # Scenario: Django impide borrar un Medicamento con historial (revisión de TK-01,
+    # hallazgo 3; ADR-0027). Regresión: las FK ya son PROTECT (design, decisión 5)
+    eutirox = demo.med["Eutirox"]
+    # Control: Eutirox tiene Movimientos y Existencias en el mock
+    assert Movimiento.objects.filter(medicamento=eutirox).exists()
+    assert Existencia.objects.filter(medicamento=eutirox).exists()
+    with pytest.raises(ProtectedError):
+        eutirox.delete()
+    assert Medicamento.objects.filter(pk=eutirox.pk, nombre_comercial="Eutirox").exists()
+
+
+def test_la_base_rechaza_borrar_un_medicamento_con_historial(datos_demo):
+    # Scenario: La base rechaza el borrado aunque se salte Django (revisión de TK-01,
+    # hallazgo 3; ADR-0027). Regresión: las FK de Django ya existen (design, decisión 5).
+    # Son DEFERRABLE INITIALLY DEFERRED: sin SET CONSTRAINTS ALL IMMEDIATE en el mismo
+    # savepoint, el DELETE pasaría y solo fallaría al confirmar, cosa que el test nunca hace.
+    # Si el SET CONSTRAINTS sobrevive al savepoint, solo afecta al resto de este test
+    with pytest.raises(DatabaseError, match="violates foreign key constraint"):
+        with transaction.atomic(), connection.cursor() as cursor:
+            cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
+            cursor.execute("DELETE FROM medicamento WHERE nombre_comercial = 'Eutirox'")
+    assert ejecutar_sql("SELECT count(*) FROM medicamento WHERE nombre_comercial = 'Eutirox'") == [
+        (1,)
+    ]
 
 
 def test_la_correccion_si_entra_a_un_residente_egresado(datos_demo):
@@ -562,36 +640,41 @@ def test_revertir_y_volver_a_aplicar_las_migraciones():
     assert hay_trigger_de_baja()
 
     call_command("migrate", "conteos", "zero", verbosity=0)
-    assert existentes(todas) == set(TABLAS_DE_INVENTARIO)
+    # Si una aserción falla a medias, el finally deja la base migrada para los tests siguientes
+    # (migrate sin argumentos no hace nada si ya está al día)
+    try:
+        assert existentes(todas) == set(TABLAS_DE_INVENTARIO)
 
-    call_command("migrate", "inventario", "zero", verbosity=0)
-    assert existentes(todas) == set()
-    assert funciones_existentes() == set()
-    assert not hay_trigger_de_baja()
-    # El catálogo no se toca
-    assert existentes(["medicamento"]) == {"medicamento"}
+        call_command("migrate", "inventario", "zero", verbosity=0)
+        assert existentes(todas) == set()
+        assert funciones_existentes() == set()
+        assert not hay_trigger_de_baja()
+        # El catálogo no se toca
+        assert existentes(["medicamento"]) == {"medicamento"}
 
-    call_command("migrate", verbosity=0)
-    assert existentes(todas) == todas
-    assert funciones_existentes() == set(FUNCIONES)
-    assert hay_trigger_de_baja()
-    # La migración vuelve a quitar los permisos de app_user sobre movimiento
-    filas = ejecutar_sql(
-        "SELECT p, has_table_privilege('app_user', 'movimiento', p) "
-        "FROM unnest(ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE']) AS p"
-    )
-    assert dict(filas) == {
-        "SELECT": True,
-        "INSERT": True,
-        "UPDATE": False,
-        "DELETE": False,
-        "TRUNCATE": False,
-    }
-    assert dict(ejecutar_sql("SELECT clave, activo FROM motivo_baja")) == dict.fromkeys(
-        MOTIVOS, True
-    )
-    filas = ejecutar_sql("SELECT reloptions FROM pg_class WHERE oid = 'existencia'::regclass")
-    assert "fillfactor=90" in (filas[0][0] or [])
+        call_command("migrate", verbosity=0)
+        assert existentes(todas) == todas
+        assert funciones_existentes() == set(FUNCIONES)
+        assert hay_trigger_de_baja()
+        # La migración vuelve a quitar los permisos de app_user sobre movimiento
+        filas = ejecutar_sql(
+            "SELECT p, has_table_privilege('app_user', 'movimiento', p) "
+            "FROM unnest(ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE']) AS p"
+        )
+        assert dict(filas) == {
+            "SELECT": True,
+            "INSERT": True,
+            "UPDATE": False,
+            "DELETE": False,
+            "TRUNCATE": False,
+        }
+        assert dict(ejecutar_sql("SELECT clave, activo FROM motivo_baja")) == dict.fromkeys(
+            MOTIVOS, True
+        )
+        filas = ejecutar_sql("SELECT reloptions FROM pg_class WHERE oid = 'existencia'::regclass")
+        assert "fillfactor=90" in (filas[0][0] or [])
+    finally:
+        call_command("migrate", verbosity=0)
 
 
 def test_sin_migraciones_pendientes():
@@ -625,6 +708,33 @@ def test_como_app_user_corre_como_app_user(como_app_user):
     # Y con sus permisos: como app_owner, este UPDATE lo rechazaría el trigger, no el permiso
     with pytest.raises(DatabaseError, match="permission denied for table movimiento"):
         ejecutar_sql("UPDATE movimiento SET nota = 'x' WHERE id = 1")
+
+
+def usuario_actual() -> str:
+    """current_user leído con el cursor de Django, sin pasar por ejecutar_sql."""
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT current_user")
+        return cursor.fetchone()[0]
+
+
+def test_ejecutar_sql_con_otro_rol_no_deshace_como_app_user(como_app_user):
+    # Scenario: ejecutar_sql con otro rol no deshace como_app_user (revisión de TK-01,
+    # hallazgo 11; design, decisión 3)
+    assert usuario_actual() == "app_user"
+    # Control: rol= sí cambia el rol durante la sentencia
+    assert ejecutar_sql("SELECT current_user", rol="app_user") == [("app_user",)]
+    ejecutar_sql("SELECT 1", rol="app_user")
+    assert usuario_actual() == "app_user"
+
+
+def test_ejecutar_sql_con_otro_rol_vuelve_al_usuario_de_la_sesion(db):
+    # Control de test_ejecutar_sql_con_otro_rol_no_deshace_como_app_user: sin como_app_user,
+    # ejecutar_sql deja el rol con el que empezó (el usuario de la sesión, app_owner)
+    antes = usuario_actual()
+    assert antes != "app_user"
+    assert ejecutar_sql("SELECT current_user", rol="app_user") == [("app_user",)]
+    ejecutar_sql("SELECT 1", rol="app_user")
+    assert usuario_actual() == antes
 
 
 @pytest.mark.django_db(transaction=True, serialized_rollback=True)

@@ -18,7 +18,7 @@ Esta carpeta formaliza las decisiones de arquitectura significativas que ya est�
 | [ADR-0006](0006-dos-usuarios-de-base-de-datos.md) | Dos usuarios de base de datos con privilegios mínimos | Aceptado; supersedido en parte por ADR-0026 | 2026-11-16 | `accounts`, `inventario`, `conteos` |
 | [ADR-0007](0007-nomenclatura-de-objetos-de-base-de-datos.md) | Nombres explícitos y con prefijo para los objetos de la base de datos | Aceptado | 2026-11-16 | `accounts`, `catalogo`, `entidades`, `pautas`, `inventario`, `conteos` |
 | [ADR-0008](0008-supertipo-entidad-subtipo-residente.md) | Entidad como supertipo del Hogar y de cada Residente | Aceptado | 2026-11-16 | `entidades`, `inventario`, `conteos`, `pautas` |
-| [ADR-0009](0009-bajas-logicas-y-on-delete-restrict.md) | Bajas lógicas y `ON DELETE RESTRICT` en todas las claves foráneas | Aceptado | 2026-11-16 | `accounts`, `catalogo`, `entidades`, `inventario` |
+| [ADR-0009](0009-bajas-logicas-y-on-delete-restrict.md) | Bajas lógicas y `ON DELETE RESTRICT` en todas las claves foráneas | Aceptado; supersedido en parte por ADR-0027 | 2026-11-16 | `accounts`, `catalogo`, `entidades`, `inventario` |
 | [ADR-0010](0010-cantidades-en-dosis-y-tipos-de-fecha.md) | Cantidades en dosis con `numeric` y fechas con zona horaria | Aceptado | 2026-11-16 | `inventario`, `conteos`, `pautas`, `reportes`, `api` |
 | [ADR-0011](0011-capa-de-servicios-unica-via-de-escritura.md) | La capa de servicios es la única vía de escritura del inventario | Aceptado | 2026-11-16 | `inventario`, `conteos`, `reportes`, `api` |
 | [ADR-0012](0012-movimientos-inmutables-y-correccion.md) | Movimientos inmutables, corregidos con el Movimiento inverso | Aceptado | 2026-11-16 | `inventario`, `reportes`, `api` |
@@ -36,6 +36,7 @@ Esta carpeta formaliza las decisiones de arquitectura significativas que ya est�
 | [ADR-0024](0024-calidad-estatica-con-verificador-unico.md) | Calidad estática con ruff, djLint y un verificador único | Aceptado | 2026-11-16 | Todas |
 | [ADR-0025](0025-despliegue-docker-compose-nginx-version-fija.md) | Despliegue con Docker Compose: `nginx`, `web` y `db`, con `nginx` en versión fija | Supersedido por ADR-0026 | 2026-11-20 | Todas |
 | [ADR-0026](0026-despliegue-servidor-del-hogar-y-demo-local.md) | Despliegue solo en el servidor del hogar, con demo en una máquina local | Aceptado | 2026-11-26 | Todas |
+| [ADR-0027](0027-claves-foraneas-protect-diferidas.md) | Claves foráneas: `PROTECT` en Django y FK diferidas de PostgreSQL | Aceptado | 2026-11-27 | `accounts`, `catalogo`, `entidades`, `pautas`, `inventario`, `conteos` |
 
 **Todas** = `accounts`, `catalogo`, `entidades`, `pautas`, `inventario`, `conteos`, `reportes` y `api`: las 8 *capabilities* previstas, una por app de Django (§2.2).
 

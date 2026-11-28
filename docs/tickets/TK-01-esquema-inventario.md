@@ -118,16 +118,24 @@ dj shell -c "from django.db import connection; c = connection.cursor(); c.execut
 
 ```make
 # Atajos de desarrollo local (readme, sección 1.4). El CI usa los comandos directos.
+# Las recetas van indentadas con tabulador. .env se lee con -include: sus valores no
+# deben llevar $, # ni comillas, porque make los interpreta distinto que el shell.
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 -include .env
-export
+# Sin "export": las recetas usan los valores con $(...) y docker compose lee .env por su
+# cuenta. Exportarlos haría que compose prefiriera la copia de make, que en Windows (GNU Make
+# de GnuWin32) cambia la codificación de los acentos: "Gerontológico" llegaba a web como
+# "GerontolÃ³gico". También evita pasar las contraseñas a cada proceso hijo.
 
 DC    := docker compose
 OWNER := -e DB_USER=app_owner -e DB_PASSWORD=$(DB_OWNER_PASSWORD)
+# test, test-ci y e2e no muestran su receta (@): llevaría la contraseña de app_owner a la
+# terminal y a los registros. Antes imprimen el mismo comando con la contraseña oculta.
+OWNER_OCULTO := -e DB_USER=app_owner -e DB_PASSWORD=***
 T ?=
 
-.PHONY: help up down reset migrate superuser static mock test test-ci e2e lint format check-migrations shell psql openapi
+.PHONY: help up down reset actualizar migrate superuser static mock test test-ci e2e lint format check-migrations shell psql openapi
 
 help: ## Lista los comandos disponibles
 	@grep -hE '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-17s %s\n", $$1, $$2}'
@@ -136,8 +144,11 @@ up: ## Levanta los contenedores
 	$(DC) up -d --build
 down: ## Detiene los contenedores
 	$(DC) down
+# Después de down -v, nginx no tiene estáticos: sin collectstatic, el login sale sin estilos
 reset: ## Borra la base LOCAL y la recrea con las migraciones (solo desarrollo)
-	$(DC) down -v && $(DC) up -d --build && ./scripts/migrate.sh
+	$(DC) down -v && $(DC) up -d --build && ./scripts/migrate.sh && $(DC) exec web python manage.py collectstatic --noinput
+actualizar: ## Pone al día imagen, migraciones y estáticos tras traer cambios
+	$(DC) up -d --build && ./scripts/migrate.sh && $(DC) exec web python manage.py collectstatic --noinput
 migrate: ## Aplica las migraciones como app_owner
 	./scripts/migrate.sh
 superuser: ## Crea el usuario Administrador
@@ -148,11 +159,14 @@ mock: ## Carga el dataset mock (solo en una base recién migrada)
 	$(DC) cp app/fixtures/mock/. db:/tmp/mock/
 	$(DC) exec db sh -c 'psql -U app_owner -d "$$POSTGRES_DB" -v ON_ERROR_STOP=1 -f /tmp/mock/cargar_mock.sql'
 test: ## Corre los tests (uno solo: make test T=ruta::nombre_del_test)
-	$(DC) exec $(OWNER) web pytest -q $(T)
+	@echo '$(DC) exec $(OWNER_OCULTO) web pytest -q $(T)'
+	@$(DC) exec $(OWNER) web pytest -q $(T)
 test-ci: ## Corre lo mismo que el CI en cada PR, con cobertura
-	$(DC) exec $(OWNER) web pytest -m "not e2e and not lento" --cov=apps --cov-fail-under=80
+	@echo '$(DC) exec $(OWNER_OCULTO) web pytest -m "not e2e and not lento" --cov=apps --cov-fail-under=80'
+	@$(DC) exec $(OWNER) web pytest -m "not e2e and not lento" --cov=apps --cov-fail-under=80
 e2e: ## Corre las pruebas de extremo a extremo con Playwright
-	$(DC) exec $(OWNER) -e DJANGO_ALLOW_ASYNC_UNSAFE=true web pytest -m e2e e2e/ -q
+	@echo '$(DC) exec $(OWNER_OCULTO) -e DJANGO_ALLOW_ASYNC_UNSAFE=true web pytest -m e2e e2e/ -q'
+	@$(DC) exec $(OWNER) -e DJANGO_ALLOW_ASYNC_UNSAFE=true web pytest -m e2e e2e/ -q
 lint: ## Revisa Python (ruff) y plantillas (djLint) sin modificar archivos
 	$(DC) exec web ruff check . && $(DC) exec web ruff format --check .
 	$(DC) exec web djlint . --check && $(DC) exec web djlint . --lint
@@ -1244,6 +1258,24 @@ docker compose down -v && docker compose up -d && ./scripts/migrate.sh   # deja 
 > **Tests añadidos a los de la sección 3:** nombres exactos de las restricciones y de los *triggers*, definición de los índices, tipos y valores por omisión, `fillfactor`, ningún índice extra por columna inicial en las FK cubiertas, los 8 motivos, los permisos de los grupos, migraciones reversibles con `call_command` (`transaction=True, serialized_rollback=True`), los *fixtures* (`como_app_user` falla sin transacción), la lectura de la conciliación como `app_user` y, en el panel, el control de que Tempra (saldo 0) sí se da de baja. El test del panel envía el renglón real del principio activo, para que el aviso no se confunda con el de "al menos un principio activo". Los 3 tests de HB-08 que fijaban los permisos de los grupos (`test_grupos.py` y `test_admin_usuarios.py`) suman ahora los de inventario: 8 en *Solo lectura* y 19 en *Lectura y escritura*. La rama fue `final-project-vmrr`, no `feature/TK-01-esquema-inventario` (`CLAUDE.md`, sección Git).
 >
 > **Consulta 2c con un año de datos:** las salidas solas usan *Index Scan using `ix_movimiento_origen_med_fecha`*. La consulta completa, con `OR` entre origen y destino, usa un *Bitmap Index Scan* sobre `ix_movimiento_med_fecha` y filtra por entidad, como prevé la sección 3.3. En ningún caso hay *Seq Scan*.
+
+> **Ajustes de la revisión adversarial del PR #3** (cambio de OpenSpec `tk-01-ajustes-revision`). El código del paso 8 (`0002_triggers`) es el original. En el repositorio cambia esto:
+>
+> - **`conteos/0003_detalle_conteo_cerrado`:** en un `UPDATE`, `fn_detalle_conteo_cerrado` solo miraba `NEW.conteo_id`, así que `UPDATE detalle_conteo SET conteo_id = 2 WHERE conteo_id = 1 ...` sacaba un renglón de un conteo cerrado. Ahora revisa también `OLD.conteo_id` (readme, sección 3.3). Es una migración nueva, para que las bases que ya aplicaron `0002` se pongan al día con `migrate.sh`.
+> - **ADR-0027** supersede en parte a ADR-0009: las FK son `PROTECT` en Django y `NO ACTION` diferidas en PostgreSQL, no `ON DELETE RESTRICT`. Un test lo comprueba con `SET CONSTRAINTS ALL IMMEDIATE`.
+> - **`ejecutar_sql(..., rol=...)`** restaura el rol que había, en lugar de `RESET ROLE`, que deshacía `como_app_user`.
+> - **`make test`, `test-ci` y `e2e`** ya no muestran la contraseña de `app_owner`: imprimen el comando con `DB_PASSWORD=***`. El bloque del paso 1 es el `Makefile` del repositorio.
+> - **Tests de regresión nuevos:** borrar y cambiar renglones de un conteo cerrado, borrar su encabezado, meter un renglón en él, Transferencia a un Residente egresado, Entrada a uno fallecido y el borrado de un Medicamento con historial.
+> - `ck_movimiento_origen_entrada` y `ck_conteo_estado` están ahora en el DDL de la sección 3.1.
+>
+> **Pendientes** de la misma revisión. No contradicen al readme, y se siguen en [`pendientes.md`](pendientes.md), con el ticket que retoma cada uno:
+>
+> | Pendiente | Hallazgo | Qué hacer |
+> |---|---|---|
+> | Los Scenarios del `Makefile` y de `.env` (18 comandos, `HOGAR_NOMBRE` sin comentar, valores con espacios) solo se comprueban a mano | 5 | Un test en `tests/` con un `.env` temporal (con HB-10, que agrega `tests/test_candado.py`) |
+> | Django crea índices sobre `movimiento.motivo_baja_id`, `movimiento.usuario_id` y `conteo_fisico.usuario_id`, sin consulta de la sección 3.3 que los use (ADR-0018) | 6 | Decidir en el readme si se quedan o se declaran con `db_index=False`, con la historia de reportes |
+> | EXPLAIN solo de la consulta 2c; faltan `ix_existencia_med_entidad` (consulta 1, con TK-03) e `ix_detalle_con_diferencia` (2b, con TK-06). El criterio 11 dice "1c", que no existe | 8 | Medirlas en esos tickets y corregir "1c" en el readme |
+> | `migrate.sh` no quita el `\r` de un `.env` en CRLF; `make format` con `\|\| true` oculta fallos reales de djLint; "Rojo esperado" queda como texto en los *docstrings* de los tests | *nits* | Al tocar esos archivos |
 
 ---
 

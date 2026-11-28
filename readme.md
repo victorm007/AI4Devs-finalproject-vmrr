@@ -85,11 +85,11 @@ Registro de administración por turno (MAR), alertas de stock mínimo o caducida
 ### **1.4. Instrucciones de instalación:**
 > Documenta de manera precisa las instrucciones para instalar y poner en marcha el proyecto en local (librerías, backend, frontend, servidor, base de datos, migraciones y semillas de datos, etc.)
 
-> **Estado:** el código está en desarrollo. Estos son los pasos previstos, que reúnen lo definido en las secciones 2.4, 3.4 y 6. Se validan y ajustan con el primer PR de código.
+> **Estado:** el código está en desarrollo. Estos pasos reúnen lo definido en las secciones 2.4, 3.4 y 6, y se comprobaron con TK-01 (`make reset`, `make migrate`, `make mock` y `make test`). La consulta de existencias que aparece después del login llega con TK-03.
 
 **Requisitos:** Git, Docker con Docker Compose v2, `make` y [`mkcert`](https://github.com/FiloSottile/mkcert) para el HTTPS local.
 - **En Windows:** usa Git Bash, que no trae `make`. Instálalo, por ejemplo con `winget install ezwinports.make` o `choco install make`, o trabaja desde WSL. Los `.sh` deben tener fin de línea LF (HB-01 agrega un `.gitattributes` que lo fuerza).
-- **El `Makefile`** de la raíz (lo crea TK-01) tiene atajos legibles para todo lo de abajo; `make help` los lista. Cada paso muestra también el comando que ejecuta, por si no tienes `make`.
+- **El `Makefile`** de la raíz (TK-01) tiene atajos legibles para todo lo de abajo; `make help` los lista. Cada paso muestra también el comando que ejecuta, por si no tienes `make`.
 
 ```bash
 # 1. Código y configuración
@@ -764,7 +764,7 @@ Todas las capas corren contra PostgreSQL real, incluida la de servicio y base de
 - Las claves naturales se protegen con `UNIQUE`.
 - Las fechas con hora son `timestamptz`.
 - Las cantidades son `numeric(10,2)`, para admitir media tableta sin errores de redondeo.
-- **Todas las claves foráneas son `ON DELETE RESTRICT`** (`PROTECT` en Django): no se puede borrar físicamente ningún registro con historial.
+- **Ninguna clave foránea permite borrar historial:** `PROTECT` en Django y, en PostgreSQL, la FK `NO ACTION` diferida que crea Django, que rechaza el borrado al confirmar la transacción ([ADR-0027](docs/adr/0027-claves-foraneas-protect-diferidas.md)); la FK manual `fk_residente_entidad` es `ON DELETE RESTRICT`. No se puede borrar físicamente ningún registro con historial.
 
 ```mermaid
 erDiagram
@@ -1004,7 +1004,9 @@ ALTER TABLE movimiento ADD CONSTRAINT ck_movimiento_por_tipo CHECK (
 ALTER TABLE movimiento
     ADD CONSTRAINT ck_movimiento_cantidad CHECK (cantidad > 0),
     ADD CONSTRAINT uq_movimiento_corrige UNIQUE (corrige_a_id),
-    ADD CONSTRAINT ck_movimiento_no_autocorrige CHECK (corrige_a_id <> id);
+    ADD CONSTRAINT ck_movimiento_no_autocorrige CHECK (corrige_a_id <> id),
+    ADD CONSTRAINT ck_movimiento_origen_entrada
+        CHECK (origen_entrada IS NULL OR origen_entrada IN ('FAMILIAR', 'HOGAR', 'OTRO'));
 
 -- D5: inmutabilidad (doble barrera: privilegios + trigger)
 REVOKE UPDATE, DELETE, TRUNCATE ON movimiento FROM app_user;
@@ -1027,6 +1029,7 @@ ALTER TABLE pauta
 -- Conteos: un renglón por medicamento y diferencia calculada por la base de datos
 ALTER TABLE conteo_fisico
     ADD CONSTRAINT ck_conteo_periodo CHECK (periodo_fin >= periodo_inicio),
+    ADD CONSTRAINT ck_conteo_estado  CHECK (estado IN ('EN_PROCESO', 'CERRADO')),
     ADD CONSTRAINT ck_conteo_cierre  CHECK ((estado = 'CERRADO') = (cerrado_en IS NOT NULL));
 ALTER TABLE detalle_conteo
     ADD CONSTRAINT uq_detalle_conteo UNIQUE (conteo_id, medicamento_id),
@@ -1286,7 +1289,7 @@ ALTER TABLE detalle_conteo
 | **EAV** (entidad-atributo-valor) | Sin tipos ni restricciones; consultas complejas | Columnas explícitas y tipadas en cada tabla |
 | **ENUM/CHECK para listas que cambian** | Requiere migraciones para agregar valores | `presentacion` y `motivo_baja` son tablas de catálogo. CHECK solo para dominios fijos ligados a la lógica (`tipo` de movimiento, `estado`) |
 | **Restricciones solo en la aplicación** | Un error o un acceso directo a la base de datos rompe las reglas | `UNIQUE`, `CHECK`, `EXCLUDE` y FK en PostgreSQL. La aplicación valida primero para dar mensajes claros |
-| **Borrado físico de historial** | Se pierde la trazabilidad y quedan FK rotas | Baja lógica (`activo`, `estado`, `is_active`), `ON DELETE RESTRICT` y movimientos inmutables |
+| **Borrado físico de historial** | Se pierde la trazabilidad y quedan FK rotas | Baja lógica (`activo`, `estado`, `is_active`), `PROTECT` en las FK (ADR-0027) y movimientos inmutables |
 | **`FLOAT` para cantidades** | Errores de redondeo en saldos | `numeric(10,2)` |
 | **Claves naturales mutables como PK** | Cambiar un nombre rompe las referencias | PK sustitutas e índices `UNIQUE` sobre las claves naturales |
 | **Datos derivados sin control** | Saldos que no cuadran | Saldo actualizado solo en la transacción del movimiento, con `CHECK ≥ 0`, conciliación y diferencia generada por la base de datos |
@@ -1523,13 +1526,16 @@ END $$;
 CREATE TRIGGER tg_conteo_cerrado BEFORE UPDATE OR DELETE ON conteo_fisico
     FOR EACH ROW EXECUTE FUNCTION fn_conteo_cerrado();
 
+-- Un renglón tampoco sale de un conteo cerrado: en UPDATE se revisan los 2 conteos
 CREATE FUNCTION fn_detalle_conteo_cerrado() RETURNS trigger LANGUAGE plpgsql AS $$
-DECLARE
-    v_conteo bigint;
 BEGIN
-    IF TG_OP = 'DELETE' THEN v_conteo := OLD.conteo_id; ELSE v_conteo := NEW.conteo_id; END IF;
-    IF (SELECT estado FROM conteo_fisico WHERE id = v_conteo) = 'CERRADO' THEN
-        RAISE EXCEPTION 'El conteo % está cerrado', v_conteo;
+    IF TG_OP IN ('UPDATE', 'DELETE')
+       AND (SELECT estado FROM conteo_fisico WHERE id = OLD.conteo_id) = 'CERRADO' THEN
+        RAISE EXCEPTION 'El conteo % está cerrado', OLD.conteo_id;
+    END IF;
+    IF TG_OP IN ('INSERT', 'UPDATE')
+       AND (SELECT estado FROM conteo_fisico WHERE id = NEW.conteo_id) = 'CERRADO' THEN
+        RAISE EXCEPTION 'El conteo % está cerrado', NEW.conteo_id;
     END IF;
     IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
     RETURN NEW;
@@ -2073,7 +2079,7 @@ Se implementan en los tickets de habilitación HB-08 (login, grupos y usuarios) 
 - **Movimientos, existencias y conteos no se registran en el panel.** Solo se operan desde las pantallas de HU-01 y HU-03, así nadie puede editar un saldo ni un movimiento a mano.
 - **Principios activos en línea:** en el formulario del medicamento se agregan sus principios activos en la misma pantalla (*inline* de la tabla puente).
 - **Acceso de los grupos:** los usuarios de los 2 grupos tienen `is_staff = True` para entrar al panel. Solo el Administrador ve las secciones de usuarios y grupos.
-- **Reglas que viven en *triggers*:** el formulario las valida antes de guardar, para que el usuario vea un mensaje y no un error `500`. Por ejemplo, el formulario de `MedicamentoAdmin` rechaza desmarcar `activo` si el medicamento tiene existencias ("No se puede dar de baja: hay existencias de este medicamento"); el *trigger* `tg_medicamento_baja` queda como última barrera.
+- **Reglas que viven en *triggers*:** el formulario las valida antes de guardar, para que el usuario vea un mensaje y no un error `500`. Por ejemplo, el formulario de `MedicamentoAdmin` rechaza desmarcar `activo` si el medicamento tiene existencias ("No se puede dar de baja: hay existencias de este medicamento."); el *trigger* `tg_medicamento_baja` queda como última barrera.
 
 **Limitaciones aceptadas para el MVP:** la interfaz es genérica (no tiene el estilo de la aplicación) y es menos cómoda en el celular. Como estas operaciones se hacen pocas veces y desde la computadora, no afecta el uso diario.
 
@@ -2546,7 +2552,7 @@ No agrega dependencias nuevas.
    | `ConteoFisico` | `conteo_fisico` | `estado` con `TextChoices`, `db_default='EN_PROCESO'`; `cerrado_en` nullable |
    | `DetalleConteo` | `detalle_conteo` | `diferencia = GeneratedField(expression=F('cantidad_fisica') - F('cantidad_sistema'), output_field=DecimalField(10, 2), db_persist=True)` |
 
-   - Todas las FK con `on_delete=PROTECT` (`ON DELETE RESTRICT`).
+   - Todas las FK con `on_delete=PROTECT`; en PostgreSQL quedan `NO ACTION` diferidas, la protección que acepta ADR-0027.
    - `db_index=False` en las FK cubiertas por un índice compuesto (tabla "Índices de FK que Django no debe crear", sección 3.3).
    - `Meta.db_table` con el nombre en español de la sección 3. Los modelos no tienen `save()` ni `delete()` personalizados: la lógica vive en `services.py` (TK-02).
 

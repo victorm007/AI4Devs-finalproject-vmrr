@@ -253,6 +253,8 @@ docker compose run --rm -e DB_USER=app_owner -e DB_PASSWORD="$DB_OWNER_PASSWORD"
     web python manage.py migrate "$@"
 ```
 
+> Desde TK-01, `migrate.sh` lee `.env` línea por línea en lugar de `. ./.env`, que rompe con valores con espacios como `HOGAR_NOMBRE` (guía de TK-01, paso 1).
+
 ```bash
 git add scripts/migrate.sh
 git update-index --chmod=+x scripts/migrate.sh      # permiso de ejecución (HB-01, paso 2.2)

@@ -111,6 +111,18 @@ La base DEBE (MUST) rechazar un Movimiento con destino si el Medicamento está d
 - **WHEN** se inserta una Entrada de Metformina para Carmen
 - **THEN** la base la rechaza con "La entidad destino 103 no está activa"
 
+#### Scenario: Transferencia a un Residente egresado (revisión de TK-01, hallazgo 9)
+
+- **GIVEN** el dataset mock cargado y Carmen Torres Vega egresada
+- **WHEN** se inserta una Transferencia de Paracetamol del Hogar a Carmen
+- **THEN** la base la rechaza con "La entidad destino 103 no está activa"
+
+#### Scenario: Entrada a un Residente fallecido (revisión de TK-01, hallazgo 9)
+
+- **GIVEN** el dataset mock cargado y José Luis Ramírez Ortega fallecido
+- **WHEN** se inserta una Entrada de Cozaar para José Luis
+- **THEN** la base la rechaza con "La entidad destino 102 no está activa"
+
 ### Requirement: Conciliación de las Existencias
 
 La vista `v_conciliacion_existencia` DEBE (MUST) listar las Existencias cuyo saldo no coincide con la suma de sus Movimientos; vacía significa que todo cuadra.
@@ -225,6 +237,12 @@ Los tests DEBEN (MUST) disponer de `datos_demo` (carga el mock con sus validacio
 - **WHEN** pide `como_app_user`
 - **THEN** el test falla con "como_app_user necesita la transacción del test", en lugar de correr como `app_owner`
 
+#### Scenario: ejecutar_sql con otro rol no deshace como_app_user (revisión de TK-01, hallazgo 11)
+
+- **GIVEN** un test con `como_app_user`
+- **WHEN** llama a `ejecutar_sql("SELECT 1", rol="app_user")` y después consulta `current_user`
+- **THEN** sigue siendo `app_user`, no `app_owner`
+
 ### Requirement: Consultas de Movimientos por período con índice
 
 Las consultas de Movimientos de una Entidad y un Medicamento en un período (consulta 2c de la sección 3.3) DEBEN (MUST) poder usar `ix_movimiento_origen_med_fecha` e `ix_movimiento_dest_med_fecha`, sin *Seq Scan* sobre `movimiento` con un año de datos.
@@ -240,3 +258,19 @@ Las consultas de Movimientos de una Entidad y un Medicamento en un período (con
 - **GIVEN** la base de desarrollo con 175,000 Movimientos sintéticos y `ANALYZE`
 - **WHEN** se ejecuta `EXPLAIN (ANALYZE, BUFFERS)` de las salidas del Hogar de Paracetamol en marzo de 2025
 - **THEN** el plan usa `ix_movimiento_origen_med_fecha` (o un *Bitmap* sobre él), nunca *Seq Scan on movimiento*
+
+### Requirement: Las claves foráneas impiden borrar lo que tiene historial
+
+Ningún Medicamento, Entidad, usuario ni motivo de baja con Movimientos, Existencias o conteos DEBE (MUST) poder borrarse: Django lo impide con `PROTECT` y la base lo rechaza con sus claves foráneas, que se comprueban al confirmar la transacción (ADR-0027).
+
+#### Scenario: Django impide borrar un Medicamento con historial (revisión de TK-01, hallazgo 3)
+
+- **GIVEN** el dataset mock cargado
+- **WHEN** se borra Eutirox con el ORM
+- **THEN** Django lanza `ProtectedError` y Eutirox sigue registrado
+
+#### Scenario: La base rechaza el borrado aunque se salte Django (revisión de TK-01, hallazgo 3)
+
+- **GIVEN** el dataset mock cargado y las restricciones comprobadas al momento (`SET CONSTRAINTS ALL IMMEDIATE`)
+- **WHEN** se ejecuta `DELETE FROM medicamento WHERE nombre_comercial = 'Eutirox'`
+- **THEN** la base lo rechaza por una clave foránea
