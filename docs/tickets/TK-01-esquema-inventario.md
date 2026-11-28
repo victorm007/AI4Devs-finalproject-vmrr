@@ -1310,6 +1310,8 @@ docker compose down -v && docker compose up -d && ./scripts/migrate.sh   # deja 
 > - ***Nit* 3:** los tests de concurrencia del conteo siguen en `conteos/tests/test_esquema.py`, porque prueban un *trigger* y no un servicio. Usan 2 conexiones en lugar de hilos, porque así son deterministas sin `sleep`. `test_concurrencia.py` queda para los servicios, desde TK-02.
 > - `tests/test_makefile.py` hace depender de GNU Make al *job* `herramientas` del CI: Ubuntu lo trae. Sin `make` en el equipo, sus tests se omiten.
 > - **Menor 6:** `pauta.medicamento_id` y `pauta.registrado_por_id` conservan su índice sin consulta. La nota de la tabla "FK sin índice…" de la sección 3.3 lo deja pendiente para la historia de Pautas.
+>
+> **Cierre de TK-01 (2026-11-27, decisión del usuario).** La revisión acotada de `1e55324` no encontró bloqueantes ni mayores. Sus 3 menores y 2 *nits* tocan solo el `Makefile` y `tests/test_makefile.py`, y pasan a HB-10, que completa el `Makefile` y sus tests: la precedencia entorno/`.env` de la contraseña, el *skip* que puede ocultar un fallo, el reenvío de `-e DB_PASSWORD` sin test y el último "Rojo esperado" ([`pendientes.md`](pendientes.md), sección HB-10). El criterio 11 queda parcial: el EXPLAIN de la consulta 1 sigue en TK-03 y el de la 2b en TK-06. El PR #3 sigue abierto para los tickets siguientes.
 
 ---
 

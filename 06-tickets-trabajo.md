@@ -1484,6 +1484,25 @@ Atendí la revisión en el cambio de OpenSpec `tk-01-ajustes-revision-3`:
 
 ---
 
+## Prompt 54 — Usuario
+
+(Tras la revisión acotada de `1e55324`, sin bloqueantes ni mayores, con 3 menores y 2 *nits* sobre el `Makefile` y su test:) ¿Está cerrado entonces el TK-01? (Tras la respuesta:) Anota los pendientes en HB-10 y demos TK-01 por cerrado.
+
+---
+
+## Respuesta 54 — Claude
+
+TK-01 queda cerrado. Los hallazgos de la revisión acotada pasan a HB-10, que completa el `Makefile` y sus tests, en `docs/tickets/pendientes.md` y en la sección 0.5 de su guía:
+
+- La precedencia de la contraseña de `app_owner` cuando está en el entorno y en `.env`: una sola regla para todo el `Makefile` y los scripts (lo coherente con `migrate.sh` es que gane `.env`), con un caso de test.
+- El *skip* del test del `docker` falso, que puede ocultar un fallo de la receta en el CI.
+- El reenvío de `-e DB_PASSWORD` sin valor al contenedor, que solo se comprobó a mano.
+- El último "Rojo esperado", en el *docstring* de `tests/test_makefile.py`; sale de "Al tocar el archivo".
+
+La guía de TK-01 lleva la nota de cierre. El criterio 11 queda parcial (EXPLAIN de la consulta 1 en TK-03 y de la 2b en TK-06), y el PR #3 sigue abierto para los tickets siguientes.
+
+---
+
 ## Anexo — Texto final escrito en `readme.md` (sección 6)
 
 ## 6. Tickets de Trabajo
